@@ -24,7 +24,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter, Routes, Route } = await import("react-router-dom");
 const { default: SharedCustomObjectReport } = await import("./SharedCustomObjectReport.jsx");
-const { default: ReportSharingControls } = await import("./customObjects/ReportSharingControls.jsx");
+const { default: ReportSharingControls, InternalReportLink } = await import("./customObjects/ReportSharingControls.jsx");
 
 async function mount(fetchMock) {
   const originalFetch = globalThis.fetch;
@@ -35,6 +35,27 @@ async function mount(fetchMock) {
   await act(async () => root.render(
     <MemoryRouter initialEntries={["/shared-reports/test-capability"]}>
       <Routes><Route path="/shared-reports/:token" element={<SharedCustomObjectReport />} /></Routes>
+    </MemoryRouter>,
+  ));
+  return {
+    container,
+    async cleanup() {
+      await act(async () => root.unmount());
+      container.remove();
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+async function mountInternal(fetchMock) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchMock;
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(
+    <MemoryRouter initialEntries={["/internal-reports/object-9/report-4?from=nav"]}>
+      <Routes><Route path="/internal-reports/:objectId/:reportId" element={<SharedCustomObjectReport internalMode />} /></Routes>
     </MemoryRouter>,
   ));
   return {
@@ -240,6 +261,39 @@ test("sharing copies only the server capability URL and rotation/revocation upda
   }
 });
 
+test("internal link publishing uses its own endpoint and never changes external sharing", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (!options.method) return jsonResponse({ url: "/internal-reports/object-a/report-b", ready: false });
+    return jsonResponse({ url: "/internal-reports/object-a/report-b", ready: true });
+  };
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<InternalReportLink objectId="object-a" report={{ id: "report-b" }} dirty={false} />));
+    await act(async () => wait());
+    assert.match(container.textContent, /\/internal-reports\/object-a\/report-b/);
+    const publish = [...container.querySelectorAll("button")].find((button) => button.textContent.includes("Prepare internal report"));
+    assert.ok(publish);
+    await act(async () => click(publish));
+    await act(async () => wait());
+    assert.ok(container.querySelector("button")?.textContent.includes("Copy internal link"));
+    assert.deepEqual(calls.map((call) => call.url), [
+      "/api/internal-reports/link?object_id=object-a&report_id=report-b",
+      "/api/internal-reports/link",
+    ]);
+    assert.deepEqual(JSON.parse(calls[1].options.body), { object_id: "object-a", report_id: "report-b" });
+    assert.ok(calls.every((call) => !call.url.includes("report-sharing")));
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSV chunks are discarded when access expires before the final status fence", async () => {
   const originalCreateObjectURL = globalThis.URL.createObjectURL;
   const createdBlobs = [];
@@ -266,4 +320,47 @@ test("CSV chunks are discarded when access expires before the final status fence
     await fixture.cleanup();
     globalThis.URL.createObjectURL = originalCreateObjectURL;
   }
+});
+
+test("internal report opens with session credentials and a 409 offers a fresh unlock without a password gate", async () => {
+  const requests = [];
+  let unlocks = 0;
+  const fixture = await mountInternal(async (url, options) => {
+    const body = JSON.parse(options.body);
+    requests.push({ url, options, body });
+    if (body.action === "unlock") {
+      unlocks += 1;
+      return jsonResponse({ access_grant: `session-${unlocks}`, expires_at: "soon", report: { name: "Committee roster", allow_csv: false } });
+    }
+    if (body.action === "preview" && unlocks === 1) return jsonResponse({ message: "Permission revision changed" }, 409);
+    if (body.action === "preview") return jsonResponse({ sort_job: { id: "internal-snapshot", status: "complete" },
+      columns: [{ label: "Committee" }], data: [{ id: "row-1", values: ["Finance"] }], total: 1, page: 1, pageSize: 50, has_more: false });
+    return jsonResponse({ report: { name: "Committee roster", allow_csv: false } });
+  });
+  try {
+    await act(async () => wait());
+    assert.match(fixture.container.textContent, /Report access changed/);
+    assert.equal(fixture.container.querySelector('input[type="password"]'), null);
+    assert.equal(fixture.container.querySelector("table"), null);
+    assert.equal(unlocks, 1);
+    const retry = [...fixture.container.querySelectorAll("button")].find((button) => button.textContent.includes("Retry access check"));
+    await act(async () => click(retry));
+    await act(async () => wait());
+    assert.equal(unlocks, 2);
+    assert.match(fixture.container.textContent, /Finance/);
+    assert.ok(requests.every(({ url, options, body }) => url === "/api/internal-reports/view"
+      && options.credentials === "include" && body.object_id === "object-9" && body.report_id === "report-4"));
+    assert.ok(requests.every(({ body }) => !("password" in body) && !("token" in body)));
+  } finally { await fixture.cleanup(); }
+});
+
+test("internal 403 reveals no report data and no report controls", async () => {
+  const fixture = await mountInternal(async () => jsonResponse({ message: "Forbidden" }, 403));
+  try {
+    await act(async () => wait());
+    assert.match(fixture.container.textContent, /do not have access/);
+    assert.doesNotMatch(fixture.container.textContent, /Committee roster|Download CSV|Refresh data/);
+    assert.equal(fixture.container.querySelector("table"), null);
+    assert.equal([...fixture.container.querySelectorAll("button")].some((button) => button.textContent.includes("Retry access check")), false);
+  } finally { await fixture.cleanup(); }
 });

@@ -754,6 +754,7 @@ const PAGES = {
     
     ArticlePreview: ArticlePreview,
     SharedCustomObjectReport: SharedCustomObjectReport,
+    InternalReport: InternalReportPortalRoute,
     
     DataExport: DataExport,
     ImportManager: ImportManager,
@@ -896,6 +897,7 @@ function _getCurrentPage(url, quoteNaming) {
     const urlParts = url.split('/').filter(Boolean);
     if (urlParts[0]?.toLowerCase() === 'article-preview') return 'ArticlePreview';
     if (urlParts[0]?.toLowerCase() === 'shared-reports') return 'SharedCustomObjectReport';
+    if (urlParts[0]?.toLowerCase() === 'internal-reports') return 'InternalReport';
     if (urlParts[0]?.toLowerCase() === 'sales') {
         const salesPage = urlParts[1]?.toLowerCase() || 'dashboard';
         const salesPages = {
@@ -997,6 +999,21 @@ function SurveyAssignmentRoute() {
 function ProfileAffiliationFormRoute() {
     const { slug } = useParams();
     return <FormView slug={slug} />;
+}
+
+function InternalReportPortalRoute() {
+    const { authResolved, sessionValidated, memberInfo } = useLayoutContext();
+    const returnTo = window.location.pathname + window.location.search;
+    if (!authResolved || !sessionValidated || !memberInfo?.id) {
+        return <main className="mx-auto max-w-xl px-4 py-12">
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h1 className="text-lg font-semibold text-slate-900">Sign in to view this report</h1>
+                <p className="mt-2 text-sm text-slate-600">Internal report links require your normal iConnect sign-in and a role grant.</p>
+                <a className="mt-4 inline-flex rounded-md bg-teal-800 px-4 py-2 text-sm font-medium text-white hover:bg-teal-900" href={`/Login?returnTo=${encodeURIComponent(returnTo)}`}>Sign in</a>
+            </section>
+        </main>;
+    }
+    return <SharedCustomObjectReport internalMode />;
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -1327,6 +1344,7 @@ function PagesContent() {
                 
                 <Route path="/article-preview/:id" element={<ArticlePreview />} />
                 <Route path="/shared-reports/:token" element={<SharedCustomObjectReport />} />
+                <Route path="/internal-reports/:objectId/:reportId" element={<InternalReportPortalRoute />} />
                 
                 <Route path="/DataExport" element={<DataExport />} />
                 <Route path="/ImportManager" element={<ImportManager />} />

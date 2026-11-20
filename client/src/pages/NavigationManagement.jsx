@@ -394,6 +394,18 @@ export default function NavigationManagementPage() {
     staleTime: 60 * 1000,
   });
 
+  const { data: internalReportCatalog = [], isLoading: internalReportsLoading, isError: internalReportsError } = useQuery({
+    queryKey: ["internal-reports-catalog", "navigation-management"],
+    queryFn: async () => {
+      const response = await fetch("/api/internal-reports/catalog", { credentials: "include", cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(data.reports)) throw new Error(data.message || data.error || "Saved reports could not be loaded.");
+      return data.reports;
+    },
+    retry: false,
+    staleTime: 30_000,
+  });
+
   // Fetch typography styles for heading content blocks
   const { data: typographyStyles = [] } = useQuery({
     queryKey: ['typography-styles'],
@@ -504,8 +516,12 @@ export default function NavigationManagementPage() {
 
   // Combine hardcoded, dynamic CMS pages, and dynamic directories
   const availablePages = useMemo(() => {
-    return [...hardcodedPublicPages, ...ieditPages, ...dynamicDirectories].sort((a, b) => a.label.localeCompare(b.label));
-  }, [ieditPages, dynamicDirectories]);
+    const reports = (internalReportCatalog || []).map((report) => ({
+      name: `/internal-reports/${encodeURIComponent(report.object_id)}/${encodeURIComponent(report.report_id)}`,
+      label: `Internal report: ${report.name} · ${report.object_name}`,
+    }));
+    return [...hardcodedPublicPages, ...ieditPages, ...dynamicDirectories, ...reports].sort((a, b) => a.label.localeCompare(b.label));
+  }, [ieditPages, dynamicDirectories, internalReportCatalog]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.NavigationItem.create(data),
@@ -1614,7 +1630,7 @@ export default function NavigationManagementPage() {
                     <p className="text-xs text-slate-500">
                       {editingItem.link_type === 'internal' 
                         ? (editingItem.url
-                          ? 'Select from available public pages'
+                          ? 'Select a portal page or an authorized saved internal report'
                           : canBePageLessParentMenu(editingItem)
                             ? 'No page selected — this header item can act as a parent menu for sub-items at any supported level'
                             : 'Footer items require a page before they can be saved')
@@ -1622,6 +1638,8 @@ export default function NavigationManagementPage() {
                           ? 'Enter the URL the button should link to'
                           : 'Enter the full URL including https://'}
                     </p>
+                    {internalReportsLoading && editingItem.link_type === 'internal' && <p role="status" className="text-xs text-slate-500">Checking available internal reports…</p>}
+                    {internalReportsError && editingItem.link_type === 'internal' && <p role="alert" className="text-xs text-amber-800">Saved report destinations are temporarily unavailable. Other navigation destinations remain available.</p>}
                   </div>
                 )}
 

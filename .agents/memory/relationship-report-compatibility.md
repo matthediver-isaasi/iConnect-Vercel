@@ -73,3 +73,14 @@ system, with a separate choice of whether the linked report permits CSV download
 **How to apply:** A valid password or view link must not implicitly authorize an
 export. Preserve saved multi-column sorting in both the displayed result and any
 explicitly permitted CSV download.
+
+Internal saved-report access is granted separately for each report and role;
+it uses normal sign-in, not the external-sharing password.
+
+**Why:** The owner confirmed external sharing works and approved per-report
+internal roles so report links can be used in navigation without exposing the
+Data Studio builder or wider CRM.
+
+**How to apply:** Keep internal and external sharing independent. Treat navigation
+visibility as presentation only; direct reads, paging and exports need the same
+server-side report authorization.

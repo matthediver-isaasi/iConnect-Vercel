@@ -204,6 +204,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   // and fails if a new static route root is missing from this set.
   'article-preview',
   'shared-reports',
+  'internal-reports',
   'badgemanagement',
   'bnmsmemberdemo',
   'book',

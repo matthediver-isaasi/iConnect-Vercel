@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import pg from 'pg';
 test('shared report SQL isolates grants and preserves natural and multi-column order with bounded atomic commits', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'report-sharing-'));
   const data = path.join(root, 'data'), socket = path.join(root, 'socket');
@@ -27,15 +28,54 @@ test('shared report SQL isolates grants and preserves natural and multi-column o
     const base = await readFile(new URL('./20261120_custom_object_report_sort.sql', import.meta.url), 'utf8');
     const migration = await readFile(new URL('./20261120_custom_object_report_sharing.sql', import.meta.url), 'utf8');
     sql(base); sql(migration); sql(migration);
+    sql('CREATE TABLE public.role(id uuid PRIMARY KEY,tenant_id uuid NOT NULL); GRANT ALL ON public.role TO service_role;');
+    const internal = await readFile(new URL('./20261120_internal_custom_object_reports.sql', import.meta.url), 'utf8');
+    sql(internal); sql(internal);
     const tenant = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', object = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     const share = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', grant = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     sql(`INSERT INTO custom_object_report_share(id,tenant_id,custom_object_id,report_id,token_hash,name,definition,source_hash,updated_by)
       VALUES('${share}','${tenant}','${object}','r_report',repeat('a',64),'Report','{}',repeat('b',64),'admin');
       INSERT INTO custom_object_report_share_grant(id,tenant_id,share_id,revision,token_hash,expires_at)
       VALUES('${grant}','${tenant}','${share}',1,repeat('c',64),now()+interval '1 hour');`);
+    const role = 'ffffffff-ffff-4fff-8fff-ffffffffffff', foreign = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const foreignShare = 'eeeeeeee-eeee-4eee-8eee-000000000001', foreignRole = 'eeeeeeee-eeee-4eee-8eee-000000000002';
+    sql(`INSERT INTO public.role VALUES('${role}','${tenant}'),('${foreignRole}','${foreign}');
+      INSERT INTO custom_object_report_share(id,tenant_id,custom_object_id,report_id,token_hash,name,definition,source_hash,updated_by)
+      VALUES('${foreignShare}','${foreign}','${object}','r_foreign',repeat('d',64),'Foreign','{}',repeat('b',64),'admin');`);
+    const change = (revision, canView = true) => JSON.stringify([{ share_id: share, can_view: canView,
+      can_download: false, expected_revision: revision }]);
+    const permissionCall = (changes, roleId = role) => `SELECT set_internal_report_role_access('${tenant}','${roleId}','${changes}'::jsonb,'tenant_user:owner')`;
+    sql(`SET ROLE service_role; ${permissionCall(change(0))};`);
+    assert.equal(sql(`SELECT can_view,can_download,revision FROM custom_object_report_role_access`), 't|f|1');
+    sql(`${permissionCall(change(1))};`);
+    denied(`${permissionCall(change(1, false))};`);
+    const bulk = JSON.stringify([{ share_id: share, can_view: false, can_download: false, expected_revision: 2 },
+      { share_id: foreignShare, can_view: true, can_download: false, expected_revision: 0 }]);
+    denied(`${permissionCall(bulk)};`);
+    denied(`${permissionCall(change(0), foreignRole)};`);
+    assert.equal(sql(`SELECT can_view,revision FROM custom_object_report_role_access`), 't|2', 'failed batches roll back earlier permission updates');
+    const clients = [new pg.Client({ host: socket, port: Number(port), user: 'postgres', database: 'postgres' }),
+      new pg.Client({ host: socket, port: Number(port), user: 'postgres', database: 'postgres' })];
+    try {
+      await Promise.all(clients.map(client => client.connect()));
+      await clients[0].query('BEGIN');
+      await clients[0].query(permissionCall(change(2)));
+      const concurrent = clients[1].query(permissionCall(change(2, false))).then(() => null, error => error.code);
+      await clients[0].query('COMMIT');
+      assert.equal(await concurrent, 'PT409', 'a concurrent stale permission write cannot undo another administrator');
+    } finally { await Promise.all(clients.map(client => client.end())); }
+    assert.equal(sql(`SELECT can_view,revision FROM custom_object_report_role_access`), 't|3');
+    denied(`INSERT INTO custom_object_report_share_grant(tenant_id,share_id,revision,token_hash,expires_at,channel,actor_key,permission_revision)
+      VALUES('${tenant}','${share}',1,repeat('1',64),now()+interval '1 hour','internal','member:subject',0);`);
+    denied(`INSERT INTO custom_object_report_share_grant(tenant_id,share_id,revision,token_hash,expires_at,channel,actor_key)
+      VALUES('${tenant}','${share}',1,repeat('2',64),now()+interval '1 hour','external','member:subject');`);
+    sql(`INSERT INTO custom_object_report_share_grant(tenant_id,share_id,revision,token_hash,expires_at,channel,actor_key,role_id,permission_revision)
+      VALUES('${tenant}','${share}',1,repeat('3',64),now()+interval '1 hour','internal','member:subject','${role}',3);`);
     denied(`INSERT INTO custom_object_report_share_grant(tenant_id,share_id,revision,token_hash,expires_at)
       VALUES('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','${share}',1,repeat('e',64),now()+interval '1 hour');`);
     for (const role of ['anon', 'authenticated']) {
+      denied(`SET ROLE ${role}; SELECT * FROM custom_object_report_role_access;`);
+      denied(`SET ROLE ${role}; ${permissionCall(change(3))};`);
       denied(`SET ROLE ${role}; SELECT * FROM custom_object_report_share;`);
       denied(`SET ROLE ${role}; SELECT * FROM custom_object_report_share_grant;`);
       denied(`SET ROLE ${role}; SELECT custom_object_report_share_prune('${tenant}');`);

@@ -4,7 +4,7 @@ import base from '../../../playwright.config.mjs';
 export default defineConfig({
   ...base,
   testDir: '.',
-  testMatch: 'shared-custom-object-report.browser.spec.mjs',
+  testMatch: /(?:shared-custom-object-report|internal-custom-object-report)\.browser\.spec\.mjs/,
   outputDir: '../../../generated-artifacts/shared-report-browser',
   fullyParallel: false,
   workers: 1,

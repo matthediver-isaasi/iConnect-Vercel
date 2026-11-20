@@ -15,7 +15,7 @@ import { resolveRelationshipPickerPath } from "./relationshipHelpers";
 import { ReportRelationshipFilters } from "./ReportRelationshipFilters";
 import { ReportRelationshipSelector } from "./ReportRelationshipSelector";
 import { ReportIndicatorEditor } from "./ReportIndicatorEditor";
-import ReportSharingControls from "./ReportSharingControls";
+import ReportSharingControls, { InternalReportLink } from "./ReportSharingControls";
 import { validateReportSort, reportDefinitionKey } from "../../../../shared/customObjectReportSort.mjs";
 import {
   endpointKey, endpointLabel, loadReportConfig, makeReportConfig, moveReportColumn,
@@ -527,6 +527,7 @@ export function CustomObjectReports({
           onDeleteReport={(report) => saved.deleteReport(report.id)}
           testIdPrefix="custom-object-report" /> : <p className="text-sm text-slate-500">You can view report settings but need Custom Object management access to save shared reports.</p>}
         {canManage && <ReportSharingControls key={`${objectId}:${saved.activeReport?.id || ""}`} objectId={objectId} report={saved.activeReport} dirty={dirty} />}
+        {canManage && <InternalReportLink key={`internal:${objectId}:${saved.activeReport?.id || ""}`} objectId={objectId} report={saved.activeReport} dirty={dirty} />}
         {reconciled.stale.length > 0 && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><TriangleAlert className="mr-2 inline h-4 w-4" />{reconciled.stale.join(" ")}{unsupportedVersion && canManage && <Button type="button" size="sm" variant="outline" className="ml-3" onClick={() => { setConfig(makeReportConfig(objectId)); setPreview(null); saved.setActiveReportId(null); }}>Start a current-version report</Button>}</div>}
         {isV2 && <details className="min-w-0 rounded-md border p-3"><summary className="cursor-pointer text-sm font-medium">Advanced: starting entity <span title={endpointLabel(selectedStart, graphObjects, object)} className="mt-1 text-xs font-normal text-slate-500 line-clamp-2">{endpointLabel(selectedStart, graphObjects, object)}</span></summary><div className="mt-3" data-testid="report-start-entity"><Label>Start entity</Label><Select disabled={!canManage || graphLoading} value={endpointKey(selectedStart)} onValueChange={(value) => {
           const endpoint = endpoints.find((item) => endpointKey(item) === value);

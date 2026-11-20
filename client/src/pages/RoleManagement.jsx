@@ -86,6 +86,10 @@ export default function RoleManagementPage() {
   const [subcategoryAccessOverrides, setSubcategoryAccessOverrides] = useState({});
   // Which category rows are expanded to show their subcategory toggles.
   const [expandedCategoryAccess, setExpandedCategoryAccess] = useState({});
+  const [reportPermissions, setReportPermissions] = useState([]);
+  const [savedReportPermissions, setSavedReportPermissions] = useState([]);
+  const [reportPermissionsLoading, setReportPermissionsLoading] = useState(false);
+  const [reportPermissionsError, setReportPermissionsError] = useState("");
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [roleToDelete, setRoleToDelete] = useState(null);
@@ -96,6 +100,31 @@ export default function RoleManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showCopySettings, setShowCopySettings] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setReportPermissions([]);
+    setSavedReportPermissions([]);
+    setReportPermissionsError("");
+    if (!showDialog || !editingRole?.id) {
+      setReportPermissionsLoading(false);
+      return undefined;
+    }
+    setReportPermissionsLoading(true);
+    fetch(`/api/internal-reports/permissions?role_id=${encodeURIComponent(editingRole.id)}`, { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || data.error || "Could not load saved report access.");
+        if (!Array.isArray(data.reports)) throw new Error("The report access response was invalid.");
+        if (active) {
+          setReportPermissions(data.reports);
+          setSavedReportPermissions(data.reports);
+        }
+      })
+      .catch((error) => { if (active) setReportPermissionsError(error.message); })
+      .finally(() => { if (active) setReportPermissionsLoading(false); });
+    return () => { active = false; };
+  }, [editingRole?.id, showDialog]);
 
   useEffect(() => subscribeRoleSettingsCopy(() => {
     // A copied role must never be overwritten by an editor opened beforehand.
@@ -441,6 +470,7 @@ export default function RoleManagementPage() {
     onSuccess: (updatedRole) => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
       queryClient.invalidateQueries({ queryKey: ['role-member-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['internal-report-catalog'] });
       // Keep dialog open for continued editing - update editingRole with fresh data
       if (updatedRole) {
         setEditingRole({
@@ -657,6 +687,40 @@ export default function RoleManagementPage() {
     }
 
     if (editingRole.id) {
+      const reportChanges = reportPermissions.filter((report, index) => {
+        const original = savedReportPermissions[index];
+        return original && (report.can_view !== original.can_view || report.can_download !== original.can_download);
+      }).map((report) => ({
+        object_id: report.object_id,
+        report_id: report.report_id,
+        can_view: report.can_view === true,
+        can_download: report.can_view === true && report.can_download === true,
+        expected_revision: report.revision,
+      }));
+      if (reportChanges.length && (reportPermissionsError || reportPermissionsLoading)) {
+        toast.error(reportPermissionsError || "Wait for saved report access to finish loading before saving this role.");
+        return;
+      }
+      if (reportChanges.length) {
+        try {
+          const response = await fetch("/api/internal-reports/permissions", {
+            method: "POST", credentials: "include", cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role_id: editingRole.id, changes: reportChanges }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result.ok !== true) throw new Error(result.message || result.error || "Could not save report access.");
+          queryClient.invalidateQueries({ queryKey: ["internal-report-catalog"] });
+          const changedReports = new Set(reportChanges.map((report) => `${report.object_id}:${report.report_id}`));
+          const updatedRevision = (report) => changedReports.has(`${report.object_id}:${report.report_id}`)
+            ? { ...report, revision: Number(report.revision || 0) + 1 } : report;
+          setSavedReportPermissions(reportPermissions.map(updatedRevision));
+          setReportPermissions((current) => current.map(updatedRevision));
+        } catch (error) {
+          toast.error(`Role not saved: ${error.message || "Report access could not be saved."}`);
+          return;
+        }
+      }
       // Task #3306: persist any resource category access changes for this role
       // BEFORE saving the role, awaited, via the atomic server endpoint (an SQL
       // function adds/removes only THIS role id, so concurrent edits to other
@@ -1007,6 +1071,42 @@ export default function RoleManagementPage() {
                     rows={3}
                   />
                 </div>
+
+                <section className="space-y-3 rounded-xl border border-teal-200 bg-teal-50/40 p-4" aria-labelledby="role-report-access-title">
+                  <div>
+                    <h3 id="role-report-access-title" className="font-semibold text-slate-900">Saved report access</h3>
+                    <p className="mt-1 text-sm text-slate-600">Grant this role read-only access to selected internal reports. This is independent of Data Studio and broader CRM permissions; report access does not expose the builder. Access is denied unless explicitly enabled, and downloads require view access. Changes are saved with this role.</p>
+                  </div>
+                  {!editingRole.id ? <p className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">Save this role first. New roles start with no report access.</p>
+                    : reportPermissionsLoading ? <div role="status" className="flex items-center gap-2 rounded-md bg-white p-3 text-sm text-slate-600"><Loader2 className="h-4 w-4 animate-spin" />Loading report access…</div>
+                    : reportPermissionsError ? <div role="alert" className="space-y-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                      <p>{reportPermissionsError}</p>
+                      <Button type="button" variant="outline" size="sm" onClick={() => {
+                        setReportPermissionsError("");
+                        setReportPermissionsLoading(true);
+                        fetch(`/api/internal-reports/permissions?role_id=${encodeURIComponent(editingRole.id)}`, { credentials: "include", cache: "no-store" })
+                          .then(async (response) => { const data = await response.json().catch(() => ({})); if (!response.ok || !Array.isArray(data.reports)) throw new Error(data.message || data.error || "Could not load saved report access."); setReportPermissions(data.reports); setSavedReportPermissions(data.reports); })
+                          .catch((error) => setReportPermissionsError(error.message))
+                          .finally(() => setReportPermissionsLoading(false));
+                      }}>Retry</Button>
+                    </div>
+                    : !reportPermissions.length ? <p className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">No saved active reports are available to grant.</p>
+                    : <div className="max-h-64 space-y-2 overflow-y-auto">
+                      {reportPermissions.map((report, index) => <div key={`${report.object_id}:${report.report_id}`} className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0"><p className="font-medium text-slate-900">{report.name}</p><p className="text-xs text-slate-500">{report.object_name}</p></div>
+                        <div className="flex shrink-0 gap-4">
+                          <label className="flex items-center gap-2 text-sm text-slate-700">
+                            <input type="checkbox" checked={report.can_view === true} onChange={(event) => setReportPermissions((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, can_view: event.target.checked, can_download: event.target.checked ? item.can_download === true : false } : item))} />
+                            View
+                          </label>
+                          <label className={`flex items-center gap-2 text-sm ${report.can_view ? "text-slate-700" : "text-slate-400"}`}>
+                            <input type="checkbox" checked={report.can_download === true && report.can_view === true} disabled={!report.can_view} onChange={(event) => setReportPermissions((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, can_download: event.target.checked } : item))} />
+                            Download
+                          </label>
+                        </div>
+                      </div>)}
+                    </div>}
+                </section>
 
                 <div className="space-y-2">
                   <Label htmlFor="landing-page">Default Landing Page</Label>

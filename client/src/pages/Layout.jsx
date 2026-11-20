@@ -1,4 +1,5 @@
 import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
+import { canDiscoverInternalReport } from "@/lib/internalReportNavigation";
 import { MainLandmarkContext } from "@/contexts/MainLandmarkContext";
 import PopupRuntime from "@/components/popups/PopupRuntime";
 import { popupPortalTargetForPath } from "@shared/popupPortalTargets.js";
@@ -263,6 +264,7 @@ const navigationItems = [
     featureId: "page_Help"
   },
   ];
+
 
 const adminNavigationItems = [
   {
@@ -1440,6 +1442,23 @@ const myGroupAssignments = navigation.groups;
 const groupAssignmentsFetched = navigation.groupsFetched;
 const viewableCustomObjects = navigation.objects;
 const viewableCustomObjectsFetched = navigation.objectsFetched;
+const { data: internalReportCatalog, isFetched: internalReportCatalogFetched, isError: internalReportCatalogError } = useQuery({
+  queryKey: ["internal-report-catalog", viewerSessionScope, memberInfo?.role_id],
+  enabled: Boolean(authResolved && sessionValidated && memberInfo?.id && roleStatus === "ready"),
+  queryFn: async () => {
+    const response = await fetch("/api/internal-reports/catalog", { credentials: "include", cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(data.reports)) throw new Error("Internal report destinations are unavailable.");
+    return data.reports;
+  },
+  retry: false,
+  staleTime: 15_000,
+  refetchInterval: 30_000,
+});
+const internalReportCatalogReady = roleStatus === "ready" && internalReportCatalogFetched
+  && !internalReportCatalogError && Array.isArray(internalReportCatalog);
+const internalReportDestinationIds = useMemo(() => new Set((internalReportCatalog || [])
+  .map((report) => `${report.object_id}:${report.report_id}`)), [internalReportCatalog]);
 // Replace, including with an empty overlay, on every authority transition.
 // No asynchronous completion callback may mutate this singleton.
 setDbRoleAccessOverlay(navigation.hierarchy);
@@ -2744,49 +2763,25 @@ useEffect(() => {
   // Filter navigation items based on member's excluded features
   // Inspect destinations too: a saved custom menu may carry an unrelated grant.
   const canDiscoverReportDestination = (item) => {
+    if (!canDiscoverInternalReport(item, { ready: internalReportCatalogReady,
+      allowed: internalReportDestinationIds, origin: window.location.origin })) return false;
     // A custom Sales URL cannot borrow a saved unrelated permission while its
     // tenant naming is unresolved. Fixed destinations remain independently usable.
     if (!item.isExternal && /^\/sales\//i.test(item.url || '')
       && !getSalesPortalPermission(item.url, isFeatureExcluded, quoteNaming)) return false;
     return !isNmcReportDestination(item) || !isFeatureExcluded(NMC_REPORT_FEATURE);
   };
-  const filteredNavigationItems = navigationItemsSource
-    .filter(canDiscoverReportDestination)
-    .map(item => {
-      if (item.subItems) {
-        // If it has sub-items, filter them individually
-        const filteredSubItems = item.subItems.filter(subItem => canDiscoverReportDestination(subItem) && !isFeatureExcluded(subItem.featureId));
-        // Only include the parent if it's not excluded and has at least one filtered sub-item
-        if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
-          return { ...item, subItems: filteredSubItems };
-        }
-        return null; // Exclude parent if no sub-items left or parent is excluded
-      } else {
-        // Regular item, filter if its own featureId is not excluded
-        return !isFeatureExcluded(item.featureId) ? item : null;
-      }
-    })
-    .filter(Boolean);
+  const filterNavTree = (items) => items.flatMap((item) => {
+    if (!canDiscoverReportDestination(item) || isFeatureExcluded(item.featureId)) return [];
+    if (!item.subItems) return [item];
+    const children = filterNavTree(item.subItems);
+    return children.length ? [{ ...item, subItems: children }] : [];
+  });
+  const filteredNavigationItems = filterNavTree(navigationItemsSource);
 
   // Filter admin navigation items based purely on feature exclusions
   // Admin section will render if any items remain after filtering (checked in JSX: filteredAdminNavigationItems.length > 0)
-  const filteredAdminNavigationItems = adminNavigationItemsSource
-    .filter(canDiscoverReportDestination)
-    .map(item => {
-      if (item.subItems) {
-        // If it has sub-items, filter them individually
-        const filteredSubItems = item.subItems.filter(subItem => canDiscoverReportDestination(subItem) && !isFeatureExcluded(subItem.featureId));
-        // Only include the parent if it's not excluded and has at least one filtered sub-item
-        if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
-          return { ...item, subItems: filteredSubItems };
-        }
-        return null; // Exclude parent if no sub-items left or parent is excluded
-      } else {
-        // Regular item, filter if its own featureId is not excluded
-        return !isFeatureExcluded(item.featureId) ? item : null;
-      }
-    })
-    .filter(Boolean); // Remove any null entries
+  const filteredAdminNavigationItems = filterNavTree(adminNavigationItemsSource);
 
   // Reuse the exact child element across routine validation bookkeeping. This
   // prevents page-owned renderers from repainting unchanged content after a

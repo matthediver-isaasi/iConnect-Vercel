@@ -19,6 +19,7 @@ export function reportSharingDb() {
     constructor(table) { this.table = table; this.filters = []; this.size = Infinity; this.from = 0; }
     select() { return this; }
     eq(k, v) { this.filters.push(r => r[k] === v); return this; }
+    like(k, v) { const re = new RegExp(`^${v.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`); this.filters.push(r => re.test(r[k] || '')); return this; }
     is(k, v) { this.filters.push(r => (r[k] ?? null) === v); return this; }
     lt(k, v) { this.filters.push(r => r[k] < v); return this; }
     gte(k, v) { this.filters.push(r => r[k] >= v); return this; }

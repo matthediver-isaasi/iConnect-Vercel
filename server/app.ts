@@ -87,7 +87,8 @@ app.use((req, res, next) => {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       // Registration responses contain bearer links and delegate details.
       if (capturedJsonResponse && !["/api/public/sales-ticket-registration", "/api/public/article-preview",
-        "/api/public/custom-object-report"].includes(path) && !/\/report-sharing$/.test(path)) {
+        "/api/public/custom-object-report"].includes(path) && !/\/report-sharing$/.test(path)
+        && !path.startsWith("/api/internal-reports/")) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

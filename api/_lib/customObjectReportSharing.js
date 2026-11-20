@@ -10,7 +10,7 @@ const checked = result => {
   if (result.error) fail(503, 'Report sharing is temporarily unavailable');
   return result.data;
 };
-const reportIdentity = report => reportShareDigest(reportDefinitionKey({ id: report.id, name: report.name, config: report.config }));
+export const reportIdentity = report => reportShareDigest(reportDefinitionKey({ id: report.id, name: report.name, config: report.config }));
 const reportIdValid = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 export const reportShareUnavailable = 'This report is unavailable or access is no longer valid.';
 export async function hashReportPassword(password) {
@@ -72,13 +72,18 @@ export function createReportSharingManager({ db, context, isAdmin, baseUrl, link
     async change(objectId, input = {}) {
       const reportId = input.report_id;
       const action = input.action || 'save';
-      if (!['save', 'rotate', 'revoke', 'sync'].includes(action)) fail(400, 'Invalid sharing action');
+      if (!['save', 'rotate', 'revoke', 'sync', 'internal-publish'].includes(action)) fail(400, 'Invalid sharing action');
       const report = await loadSavedCustomReport(db, tenantId, objectId, reportId);
       const existing = await read(objectId, reportId);
       if (existing && input.expected_revision !== undefined && String(input.expected_revision) !== String(existing.revision)) {
         fail(409, 'Sharing changed in another window. Reload before saving');
       }
       if (action === 'sync' && !existing) return defaults;
+      if (action === 'internal-publish' && existing?.source_hash === reportIdentity(report)) {
+        await executorFactory({ db, tenantId, objectId, definition: report.config,
+          grantId: randomUUID(), allowCsv: false, reauthorize: async () => {} }).validate();
+        return state(existing);
+      }
       for (const key of ['enabled', 'password_required', 'allow_csv']) {
         if (input[key] !== undefined && typeof input[key] !== 'boolean') fail(400, 'Sharing settings must be true or false');
       }
@@ -87,6 +92,7 @@ export function createReportSharingManager({ db, context, isAdmin, baseUrl, link
         password_required: existing?.password_required ?? true, allow_csv: existing?.allow_csv ?? false,
         password_hash: existing?.password_hash || null, link_nonce: existing?.link_nonce || randomUUID(),
         revision: (Number(existing?.revision) || 0) + 1,
+        internal_revision: (Number(existing?.internal_revision) || 1) + (existing && existing.source_hash !== reportIdentity(report) ? 1 : 0),
         name: report.name, definition: report.config, source_hash: reportIdentity(report),
         updated_at: new Date().toISOString(),
         updated_by: context.tenantUserId ? `tenant_user:${context.tenantUserId}` : `member:${context.memberId}`,
@@ -101,9 +107,10 @@ export function createReportSharingManager({ db, context, isAdmin, baseUrl, link
       }
       if (action === 'revoke') share.enabled = false;
       if (['rotate', 'revoke'].includes(action)) share.link_nonce = randomUUID();
-      if (share.enabled) await executorFactory({ db, tenantId, objectId, definition: report.config,
+      if (share.enabled || action === 'internal-publish') await executorFactory({ db, tenantId, objectId, definition: report.config,
         grantId: randomUUID(), allowCsv: share.allow_csv, reauthorize: async () => {} }).validate();
-      share.token_hash = share.enabled ? reportShareDigest(shareToken(share, linkKey))
+      share.token_hash = action === 'internal-publish' && existing ? existing.token_hash
+        : share.enabled ? reportShareDigest(shareToken(share, linkKey))
         : reportShareDigest(randomBytes(32));
       const query = existing
         ? db.from('custom_object_report_share').update(share).eq('tenant_id', tenantId)
@@ -154,7 +161,7 @@ export function createReportShareAccess({ db, tenantId, token, now = () => new D
     const share = await current();
     if (typeof grant !== 'string' || !/^[a-zA-Z0-9_-]{43}$/.test(grant)) fail(401, reportShareUnavailable);
     const row = checked(await db.from('custom_object_report_share_grant').select('id,revision,expires_at')
-      .eq('tenant_id', tenantId).eq('share_id', share.id).eq('token_hash', reportShareDigest(grant)).maybeSingle());
+      .eq('tenant_id', tenantId).eq('share_id', share.id).eq('channel', 'external').eq('token_hash', reportShareDigest(grant)).maybeSingle());
     if (!row || String(row.revision) !== String(share.revision) || new Date(row.expires_at) <= now()) fail(401, reportShareUnavailable);
     return { share, grantId: row.id };
   }
@@ -169,7 +176,7 @@ export function createReportShareAccess({ db, tenantId, token, now = () => new D
       const expiresAt = new Date(now().getTime() + 15 * 60 * 1000).toISOString();
       checked(await db.from('custom_object_report_share_grant').insert({
         tenant_id: tenantId, share_id: share.id, revision: share.revision,
-        token_hash: reportShareDigest(grant), expires_at: expiresAt,
+        channel: 'external', token_hash: reportShareDigest(grant), expires_at: expiresAt,
       }));
       const access = await authorize(grant);
       return { ...access, grant, expiresAt };

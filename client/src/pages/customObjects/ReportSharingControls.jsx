@@ -172,3 +172,61 @@ export default function ReportSharingControls({ objectId, report, dirty }) {
     </section>
   );
 }
+
+export function InternalReportLink({ objectId, report, dirty }) {
+  const [link, setLink] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLink(null);
+    setError("");
+    if (!report?.id) return undefined;
+    setLoading(true);
+    request(`/api/internal-reports/link?object_id=${encodeURIComponent(objectId)}&report_id=${encodeURIComponent(report.id)}`)
+      .then((data) => { if (active) setLink(data); })
+      .catch((err) => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [objectId, report?.id]);
+
+  const publish = async () => {
+    if (!report?.id || dirty || pending) return;
+    setPending(true); setError("");
+    try {
+      const next = await request("/api/internal-reports/link", {
+        method: "POST",
+        body: JSON.stringify({ object_id: objectId, report_id: report.id }),
+      });
+      setLink(next);
+    } catch (err) { setError(err.message); }
+    finally { setPending(false); }
+  };
+  const copy = async () => {
+    if (!link?.url || !link.ready) return;
+    try { await navigator.clipboard.writeText(link.url); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
+    catch { setError("Could not copy the internal link. Select and copy it manually."); }
+  };
+
+  if (!report?.id) return null;
+  return <section className="mt-4 rounded-xl border border-teal-200 bg-teal-50/50 p-4 sm:p-5" aria-label="Internal report access">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><h3 className="font-semibold text-slate-900">Internal link</h3>
+        <p className="mt-1 max-w-2xl text-sm leading-5 text-slate-600">For signed-in association staff with a role grant. This opens the saved report only; it never exposes Data Studio or changes the external link.</p></div>
+      {loading && <span role="status" className="text-xs text-slate-500">Loading internal link status…</span>}
+    </div>
+    {dirty && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Save report changes before publishing the internal link.</p>}
+    {link?.url && <div className="mt-4 flex flex-wrap items-center gap-2">
+      <code className="min-w-0 flex-1 break-all rounded-md border border-slate-200 bg-white p-2 text-xs text-slate-700">{link.url}</code>
+      {link.ready && <Button type="button" size="sm" variant="outline" onClick={copy}><Copy className="mr-2 h-4 w-4" />{copied ? "Copied" : "Copy internal link"}</Button>}
+    </div>}
+    {link?.ready !== true && <Button type="button" size="sm" className="mt-4 bg-teal-800 hover:bg-teal-900" disabled={pending || loading || dirty} onClick={publish}>
+      {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{link?.url ? "Prepare internal report" : "Create internal link"}
+    </Button>}
+    {!link?.ready && !loading && <p className="mt-2 text-xs text-slate-500">Publishing creates the trusted internal report definition; role access is granted separately in Role Management.</p>}
+    {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
+  </section>;
+}
