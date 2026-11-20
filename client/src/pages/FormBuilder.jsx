@@ -31,6 +31,7 @@ import { createPageUrl } from "@/utils";
 import { Link, useLocation } from "react-router-dom";
 import { captureFormEditorBaseline, prepareFormEditorUpdate, formEditorPatch } from "@/lib/formEditorSave";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { departmentBuilderFields, saveDepartmentBuilderFields, DEPARTMENT_SELECTOR_ID } from "@/lib/departmentSelectorBuilder";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2, CreditCard } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -7608,6 +7609,23 @@ export function RepeatableRowsSettings({
   );
 }
 
+function BuilderFieldCard(props) {
+  if (props.field.id !== DEPARTMENT_SELECTOR_ID) {
+    return <FieldCard {...props} originalIndex={props.allFields.findIndex(field => field.id === props.field.id)} />;
+  }
+  return <Draggable draggableId={props.field.id} index={props.index} isDragDisabled={props.field.fixed}>
+    {provided => <div ref={provided.innerRef} {...provided.draggableProps}
+      {...provided.dragHandleProps} className="rounded-lg border border-blue-300 bg-blue-50 p-4"
+      data-testid="department-selector-builder-block">
+      <div className="flex items-center gap-2 font-medium"><GripVertical className="h-4 w-4" />Choose the Department to update</div>
+      <div className="mt-2 rounded border bg-white p-2 text-sm text-slate-500">Select a Department</div>
+      <p className="mt-2 text-xs text-slate-600">{props.field.fixed
+        ? 'Required at the beginning of card-swipe forms.'
+        : 'Drag to position on the first page. Added automatically for this form; cannot be deleted or duplicated.'}</p>
+    </div>}
+  </Draggable>;
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -11947,10 +11965,19 @@ function FormBuilderEditor() {
     };
   };
 
+  const builderFields = departmentBuilderFields({ ...formData, current_set_enabled: existingForm?.current_set_enabled === true });
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
     const { source, destination } = result;
+    if (result.draggableId === DEPARTMENT_SELECTOR_ID) {
+      const target = parseDroppableId(destination.droppableId);
+      if (formData.layout_type === 'card_swipe'
+        || (formData.pages.length > 0 && (target.pageId !== formData.pages[0].id || target.columnIndex !== 0))) {
+        toast.error('Keep the Department selector on the first page, in the first column.');
+        return;
+      }
+    }
     
     // For standard layout with pages, handle cross-page and cross-column drops
     if (formData.layout_type === 'standard' && formData.pages.length > 0) {
@@ -11958,18 +11985,18 @@ function FormBuilderEditor() {
       const destParsed = parseDroppableId(destination.droppableId);
       
       // Get fields for source page+column to find the moved field
-      const sourceFields = formData.fields.filter(f => 
-        f.page_id === sourceParsed.pageId && 
+      const sourceFields = builderFields.filter(f =>
+        (f.page_id || null) === sourceParsed.pageId &&
         (f.column_index || 0) === sourceParsed.columnIndex
       );
       const movedField = sourceFields[source.index];
       if (!movedField) return;
       
       // Get the absolute index of the moved field in the full array
-      const movedFieldAbsoluteIndex = formData.fields.findIndex(f => f.id === movedField.id);
+      const movedFieldAbsoluteIndex = builderFields.findIndex(f => f.id === movedField.id);
       
       // Create a copy of fields array
-      const newFields = [...formData.fields];
+      const newFields = [...builderFields];
       
       // Remove from original position
       newFields.splice(movedFieldAbsoluteIndex, 1);
@@ -12046,13 +12073,13 @@ function FormBuilderEditor() {
         newFields.splice(targetAbsoluteIndex, 0, updatedField);
       }
       
-      setFormData({ ...formData, fields: newFields });
+      setFormData({ ...formData, fields: saveDepartmentBuilderFields(newFields) });
     } else {
       // Simple reorder for card_swipe or standard without pages
-      const items = Array.from(formData.fields);
+      const items = Array.from(builderFields);
       const [reorderedItem] = items.splice(source.index, 1);
       items.splice(destination.index, 0, reorderedItem);
-      setFormData({ ...formData, fields: items });
+      setFormData({ ...formData, fields: saveDepartmentBuilderFields(items) });
     }
   };
 
@@ -12938,28 +12965,6 @@ function FormBuilderEditor() {
               <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Row 1: Core Settings */}
-              <div className="space-y-2">
-                <Label htmlFor="department-selector-position">Department selector position</Label>
-                <select
-                  id="department-selector-position"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                  disabled={formData.layout_type === 'card_swipe'}
-                  value={(formData.fields || []).find(field => field.department_selector_before
-                    && (!field.page_id || field.page_id === formData.pages?.[0]?.id))?.id || ''}
-                  onChange={event => {
-                    const id = event.target.value;
-                    setFormData(previous => ({
-                      ...previous,
-                      fields: previous.fields.map(field => ({ ...field, department_selector_before: field.id === id })),
-                    }));
-                  }}
-                >
-                  <option value="">At the beginning of the form</option>
-                  {(formData.fields || []).filter(field => !field.page_id || field.page_id === formData.pages?.[0]?.id)
-                    .map(field => <option key={field.id} value={field.id}>Before: {field.label || field.type}</option>)}
-                </select>
-                <p className="text-xs text-slate-500">For assigned-Department forms only. Appears on the first page; choose a field to place introductory content above it. Card-swipe forms always show it at the beginning.</p>
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Form Name *</Label>
                 <Input
@@ -14821,7 +14826,7 @@ function FormBuilderEditor() {
                 </div>
               </CardHeader>
               <CardContent>
-                {formData.fields.length === 0 ? (
+                {builderFields.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
                     <p className="mb-4">No fields added yet</p>
                     <Button onClick={() => addField(null)} variant="outline">
@@ -14847,11 +14852,11 @@ function FormBuilderEditor() {
                                 ref={provided.innerRef} 
                                 className={`space-y-3 min-h-[60px] ${snapshot.isDraggingOver ? 'bg-blue-50 rounded' : ''}`}
                               >
-                                {formData.fields
+                                {builderFields
                                   .map((field, originalIndex) => ({ field, originalIndex }))
                                   .filter(({ field }) => !field.page_id)
                                   .map(({ field, originalIndex }, index) => (
-                                    <FieldCard
+                                    <BuilderFieldCard
                                       key={field.id}
                                       field={field}
                                       index={index}
@@ -14974,7 +14979,7 @@ function FormBuilderEditor() {
                                   'grid-cols-3'
                                 }`}>
                                   {Array.from({ length: columnCount }).map((_, colIndex) => {
-                                    const columnFields = formData.fields
+                                    const columnFields = builderFields
                                       .map((field, originalIndex) => ({ field, originalIndex }))
                                       .filter(({ field }) => 
                                         field.page_id === page.id && 
@@ -15007,7 +15012,7 @@ function FormBuilderEditor() {
                                               </div>
                                             ) : (
                                               columnFields.map(({ field, originalIndex }, index) => (
-                                                <FieldCard
+                                                <BuilderFieldCard
                                                   key={field.id}
                                                   field={field}
                                                   index={index}
@@ -15078,8 +15083,8 @@ function FormBuilderEditor() {
                     <Droppable droppableId="fields">
                       {(provided) => (
                         <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
-                          {formData.fields.map((field, index) => (
-                            <FieldCard
+                          {builderFields.map((field, index) => (
+                            <BuilderFieldCard
                               key={field.id}
                               field={field}
                               index={index}

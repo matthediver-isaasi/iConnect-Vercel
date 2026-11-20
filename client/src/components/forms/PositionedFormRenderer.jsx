@@ -10,5 +10,10 @@ export default function PositionedFormRenderer({ departmentPlacement, ...props }
       placement={{ ...departmentPlacement, fieldId: props.field.id }}
     />}
     <FormRenderer {...props} />
+    {departmentPlacement && <DepartmentCurrentSetNotice
+      state={departmentPlacement.state}
+      blockedReason={departmentPlacement.blockedReason}
+      placement={{ ...departmentPlacement, fieldId: `${props.field.id}:after` }}
+    />}
   </>;
 }
