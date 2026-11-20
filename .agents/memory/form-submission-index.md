@@ -2,6 +2,8 @@
 - [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 
+- [BNMS verified domain imports](bnms-verified-domain-import-policy.md) — approved organisation domains only; exclude public providers, exact-email rows and review-marked Serac mappings.
+
 - [Automatic profile fields](form-auto-populate-lifecycle.md) — child population must survive parent answer-map initialization; test all four automatic profile types.
 
 - [Form checkout query scope](form-checkout-query-scope.md) — duplicate query keys can falsely reject a correctly scoped saved purchase.
