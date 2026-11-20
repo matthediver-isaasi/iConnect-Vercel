@@ -3,7 +3,7 @@
 process.env.SUPABASE_URL = process.env.DEST_SUPABASE_URL;
 process.env.SUPABASE_SERVICE_KEY = process.env.DEST_SUPABASE_KEY;
 const { supabase } = await import('../api/_lib/database.js');
-const { getValidXeroAccessToken } = await import('../api/_lib/xero.js');
+const { getValidXeroAccessToken, createXeroMembershipInvoice } = await import('../api/_lib/xero.js');
 const { prepareMembershipSourceRequest } = await import('../api/_lib/accountingSourcePreparation.js');
 const tenantId = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d';
 const { data: row, error } = await supabase.from('accounting_request_queue').select('*')
@@ -19,6 +19,23 @@ const readOnlyFetch = async (url, init = {}) => {
   if (parsed.origin !== 'https://api.xero.com') throw new Error('Unexpected provider host');
   return fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
 };
+if (process.argv.includes('--verify-matching')) {
+  const prepared = await createXeroMembershipInvoice({
+    ...row.snapshot.invoice.args,
+    accountingSource: { sourceType: row.source_type, sourceId: row.source_id, linkage: row.snapshot.linkage },
+    expectedProviderContext: { xero_tenant_id: row.company_id },
+    deadlineAt: Date.now() + 60000, transportTimeoutMs: 10000,
+  }, {
+    prepareOnly: true, fetch: readOnlyFetch,
+    getValidXeroAccessToken: async () => token,
+  });
+  if (prepared.contactId !== '3ece7d50-6515-4e5a-b321-1f6252514718') {
+    throw new Error('Resolved contact differs from the independently verified invoice contact');
+  }
+  console.log(JSON.stringify({ organizationMatching: 'verified', contactId: prepared.contactId,
+    company: prepared.companyId, accountingWrites: 0 }));
+  process.exit(0);
+}
 if (process.argv.includes('--verify-approved')) {
   const expected = [
     { id: 'fcf450ae-1ea3-4381-8f98-878ef8bdf8dd', number: 'SI-43043', total: 3847.2, due: 0, status: 'PAID', reference: '8132266', net: 3206, description: 'Service Membership - August 2025 - July 2026' },

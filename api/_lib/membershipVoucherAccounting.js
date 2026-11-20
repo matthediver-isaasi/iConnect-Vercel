@@ -44,6 +44,7 @@ export async function accountMembershipVoucherSettlement(db, token, settlement, 
       .eq('id', token.member_id || token.organization_id).eq('tenant_id', token.tenant_id).single();
     if (memberError || !member) throw new Error('Membership invoice contact unavailable');
     const created = await provider.createMembershipInvoice({
+      organizationId: token.member_id ? undefined : token.organization_id,
       appTenantId: token.tenant_id, expectedProviderContext, organizationName: member.name || `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email,
       invoicingEmail: member.email || member.invoicing_email, membershipYear: token.membership_year, tierLabel: token.tier_label,
       finalCost: Number(history.final_cost), currency: funding.currency,

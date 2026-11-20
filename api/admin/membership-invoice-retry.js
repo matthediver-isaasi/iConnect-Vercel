@@ -257,6 +257,7 @@ export default async function handler(req, res) {
     const provider = await getAccountingProvider(appTenantId);
     const invoice = await provider.createMembershipInvoice({
       appTenantId,
+      organizationId: isOrg ? row.organization_id : undefined,
       organizationName: contactName,
       invoicingEmail,
       invoicingAddress: invoicingAddress || undefined,

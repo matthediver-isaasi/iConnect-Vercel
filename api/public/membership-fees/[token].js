@@ -1588,6 +1588,7 @@ return async function handler(req, res) {
               const { buildExtraLineItems: _buildExtra } = await import('../../_lib/membershipAddons.js');
               xeroInvoice = await _provider.createMembershipInvoice({
                 appTenantId: feeToken.tenant_id,
+                organizationId: feeToken.member_id ? undefined : feeToken.organization_id,
                 organizationName: invoicingName,
                 invoicingEmail,
                 invoicingAddress,

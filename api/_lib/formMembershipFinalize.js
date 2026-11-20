@@ -308,6 +308,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         const provider = invoiceProvider;
         invoiceResult = await provider.createMembershipInvoice({
           appTenantId: tenantId,
+          organizationId: isMemberScoped ? undefined : historyRow.organization_id,
           organizationName: invoiceName,
           invoicingEmail,
           invoicingAddress: invoicingAddress || undefined,

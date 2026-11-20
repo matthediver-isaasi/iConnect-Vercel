@@ -1157,6 +1157,7 @@ async function handlePost(req, res, resolvedTenantId) {
         const _provider = await getAccountingProvider(tenantId);
         xeroInvoice = await _provider.createMembershipInvoice({
           appTenantId: tenantId,
+          organizationId: isMemberScoped ? undefined : organizationId,
           organizationName: invoiceOrgName,
           invoicingEmail,
           invoicingAddress: invoicingAddress || undefined,

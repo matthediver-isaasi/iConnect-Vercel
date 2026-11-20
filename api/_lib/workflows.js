@@ -2013,6 +2013,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
         : `Membership ${targetYearLabel}`;
       invoice = await provider.createMembershipInvoice({
         appTenantId: tenantId,
+        organizationId,
         organizationName: simResult.org.name,
         invoicingEmail: simResult.org.invoicing_email || null,
         invoicingAddress: await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization'),

@@ -327,6 +327,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
     xeroInvoice = prepared ? prepared.invoice : await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
+      organizationId: org.id,
       invoicingEmail: org.invoicing_email || null,
       invoicingAddress: resolvedAddr,
       membershipYear: record.membership_year,
@@ -645,6 +646,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       xeroInvoice = await provider.createMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
+        organizationId: org.id,
         invoicingEmail: org.invoicing_email || null,
         invoicingAddress: resolvedOrgAddr,
         membershipYear: membershipYear.label,

@@ -2091,3 +2091,17 @@ mtime_ms = 1795120100240
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b2820d3-76b5-42c3-92c6-4e927a7fd013/70b72d9f-6c05-4a4b-bb0f-fcb1976fee64"
 storage_version_token = "1795120126727417"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "S0x0yixHW_gItwsxx3aUl"
+uri = "file://generated-artifacts/gfi-membership-unlinked-invoice-audit-2026-11-20.csv"
+type = "table"
+title = "GFI membership invoice-link audit"
+description = "Read-only audit: 156 existing organisations with historical missing invoice links, plus two orphaned history records. Missing links are not proof that invoices were never issued."
+logical_id = "be781b43-441b-4a16-91d1-404ce7da4d98"
+content_hash = "sha256:063fb38b7d62f3a8cce9e1aa222639657fce271928756eff66a458e620c28009"
+size = 40166
+mtime_ms = 1795167201136
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/be781b43-441b-4a16-91d1-404ce7da4d98/657f66c7-ca81-4449-8867-ae4ac5f6a815"
+storage_version_token = "1795167265152361"
+content_type = "text/csv"

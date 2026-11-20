@@ -37,6 +37,7 @@ export async function completeReminderFeeAccounting({ client, token, history, pa
       const { resolveInvoiceAddress } = await import('./invoiceAddressResolver.js');
       const invoiceArgs = {
         appTenantId: tenantId,
+        organizationId: token.member_id ? undefined : token.organization_id,
         organizationName: savedAccounting ? savedAccounting.organizationName : owner.name || [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
         invoicingEmail: savedAccounting ? savedAccounting.invoicingEmail : owner.invoicing_email || owner.email || null,
         invoicingAddress: savedAccounting ? savedAccounting.invoicingAddress : await (deps.resolveInvoiceAddress || resolveInvoiceAddress)(client, config, owner.id, token.member_id ? 'member' : 'organization'),

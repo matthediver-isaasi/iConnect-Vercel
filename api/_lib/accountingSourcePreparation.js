@@ -1,5 +1,6 @@
 import { prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { membershipInvoiceRecoveryUrl } from './membershipInvoiceRecoveryUrl.js';
+import { freezeMembershipOrganizationIdentity, membershipOrganizationContactResolver } from './membershipOrganizationIdentity.js';
 
 const fail = code => { throw Object.assign(new Error(code), { permanent: true, code }); };
 const settingsKeys = [
@@ -23,7 +24,9 @@ export async function freezeMembershipPreparation({ db, args, totalMinor }) {
     'invoiceDescription', 'nominalCode', 'xeroProjectCode', 'requireInvoiceAddress']) {
     if (args[key] !== undefined) frozenArgs[key] = structuredClone(args[key]);
   }
+  const organizationIdentity = await freezeMembershipOrganizationIdentity(db, args);
   return { args: frozenArgs, totalMinor, settings, dueDate, invoiceDate,
+    ...(organizationIdentity ? { organizationIdentity } : {}),
     recoveryUrl: await membershipInvoiceRecoveryUrl(db, args.appTenantId) };
 }
 
@@ -71,11 +74,19 @@ export async function prepareMembershipSourceRequest({ row, transport }, depende
   const prepare = dependencies.prepare || (row.provider === 'xero'
     ? (await import('./xero.js')).createXeroMembershipInvoice
     : (await import('./quickbooks.js')).createQuickBooksMembershipInvoice);
+  const identity = snapshot.invoice.organizationIdentity;
+  let contactResolver;
+  if (row.provider === 'xero' && identity) {
+    if (row.source_type !== 'organisation_membership_history'
+      || identity.organizationId !== snapshot.linkage?.ownerId) fail('MEMBERSHIP_ORGANIZATION_AUTHORITY_MISMATCH');
+    contactResolver = membershipOrganizationContactResolver(identity, row.company_id, transport.fetch);
+  }
   const prepared = await prepare({ ...args, markAsPaid: false,
     transportTimeoutMs: transport.timeoutMs, deadlineAt: transport.deadlineAt,
     expectedProviderContext: row.provider === 'xero' ? { xero_tenant_id: row.company_id }
       : { quickbooks_realm_id: row.company_id, environment: snapshot.environment },
   }, { ...transport, ...preparationTokenDependencies(transport), prepareOnly: true,
+    ...(contactResolver ? { findOrCreateXeroContact: contactResolver } : {}),
     supabase: frozenSettingsDb(settings, row.tenant_id) });
   if (prepared.companyId !== row.company_id
     || (row.provider === 'quickbooks' && prepared.environment !== snapshot.environment)) {

@@ -589,7 +589,7 @@ async function recoverBnmsSettlement({ invoice, contactId, amount, mapping, paym
 }
 
 export async function createXeroMembershipInvoice({
-  appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
+  appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, accountingSource, organizationId,
   tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
   deferStripeSettlement = false, authorizeWithoutPayment = false, stripePaymentIntentId, invoiceDescription,
   extraLineItems, nominalCode, xeroProjectCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
@@ -611,7 +611,7 @@ export async function createXeroMembershipInvoice({
   }
 
   const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
-  const contactResolver = dependencies.findOrCreateXeroContact || findOrCreateXeroContact;
+  let contactResolver = dependencies.findOrCreateXeroContact || findOrCreateXeroContact;
   const transport = formAccountingTransport({
     timeoutMs: transportTimeoutMs,
     deadlineAt,
@@ -624,6 +624,13 @@ export async function createXeroMembershipInvoice({
   const expectedTenant = typeof expectedProviderContext === 'string'
     ? expectedProviderContext
     : expectedProviderContext?.xero_tenant_id;
+  if (!dependencies.findOrCreateXeroContact && (accountingSource?.sourceType === 'organisation_membership_history'
+    || (!accountingSource && organizationId))) {
+    const { freezeMembershipOrganizationIdentity, membershipOrganizationContactResolver } =
+      await import('./membershipOrganizationIdentity.js');
+    const identity = await freezeMembershipOrganizationIdentity(database, { appTenantId, accountingSource, organizationId });
+    contactResolver = membershipOrganizationContactResolver(identity, xeroTenantId, transportFetch);
+  }
   if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
     throw new Error('Connected Xero organisation does not match the invoice provider context');
   }

@@ -200,6 +200,7 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   const address = agreement?.provider === 'stripe' ? stripeInvoiceAddressFromMetadata(agreement.metadata) : null;
   const invoice = {
     appTenantId: tenantId, organizationName: ownerName,
+    organizationId: memberScope ? undefined : ownerId,
     invoicingEmail: memberScope ? owner.email || null : owner.invoicing_email || null,
     invoicingAddress: address || await resolveInvoiceAddress(db, invoiceSim.config, ownerId, memberScope ? 'member' : 'organization'),
     membershipYear: record.membership_year, tierLabel: record.tier_label, finalCost: fee,
