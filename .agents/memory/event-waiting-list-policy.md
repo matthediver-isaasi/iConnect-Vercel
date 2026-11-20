@@ -7,6 +7,12 @@ Waiting lists express interest, never reserve a place. Support members and
 colleagues across all event types, retaining advertised prices and choices.
 Use My Tickets permissions, not a new permission.
 
+Waiting-list joins must not display or require booking terms or Code of Conduct acceptance, even when enabled for confirmed bookings.
+
+**Why:** The owner explicitly distinguishes expressing interest from accepting a place at an event.
+
+**How to apply:** Exempt only waiting-list checkout and its dedicated endpoint. Keep confirmed-booking enforcement, attendee validation, assigned access and separate third-party consent unchanged.
+
 Owner-approved historical guest imports may exist without a member booker or
 attendee account. Do not create accounts, invent an administrator as booker, or
 automatically attach a later matching member to make these records fit the

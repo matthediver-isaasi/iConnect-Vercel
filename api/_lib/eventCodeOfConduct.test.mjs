@@ -48,6 +48,7 @@ test('guards precede checkout side effects and keep policy publicly readable',()
   const payment=load('../public/complex-event-payment-intent.js');
   assert(payment.indexOf('await assertEventCodeOfConduct')<payment.indexOf('stripe.paymentIntents.create'));
   const wait=load('../member/event-waiting-list.js');
-  assert(wait.indexOf('await assertEventCodeOfConduct')<wait.indexOf('const request = normalizeWaitingRequest'));
+  assert.doesNotMatch(wait, /assertEventCodeOfConduct/);
+  assert.match(wait, /const request = normalizeWaitingRequest/);
   assert.match(load('../public/system-settings.js'),/'event_code_of_conduct'/);
 });

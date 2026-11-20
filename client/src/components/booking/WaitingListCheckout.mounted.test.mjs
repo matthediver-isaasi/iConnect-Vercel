@@ -104,39 +104,33 @@ test('guests must log in, and incomplete attendees cannot submit', async () => {
   await invalid.close();
 });
 
-test('required Code of Conduct is separate from terms, resets with content/event, and sends exact HTML', async () => {
+test('required booking agreements are hidden and do not block waiting-list interest', async () => {
   calls.length = 0;
   fail = false;
   const content = '<h2>Our Code</h2><p>Respect everyone &amp; their views.</p>';
   const settings = html => [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content: html, required: true }) }];
   globalThis.__waitingListTest.settings = settings(content);
-  const props = { ...defaults, hasBookingTerms: true, termsAccepted: true };
+  const props = { ...defaults, hasBookingTerms: true, termsAccepted: false };
   const view = await mount(props);
   const button = () => view.host.querySelector('[data-testid="button-join-waiting-list"]');
   const checkbox = () => view.host.querySelector('[data-testid="checkbox-code-of-conduct"]');
-  assert.equal(button().disabled, true);
-  assert.equal(checkbox().checked, false);
-  assert.match(view.host.textContent, /View Code of Conduct/);
-  await click(view.host.querySelector('[data-testid="link-code-of-conduct"]'));
-  assert.match(view.host.querySelector('[role="dialog"]').textContent, /Respect everyone & their views/);
-  await click(checkbox());
   assert.equal(button().disabled, false);
+  assert.equal(checkbox(), null);
+  assert.doesNotMatch(view.host.textContent, /I accept the|Code of Conduct|terms and conditions/);
   globalThis.__waitingListTest.settings = settings(content + '<p>Updated</p>');
   await view.rerender(props);
-  assert.equal(checkbox().checked, false);
-  assert.equal(button().disabled, true);
-  await click(checkbox());
+  assert.equal(checkbox(), null);
+  assert.equal(button().disabled, false);
   await view.rerender({ ...props, event: { ...props.event, id: 'other-event' } });
-  assert.equal(checkbox().checked, false);
-  await click(checkbox());
+  assert.equal(checkbox(), null);
   await click(button());
-  assert.equal(calls[0].code_of_conduct_accepted, true);
-  assert.equal(calls[0].code_of_conduct_content, content + '<p>Updated</p>');
+  assert.equal(Object.hasOwn(calls[0], 'code_of_conduct_accepted'), false);
+  assert.equal(Object.hasOwn(calls[0], 'code_of_conduct_content'), false);
   await view.close();
   globalThis.__waitingListTest.settings = [];
 });
 
-test('disabled conduct is hidden and required rich-content dialog is sanitized', async () => {
+test('changing conduct settings does not expose booking agreements on a waiting list', async () => {
   const content = '<p>Everyone is welcome.</p><img src=x onerror="alert(1)"><script>alert(1)</script>';
   globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: false }) }];
   const view = await mount(defaults);
@@ -144,41 +138,52 @@ test('disabled conduct is hidden and required rich-content dialog is sanitized',
   assert.equal(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]'), null);
   globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: true }) }];
   await view.rerender(defaults);
-  await click(view.host.querySelector('[data-testid="link-code-of-conduct"]'));
-  const dialog = view.host.querySelector('[role="dialog"]');
-  assert.match(dialog.textContent, /Everyone is welcome/);
-  assert.equal(dialog.querySelector('script'), null);
-  assert.equal(dialog.querySelector('img').hasAttribute('onerror'), false);
+  assert.equal(view.host.querySelector('[data-testid="link-code-of-conduct"]'), null);
+  assert.equal(view.host.querySelector('[role="dialog"]'), null);
+  assert.equal(view.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, false);
   await view.close();
   globalThis.__waitingListTest.settings = [];
 });
 
-test('switching back to a previously accepted version does not restore acceptance', async () => {
+test('policy revisions never require acceptance for waiting-list interest', async () => {
   const setPolicy = content => {
     globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: true }) }];
   };
   setPolicy('<p>First version</p>');
   const view = await mount(defaults);
-  await click(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]'));
   setPolicy('<p>Second version</p>');
   await view.rerender(defaults);
   setPolicy('<p>First version</p>');
   await view.rerender(defaults);
-  assert.equal(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]').checked, false);
-  assert.equal(view.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, true);
+  assert.equal(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]'), null);
+  assert.equal(view.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, false);
   await view.close();
   globalThis.__waitingListTest.settings = [];
 });
 test('complex preferences retain each selected ticket/session without a normal booking call', async () => {
   fail = false;
   calls.length = 0;
-  const view = await mount({ ...defaults, isComplexEvent: true, waitingListItems: [{
+  globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content: '<p>Required for bookings</p>', required: true }) }];
+  const view = await mount({ ...defaults, hasBookingTerms: true, termsAccepted: false, isComplexEvent: true, waitingListItems: [{
     ticket_class_id: 'multi-ticket', attendees: [{ ...defaults.attendees[0], session_ids: ['s4'], option_ids: ['o2'] }],
   }] });
   await click(view.host.querySelector('[data-testid="button-join-waiting-list"]'));
   assert.equal(calls[0].event_kind, 'complex');
   assert.equal(calls[0].attendees[0].ticket_class_id, 'multi-ticket');
   assert.deepEqual(calls[0].attendees[0].session_ids, ['s4']);
+  assert.equal(Object.hasOwn(calls[0], 'code_of_conduct_accepted'), false);
+  await view.close();
+  globalThis.__waitingListTest.settings = [];
+});
+test('third-party consent remains separate and is not removed with booking agreements', async () => {
+  fail = false;
+  calls.length = 0;
+  const view = await mount({ ...defaults, hasBookingTerms: true, termsAccepted: false,
+    collectThirdPartyConsent: true, thirdPartyConsent: true, setThirdPartyConsent() {} });
+  assert.match(view.host.textContent, /I consent to my name/);
+  assert.doesNotMatch(view.host.textContent, /terms and conditions|Code of Conduct/);
+  await click(view.host.querySelector('[data-testid="button-join-waiting-list"]'));
+  assert.equal(calls[0].third_party_consent, true);
   await view.close();
 });
 after(() => { delete globalThis.__waitingListTest; dom.window.close(); });
