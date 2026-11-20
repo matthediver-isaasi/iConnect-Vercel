@@ -2105,3 +2105,45 @@ mtime_ms = 1795167201136
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/be781b43-441b-4a16-91d1-404ce7da4d98/657f66c7-ca81-4449-8867-ae4ac5f6a815"
 storage_version_token = "1795167265152361"
 content_type = "text/csv"
+
+[[outputs]]
+id = "nrglFiH_lbhCA4e6siHWU"
+uri = "file://generated-artifacts/gfi-membership-xero-comparison/full-comparison.csv"
+type = "table"
+title = "GFI historical invoice comparison — all 156 organisations"
+description = "Read-only comparison against all 996 Xero contacts and 3,137 invoices. Includes classifications, candidate invoices, amounts and balances."
+logical_id = "736f2492-9006-496e-8ee6-21f25b96e2b0"
+content_hash = "sha256:af0a6a613fbc8f8647528b184b38dc3179b5b592465e2c18f4b05623e5a5c633"
+size = 37962
+mtime_ms = 1795167532893
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/736f2492-9006-496e-8ee6-21f25b96e2b0/558f908f-d95f-4f79-943f-b41707d8e2db"
+storage_version_token = "1795167560356073"
+content_type = "text/csv"
+
+[[outputs]]
+id = "EVhL4RHz9O5inS1rLK2Ve"
+uri = "file://generated-artifacts/gfi-membership-xero-comparison/exact-matches.csv"
+type = "table"
+title = "GFI — 121 exact invoice matches"
+description = "Unique organisation, membership-period, currency, net, VAT and total matches. All were marked PAID in Xero. No links have been changed."
+logical_id = "e6931c67-4c03-4770-a398-3412b8f6860f"
+content_hash = "sha256:23052f40dd54a0a1d900a5859b80bfef6aea52f279f5e8ccaedd1f828b71eef5"
+size = 29357
+mtime_ms = 1795167532897
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e6931c67-4c03-4770-a398-3412b8f6860f/2f954d41-8050-4e18-b27c-181abea90001"
+storage_version_token = "1795167561044426"
+content_type = "text/csv"
+
+[[outputs]]
+id = "42KryakZ7RPvbYGaW7s3E"
+uri = "file://generated-artifacts/gfi-membership-xero-comparison/review-required.csv"
+type = "table"
+title = "GFI — 35 cases requiring review"
+description = "Opening balances, small amount differences, contact exceptions and a voided invoice. These must not be automatically linked or re-invoiced."
+logical_id = "b270e715-4807-437e-b302-127f5414bbe5"
+content_hash = "sha256:81dc8d047aa37b37b4eb01a25ba8f5bd2c32c85e5fed081438d07a9182f9ad87"
+size = 8930
+mtime_ms = 1795167532901
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b270e715-4807-437e-b302-127f5414bbe5/3669f5a8-7890-4eb8-8473-fe1c9668abe0"
+storage_version_token = "1795167561667057"
+content_type = "text/csv"

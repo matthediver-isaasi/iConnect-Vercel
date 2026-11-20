@@ -80,3 +80,9 @@ Owner-approved linkage to an independently created invoice does not prove that t
 **Why:** An existing Xero invoice can predate a failed renewal request and lack that request's recovery marker. Inventing successful preparation or a provider-write receipt would falsify its history and weaken duplicate prevention.
 
 **How to apply:** Revalidate the exact invoice, company, contact, period, totals and payment status; reconcile local links atomically with an audit note. When the normal queue completion contract cannot truthfully be met, retain a non-retrying review hold with explicit manual-reconciliation evidence rather than resetting or replaying it. Preserve original snapshots and stage statuses.
+
+Historical Xero opening-balance entries must not be treated as exact membership invoices merely because the contact and gross total match.
+
+**Why:** GFI's historical comparison found migrated entries described only as an opening balance, with the gross amount stored as net and zero VAT. They lack membership-period and original tax evidence.
+
+**How to apply:** Separate these from exact period/net/VAT/currency matches and require independent evidence before linking or modifying history. Preserve penny-level differences as review cases rather than silently applying a tolerance.
