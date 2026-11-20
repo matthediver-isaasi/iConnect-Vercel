@@ -1699,6 +1699,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 rootAllFormValues={formValues}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
+                suppressPaymentSummary={isLastStep && currentField.id === visiblePaymentField?.id}
               />
             )}
           </CardContent>
@@ -1929,6 +1930,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 rootAllFormValues={formValues}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
+                suppressPaymentSummary={currentPageIndex >= pages.length - 1 && field.id === visiblePaymentField?.id}
               />
             ))}
           </div>

@@ -157,6 +157,7 @@
 - [GFI Role Alignment preservation](gfi-role-alignment-policy.md) — one approved display-label correction retains its original stored value; no broader merging or synchronization authority.
 - [Shared article preview boundary](article-preview-boundary.md) — password access is server-verified and uncached; shared atomic rate counters use a separate namespace.
 - [Validation thread pressure](validation-thread-pressure.md) — concurrent suites can exhaust Node worker threads; rerun affected commands sequentially to distinguish resource failures.
+- [Node test runtime](node-test-runtime.md) — native navigator and mixed CommonJS/ESM React Query contexts can cause harness-only failures.
 - [Project list reorder locking](project-list-reorder-locking.md) — complete-set validation must serialize with legacy create/archive/delete writers, not just other reorders.
 - [Project description images](project-description-images.md) — retain plain-text compatibility; image references resolve only within the task and removal does not delete shared attachments.
 - [Xero tracking whitespace](xero-tracking-whitespace.md) — provider trimming can cause false invoice mismatches; verify existing invoices rather than recreating them.
