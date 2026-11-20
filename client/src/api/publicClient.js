@@ -107,6 +107,8 @@ export function getTenantSlugFromLocation() {
   const queryTenant = urlParams.get('tenant');
   if (queryTenant && !subdomainTenant) {
     console.log('[publicClient] Using tenant from URL query param:', queryTenant);
+    // Full-page login redirects drop the query; retain the preview selection.
+    localStorage.setItem('tenant_slug', queryTenant);
     return queryTenant;
   }
   if (queryTenant && subdomainTenant && queryTenant !== subdomainTenant) {
