@@ -12,22 +12,83 @@ async function fixture(page, baseURL) {
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) return route.fulfill({ status: 200, body: "" });
+    if (url.pathname === "/@vite/client") {
+      // The isolated HTML fixture does not have Vite's normal document
+      // injection, and middleware mode can emit an undefined HMR fallback
+      // port. Keep dev transport valid without suppressing application errors.
+      const response = await route.fetch();
+      return route.fulfill({ response, body: (await response.text()).replaceAll("localhost:undefined", new URL(origin).host) });
+    }
     if (url.pathname.startsWith("/api/")) {
       if (url.pathname.endsWith("/report-preview")) {
         const request = route.request().postDataJSON();
         previewRequests.push(request);
+        if (request.definition.sort?.length) {
+          if (!request.action) {
+            return route.fulfill({ contentType: "application/json", body: JSON.stringify({
+              sort_job: { id: "fixture-sort-job", status: "queued", processed: 0, total: 2 },
+            }) });
+          }
+          if (request.action === "process") {
+            return route.fulfill({ contentType: "application/json", body: JSON.stringify({
+              columns: request.definition.columns.map((column) => ({ label: column.label })),
+              data: [{ id: "sorted-a", values: ["A sorted first"] }, { id: "sorted-b", values: ["Z sorted last"] }],
+              total: 2, page: request.page, pageSize: request.pageSize, has_more: false, page_count: 1,
+              sort_job: { id: "fixture-sort-job", status: "complete" },
+            }) });
+          }
+          if (request.action === "page") return route.fulfill({
+            contentType: "application/json", body: JSON.stringify({
+              columns: request.definition.columns.map((column) => ({ label: column.label })),
+              data: [{ id: "sorted-a", values: ["A sorted first"] }],
+              total: 2, page: request.page, pageSize: request.pageSize, has_more: false, page_count: 1,
+              sort_job: { id: "fixture-sort-job", status: "complete" },
+            }),
+          });
+        }
         return route.fulfill({ contentType: "application/json", body: JSON.stringify({
           headers: request.definition.columns.map((column) => column.label),
           rows: [["Clinical sciences", "North association", 3, "True"], ["Imaging", "", 0, "False"]],
           total: 2, has_more: false,
         }) });
       }
-      if (url.pathname.endsWith("/report-export")) return route.fulfill({
-        contentType: "application/json", body: JSON.stringify({
-          legacy_sync: true, filename: "departments.csv",
-          csv: "Department,Organisation,Member count,Has survey responder\nClinical sciences,North association,3,True\nImaging,,0,False\n",
-        }),
-      });
+      if (url.pathname.endsWith("/report-export")) {
+        const request = route.request().postDataJSON();
+        const frozenDefinition = request.definition || await page.evaluate(() => window.fixtureConfig);
+        if (request.definition?.sort?.length || request.job_id === "fixture-sorted-export") {
+          if (request.action === "status") return route.fulfill({
+            contentType: "application/json", body: JSON.stringify({
+              id: "fixture-sorted-export", status: "processing", processed: 0, total: 2,
+              filename: "sorted-departments.csv",
+              definition: frozenDefinition,
+            }),
+          });
+          if (request.action === "process") return route.fulfill({
+            contentType: "application/json", body: JSON.stringify({
+              id: "fixture-sorted-export", status: "complete", processed: 2, total: 2, chunk_count: 1,
+              filename: "sorted-departments.csv",
+              definition: frozenDefinition,
+            }),
+          });
+          if (request.action === "chunk") return route.fulfill({
+            contentType: "application/json", body: JSON.stringify({
+              csv_text: "Department\nA sorted first\nZ sorted last\n",
+            }),
+          });
+          return route.fulfill({
+            contentType: "application/json", body: JSON.stringify({
+              id: "fixture-sorted-export", status: "processing", processed: 0, total: 2,
+              filename: "sorted-departments.csv", definition: request.definition,
+            }),
+          });
+        }
+        return route.fulfill({
+          contentType: "application/json", body: JSON.stringify({
+            legacy_sync: true, filename: "departments.csv",
+            csv: "Department,Organisation,Member count,Has survey responder\nClinical sciences,North association,3,True\nImaging,,0,False\n",
+          }),
+        });
+      }
       if (url.pathname.includes("/project/fields")) return route.fulfill({
         status: 503, contentType: "application/json", body: '{"message":"Fixture metadata unavailable"}',
       });
@@ -138,6 +199,30 @@ test("complete four-column department report saves/reopens, previews and exports
   expect(csv).toContain("Clinical sciences,North association,3,True");
   expect(csv).toContain("Imaging,,0,False");
   await page.screenshot({ path: testInfo.outputPath("four-column-report.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("sort rules save and reopen by column identity, then prepare preview and download", async ({ page, baseURL }, testInfo) => {
+  const { errors, previewRequests } = await fixture(page, baseURL);
+  await openColumn(page, "field");
+  await page.getByRole("button", { name: "Department name", exact: true }).click();
+  await page.getByTestId("add-report-sort").click();
+  await page.getByTestId("sort-direction-0").selectOption("desc");
+  await page.getByRole("button", { name: "Fixture save", exact: true }).click();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("fixture-report")));
+  expect(saved.sort).toEqual([{ column_id: saved.columns[0].id, direction: "desc" }]);
+  await page.reload();
+  await expect(page.getByTestId("sort-direction-0")).toHaveValue("desc");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(page.getByRole("cell", { name: "A sorted first" })).toBeVisible();
+  expect(previewRequests.some((request) => request.action === "process" && request.job_id === "fixture-sort-job")).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("sorted-report-preview.png"), fullPage: true });
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export CSV", exact: true }).click();
+  const download = await downloaded;
+  const file = testInfo.outputPath("sorted-departments.csv");
+  await download.saveAs(file);
+  expect(await readFile(file, "utf8")).toContain("A sorted first");
   expect(errors).toEqual([]);
 });
 

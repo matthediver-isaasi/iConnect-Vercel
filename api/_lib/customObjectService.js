@@ -23,6 +23,8 @@ import { randomUUID } from 'node:crypto';
 import { createChainedListService } from './customObjectChainedList.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 import { formatOrganisationDirectoryCsvValue } from './organisationDirectoryCsv.js';
+import { validateReportSort, reportSortValue } from '../../shared/customObjectReportSort.mjs';
+import { createReportSortService } from './customObjectReportSort.js';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -4331,6 +4333,19 @@ export function createCustomObjectService({
     );
   }
 
+  function typedReportSortValues(values, column) {
+    // Organisation preference storage uses formatted string values. Recover
+    // their declared scalar type without changing the exported display value.
+    const type = column.preferenceField?.field_type;
+    if (!type) return values;
+    return values.map(value => {
+      if (value == null || value === '') return null;
+      if (['number', 'decimal'].includes(type) && Number.isFinite(Number(value))) return Number(value);
+      if (type === 'boolean' && ['Yes', 'No'].includes(value)) return value === 'Yes';
+      return value;
+    });
+  }
+
   async function validateReportDefinitionV2(objectId, report) {
     await activeObject(objectId);
     await requireCapability(objectId, 'view_records');
@@ -4655,6 +4670,7 @@ export function createCustomObjectService({
     if (typeof supplied === 'string') {
       try { report = JSON.parse(supplied); } catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
     }
+    try { validateReportSort(report); } catch (error) { throw new CustomObjectHttpError(400, error.message); }
     if (report?.version === 2) return validateReportDefinitionV2(objectId, report);
     if (report?.filters !== undefined
       && (!Array.isArray(report.filters) || report.filters.length)) {
@@ -4770,7 +4786,7 @@ export function createCustomObjectService({
     return output;
   }
 
-  async function reportFollow(rows, hop, pageEdges = false) {
+  async function reportFollow(rows, hop, pageEdges = false, expansionLimit = null) {
     if (!rows.length) return [];
     const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
     const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
@@ -4787,6 +4803,9 @@ export function createCustomObjectService({
         const { data, error } = await query;
         throwDb(error);
         edges.push(...(data || []));
+        if (expansionLimit && edges.length > expansionLimit) {
+          throw new CustomObjectHttpError(400, 'This sorted legacy report expands too many related records in one batch. Create a current-version report with a narrower projection.');
+        }
         if (!pageEdges || (data || []).length < 1000) break;
         afterId = data.at(-1).id;
       }
@@ -4797,8 +4816,14 @@ export function createCustomObjectService({
       const target = endpoints.get(String(edge[other]));
       if (target) (byRouted.get(String(edge[routed])) || byRouted.set(String(edge[routed]), []).get(String(edge[routed]))).push({ target, edge });
     }
-    return rows.flatMap((row) => (byRouted.get(String(row.record.id)) || [])
-      .map(({ target, edge }) => ({ record: target, root: row.root, edges: [...row.edges, edge] })));
+    const output = [];
+    for (const row of rows) for (const { target, edge } of byRouted.get(String(row.record.id)) || []) {
+      output.push({ record: target, root: row.root, edges: [...row.edges, edge] });
+      if (expansionLimit && output.length > expansionLimit) {
+        throw new CustomObjectHttpError(400, 'This sorted legacy report renders too many related records in one batch.');
+      }
+    }
+    return output;
   }
 
   // V2 projections must not inherit PostgREST's server row cap. V1 deliberately
@@ -4944,6 +4969,7 @@ export function createCustomObjectService({
     const countValues = new Map();
     const indicatorValues = new Map();
     const matchingValues = new Map();
+    const matchingSortValues = new Map();
     const indicatorGroups = new Map();
     for (const column of validated.columns.filter((item) => item.existsRelated || item.kind === 'matching_field')) {
       const key = JSON.stringify(reportRpcPath(column.path.hops));
@@ -4980,6 +5006,11 @@ export function createCustomObjectService({
           rootId, [...records].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
             .map(([, item]) => reportValue(valueFromItem(item, column))).join('; '),
         ])));
+        matchingSortValues.set(column, new Map([...recordsByRoot].map(([rootId, records]) => {
+          const values = [...records].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+            .map(([, item]) => valueFromItem(item, column));
+          return [rootId, reportSortValue(typedReportSortValues(values, column), values.map(reportValue).join('; '))];
+        })));
       }
     }
     for (const column of validated.columns.filter((item) => item.countDistinct)) {
@@ -5083,23 +5114,28 @@ export function createCustomObjectService({
       const recordIds = Array.isArray(summaryRow.record_ids) ? summaryRow.record_ids : [];
       const ancestry = endpoints.map((_, index) =>
         ancestryMaps[index].get(String(recordIds[index] || '')) || null);
-      const row = { id: summaryRow.id, values: [] };
+      const row = { id: summaryRow.id, values: [], ...(requestedPage?.sortMaterialization ? { sort_values: [] } : {}) };
       for (const column of validated.columns) {
         if (column.existsRelated) {
-          row.values.push(indicatorValues.get(column).has(String(recordIds[validated.grain.hops.length])) ? 'True' : 'False');
+          const exists = indicatorValues.get(column).has(String(recordIds[validated.grain.hops.length]));
+          row.values.push(exists ? 'True' : 'False');
+          row.sort_values?.push(exists);
           continue;
         }
         if (column.countDistinct) {
           const startRecordId = recordIds[validated.grain.hops.length] || null;
           if (!startRecordId || !ancestry.at(-1)) {
             row.values.push(0);
+            row.sort_values?.push(0);
           } else {
             row.values.push(countValues.get(column).get(String(startRecordId)));
+            row.sort_values?.push(countValues.get(column).get(String(startRecordId)));
           }
           continue;
         }
         if (column.kind === 'matching_field') {
           row.values.push(matchingValues.get(column)?.get(String(ancestry.at(-1)?.id)) ?? '');
+          row.sort_values?.push(matchingSortValues.get(column)?.get(String(ancestry.at(-1)?.id)) ?? null);
           continue;
         }
         const { common, remaining, groupKey } = fieldPlans.get(column);
@@ -5126,6 +5162,7 @@ export function createCustomObjectService({
         const uniqueValues = [...new Map(items.map((item) => valueFromItem(item, column))
           .map((value) => [JSON.stringify(value), value])).values()];
         const rendered = reportValue(uniqueValues);
+        row.sort_values?.push(reportSortValue(typedReportSortValues(uniqueValues, column), rendered));
         row.values.push(items.length === 0 && column.empty_label !== undefined
           ? column.empty_label
           : rendered);
@@ -5266,7 +5303,8 @@ export function createCustomObjectService({
       if (!traversalCache.has(cacheKey)) {
         traversalCache.set(cacheKey, (async () => {
           let cursor = [...batchRoots.values()].map((root) => ({ record: root, root, edges: [] }));
-          for (const hop of hops) cursor = await reportFollow(cursor, hop, true);
+          for (const hop of hops) cursor = await reportFollow(cursor, hop, true,
+            requestedPage?.sortMaterialization ? V2_REPORT_MAX_PAGE_EXPANSION : null);
           const byRoot = new Map();
           for (const item of cursor) {
             const id = String(item.root.id);
@@ -5340,8 +5378,13 @@ export function createCustomObjectService({
     const orderedGrains = [...grainGroups.values()];
     if (exactTotal === null) orderedGrains.sort((left, right) => left.id.localeCompare(right.id));
     for (const grain of orderedGrains) {
-      const row = { id: grain.id, values: [] };
-      for (const column of validated.columns) row.values.push(reportValue(await valuesFor(grain, column)));
+      const row = { id: grain.id, values: [], ...(requestedPage?.sortMaterialization ? { sort_values: [] } : {}) };
+      for (const column of validated.columns) {
+        const values = await valuesFor(grain, column);
+        const rendered = reportValue(values);
+        row.values.push(rendered);
+        row.sort_values?.push(reportSortValue(typedReportSortValues(values, column), rendered));
+      }
       data.push(row);
     }
     return {
@@ -5355,6 +5398,15 @@ export function createCustomObjectService({
   }
 
   async function previewReport(objectId, body = {}) {
+    if (body.definition === undefined && body.version !== undefined) body = { ...body, definition: body };
+    if (typeof body.definition === 'string') {
+      try { body = { ...body, definition: JSON.parse(body.definition) }; }
+      catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
+    }
+    if (body.action || body.definition?.sort?.length || (body.definition?.sort !== undefined && !Array.isArray(body.definition.sort))) {
+      await validateReportDefinition(objectId, body.definition);
+      return sortedReports.preview(objectId, body);
+    }
     const p = pagination(body, 500);
     const result = await executeReport(objectId, body.definition ?? body, p);
     const data = result.bounded
@@ -5369,6 +5421,21 @@ export function createCustomObjectService({
 
   async function exportReport(objectId, body = {}) {
     await requireCapability(objectId, 'export_records');
+    if ((body.action || 'start') === 'start') {
+      let definition = body.definition ?? body;
+      if (typeof definition === 'string') {
+        try { definition = JSON.parse(definition); }
+        catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
+      }
+      if (definition?.sort?.length || (definition?.sort !== undefined && !Array.isArray(definition.sort))) {
+        return sortedReports.export(objectId, { ...body, definition });
+      }
+    } else if (body.job_id) {
+      const { data: sortJob, error: sortError } = await db.from('custom_object_report_sort_job')
+        .select('id').eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('id', body.job_id).maybeSingle();
+      if (sortError && !['42P01','PGRST205'].includes(sortError.code)) throwDb(sortError);
+      if (sortJob) return sortedReports.export(objectId, body);
+    }
     const ownedJobQuery = (query) => {
       query = query.eq('tenant_id', tenantId).eq('custom_object_id', objectId);
       if (context.tenantUserId) return query.eq('requested_by_tenant_user_id', context.tenantUserId);
@@ -5503,6 +5570,9 @@ export function createCustomObjectService({
     return data;
   }
 
+  const sortedReports = createReportSortService({
+    db, tenantId, context, now, validate: validateReportDefinition, execute: executeReport, ErrorType: CustomObjectHttpError,
+  });
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
     updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, writeTrustedPersistedRecord, normalizeTrustedPersistedRecordData, initialRelationshipCandidates, getRecord, updateRecord,

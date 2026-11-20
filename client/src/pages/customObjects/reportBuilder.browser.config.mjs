@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "reportBuilder.browser.spec.mjs",
-  outputDir: "./reportBuilder-test-results",
+  outputDir: "../../../../generated-artifacts/report-sorting-browser",
   workers: 1,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:5000",

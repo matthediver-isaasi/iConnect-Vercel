@@ -72,6 +72,20 @@ test("report column reordering is bounded and stable", () => {
   assert.deepEqual(moveReportColumn([{ id: "a" }], 0, -1).map((item) => item.id), ["a"]);
 });
 
+test("saved sort rules preserve stable identities and invalid or removed targets stay explicit", () => {
+  const config = makeReportConfig("department", {
+    columns: [{ id: "title", kind: "field", path: [], field: "id", label: "Title" }],
+    sort: [{ column_id: "title", direction: "desc" }],
+  });
+  const inspect = report => reconcileReportConfig({ objectId: "department", config: report });
+  assert.equal(inspect(config).config, config);
+  assert.deepEqual(inspect(config).stale, []);
+  const malformed = { ...config, columns: [] };
+  assert.match(inspect(malformed).stale.join(" "), /sorted report column is missing/);
+  assert.equal(inspect(malformed).config, malformed);
+  assert.deepEqual(inspect({ ...config, columns: [{ ...config.columns[0], label: "Renamed" }] }).stale, []);
+});
+
 test("organisation custom column reconciliation validates typed IDs without rewriting V1 or V2 snapshots", () => {
   const graph = [{ ...definitions[0], target_kind: "organization" }];
   const path = [{ relationship_definition_id: "department-member", from_side: "source" }];

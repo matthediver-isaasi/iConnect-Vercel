@@ -63,3 +63,13 @@ not narrow the independent count of all eligible Department members.
 
 **How to apply:** Use identical row-relative paths and final-edge designation
 conditions for each identity column; retain legacy joins on their old semantics.
+
+Custom Object report sharing must keep permission to view a report separate
+from permission to download its CSV.
+
+**Why:** The user requested password-protected links for people outside the
+system, with a separate choice of whether the linked report permits CSV downloads.
+
+**How to apply:** A valid password or view link must not implicitly authorize an
+export. Preserve saved multi-column sorting in both the displayed result and any
+explicitly permitted CSV download.

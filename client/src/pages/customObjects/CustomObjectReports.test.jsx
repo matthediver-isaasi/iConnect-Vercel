@@ -211,6 +211,85 @@ test("direct report link previews its saved definition once metadata is availabl
   }
 });
 
+test("sort editor adds, reorders, removes rules and retains column-ID references in saved snapshots", async () => {
+  const initial = makeReportConfig("department", {
+    columns: [
+      { id: "department-name", kind: "field", path: [], field_id: "department_name", label: "Department" },
+      { id: "team-name", kind: "field", path: [], field_id: "department_name", label: "Team" },
+    ],
+  });
+  let view = await mount(initial);
+  let reopened;
+  try {
+    await act(async () => click(view.container.querySelector('[data-testid="add-report-sort"]')));
+    await act(async () => click(view.container.querySelector('[data-testid="add-report-sort"]')));
+    assert.deepEqual(view.config.sort, [
+      { column_id: "department-name", direction: "asc" },
+      { column_id: "team-name", direction: "asc" },
+    ]);
+    await act(async () => changeSelect(view.container.querySelector('[data-testid="sort-direction-0"]'), "desc"));
+    await act(async () => click(view.container.querySelector('[aria-label="Move sort priority 2 up"]')));
+    assert.deepEqual(view.config.sort, [
+      { column_id: "team-name", direction: "asc" },
+      { column_id: "department-name", direction: "desc" },
+    ]);
+    await act(async () => changeText(view.container.querySelector('[data-testid="column-heading-0"]'), "Business unit"));
+    assert.equal(view.config.sort[1].column_id, "department-name");
+    const snapshot = structuredClone(view.config);
+    await view.cleanup();
+    view = null;
+    reopened = await mount(snapshot);
+    assert.deepEqual(reopened.config.sort, snapshot.sort);
+    assert.equal(reopened.container.querySelector('[data-testid="sort-column-0"]').value, "team-name");
+    await act(async () => click(reopened.container.querySelector('[aria-label="Remove column 2"]')));
+    assert.deepEqual(reopened.config.sort, [{ column_id: "department-name", direction: "desc" }]);
+    await act(async () => click(reopened.container.querySelector('[aria-label="Remove column 1"]')));
+    assert.deepEqual(reopened.config.sort, []);
+    await reopened.cleanup();
+    reopened = null;
+  } finally {
+    if (view) await view.cleanup();
+    if (reopened) await reopened.cleanup();
+  }
+});
+
+test("sorted preview prepares and pages a server snapshot without client-side sorting", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const config = makeReportConfig("department", {
+    columns: [{ id: "department-name", kind: "field", path: [], field_id: "department_name", label: "Department" }],
+    sort: [{ column_id: "department-name", direction: "asc" }],
+  });
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    const response = requests.length === 1
+      ? { sort_job: { id: "sort-1", status: "queued", processed: 0, total: 2 } }
+      : { columns: [{ label: "Department" }], data: [{ id: "row-1", values: ["A"] }],
+          total: 2, page: body.page, pageSize: 50, has_more: true, page_count: 2,
+          sort_job: { id: "sort-1", status: "complete" } };
+    return { ok: true, json: async () => response };
+  };
+  let view;
+  try {
+    view = await mount(config);
+    await act(async () => click(buttonNamed("Preview")));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+    assert.deepEqual(requests[0].definition.sort, config.sort);
+    assert.equal(requests[1].action, "process");
+    assert.equal(requests[1].job_id, "sort-1");
+    assert.equal(view.container.querySelector("tbody").textContent, "A");
+    await act(async () => click(buttonNamed("Next")));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(requests.at(-1).action, "page");
+    assert.equal(requests.at(-1).job_id, "sort-1");
+    assert.equal(requests.at(-1).page, 2);
+  } finally {
+    if (view) await view.cleanup();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("direct report links wait for saved reports and expose loading errors", async () => {
   const fixture = await mount(undefined, definitions, { ...savedReports, isFetching: true }, object, [], "named");
   try { assert.match(fixture.container.textContent, /Loading report/); }

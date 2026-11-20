@@ -14,6 +14,43 @@ const tenantId = '22222222-2222-4222-8222-222222222222';
 const objectId = '11111111-1111-4111-8111-111111111111';
 const roleId = '33333333-3333-4333-8333-333333333333';
 
+test('sorted materialisation preserves typed numbers, booleans, dates and true missing values from the real report renderer', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [
+      field(), field({ id: 'bool', name: 'enabled', field_type: 'boolean' }),
+      field({ id: 'date', name: 'opened', field_type: 'date' }),
+      field({ id: 'blank', name: 'blank', field_type: 'text' }),
+    ],
+    custom_object_record: [{ id: 'row', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { headcount: 128, enabled: false, opened: '2026-01-01', blank: '' } }],
+    custom_object_relationship_definition: [],
+  });
+  const sourceRpc = db.rpc.bind(db);
+  let prepared;
+  db.rpc = (name, args) => {
+    if (name === 'custom_object_report_sort_prune') return Promise.resolve({ data: null });
+    if (name === 'custom_object_report_sort_commit') {
+      prepared = args.p_rows;
+      return Promise.resolve({ error: { message: 'Captured preparation before commit' } });
+    }
+    return sourceRpc(name, args);
+  };
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const definition = { version: 2, start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId }, grain_path: [], include_empty: false,
+    columns: ['field-1', 'bool', 'date', 'blank'].map(id => ({ id, kind: 'field', path: [], field_id: id, label: id })),
+    sort: [{ column_id: 'field-1', direction: 'asc' }] };
+  const first = await service.previewReport(objectId, { definition });
+  Object.assign(db.tables.custom_object_report_sort_job[0], {
+    claim_token: null, chunk_size: 200, next_page: 1, processed: 0, total: 0, cursor_value: null,
+  });
+  await assert.rejects(service.previewReport(objectId, { definition, action: 'process', job_id: first.sort_job.id }),
+    /Captured preparation/);
+  assert.deepEqual(prepared[0].sort_values, [128, false, '2026-01-01', null]);
+  assert.deepEqual(prepared[0].values, ['128', 'No', '2026-01-01', '']);
+});
+
 function mockDb(seed = {}, rpcErrors = {}) {
   const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [
     name, rows.map((row) => structuredClone(row)),

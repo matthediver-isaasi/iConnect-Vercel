@@ -5,6 +5,7 @@ import {
   relationshipFields,
 } from "./relationshipHelpers.js";
 import { validateReportFilters } from "./reportFilterHelpers.mjs";
+import { validateReportSort } from "../../../../shared/customObjectReportSort.mjs";
 
 export const REPORT_CONFIG_VERSION = 2;
 export const SUPPORTED_REPORT_CONFIG_VERSIONS = [1, 2];
@@ -187,6 +188,7 @@ export const reconcileReportConfig = ({
     maxHops: 6,
   });
   const stale = [];
+  try { validateReportSort(view); } catch (error) { stale.push(error.message); }
   let indicatorsPending = false;
   let columnsPending = false;
   if (!SUPPORTED_REPORT_CONFIG_VERSIONS.includes(version)) {

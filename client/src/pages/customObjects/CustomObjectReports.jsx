@@ -15,6 +15,7 @@ import { resolveRelationshipPickerPath } from "./relationshipHelpers";
 import { ReportRelationshipFilters } from "./ReportRelationshipFilters";
 import { ReportRelationshipSelector } from "./ReportRelationshipSelector";
 import { ReportIndicatorEditor } from "./ReportIndicatorEditor";
+import { validateReportSort, reportDefinitionKey } from "../../../../shared/customObjectReportSort.mjs";
 import {
   endpointKey, endpointLabel, loadReportConfig, makeReportConfig, moveReportColumn,
   reconcileReportConfig, reportPathLabel, reportColumnSummary, reportReachableEndpoints,
@@ -70,12 +71,16 @@ export function CustomObjectReports({
   const [columnKind, setColumnKind] = useState("field");
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState(null);
+  const [sortProgress, setSortProgress] = useState(null);
+  const [sortJob, setSortJob] = useState(null);
   const [exportProgress, setExportProgress] = useState(null);
   const [appliedLink, setAppliedLink] = useState("");
   const [previewedLink, setPreviewedLink] = useState("");
   const linkKey = linkedReportId ? `${objectId}:${linkedReportId}` : "";
   const currentLink = useRef(linkKey);
   currentLink.current = linkKey;
+  const currentDefinitionKey = useRef("");
+  const currentSortJob = useRef(null);
   const linkedReport = saved.reports.find(report => report.id === linkedReportId);
   const linkPending = Boolean(linkKey && appliedLink !== linkKey);
   useEffect(() => {
@@ -84,6 +89,9 @@ export function CustomObjectReports({
         setConfig(makeReportConfig(objectId));
         saved.setActiveReportId(null);
         setPreview(null);
+        setSortJob(null);
+        setSortProgress(null);
+        currentSortJob.current = null;
       }
       setAppliedLink("");
       setPreviewedLink("");
@@ -94,6 +102,9 @@ export function CustomObjectReports({
     saved.setActiveReportId(linkedReport.id);
     setColumnPath([]);
     setPreview(null);
+    setSortJob(null);
+    setSortProgress(null);
+    currentSortJob.current = null;
     setPage(1);
     setPreviewedLink("");
     setAppliedLink(linkKey);
@@ -140,41 +151,153 @@ export function CustomObjectReports({
   const reconciled = useMemo(() => reconcileReportConfig({
     config, objectId, definitions: graph, fieldsByEndpoint, organizationFields, metadataLoading: graphLoading,
   }), [config, objectId, graph, fieldsByEndpoint, organizationFields, graphLoading]);
+  let validatedSort = [];
+  let sortError = "";
+  try {
+    validatedSort = validateReportSort(reconciled.config);
+  } catch (error) {
+    sortError = error.message || "The saved sort configuration is invalid.";
+  }
+  const legacyHop = Array.isArray(configView.grain_path) ? configView.grain_path[0] : null;
+  const legacyRelationship = graph.find(item => String(item.id) === String(legacyHop?.relationship_definition_id));
+  const legacyMany = legacyRelationship && (legacyRelationship.cardinality === "many_to_many"
+    || (legacyRelationship.cardinality === "one_to_many" && legacyHop?.from_side === "source")
+    || (legacyRelationship.cardinality === "many_to_one" && legacyHop?.from_side === "target"));
+  const v1SortSupported = configView.version !== 1 || configView.grain_path?.length === 0
+    || (configView.grain_path?.length === 1 && legacyMany);
+  const unsupportedV1Sort = configView.version === 1 && validatedSort.length > 0 && !v1SortSupported;
+  const configKey = (() => {
+    try { return reportDefinitionKey(reconciled.config); } catch { return ""; }
+  })();
+  currentDefinitionKey.current = configKey;
   const executionBlocked = linkPending || graphLoading || reconciled.stale.length > 0
-    || reconciled.filtersPending || reconciled.indicatorsPending || reconciled.columnsPending || !renderedColumns.length;
+    || reconciled.filtersPending || reconciled.indicatorsPending || reconciled.columnsPending || !renderedColumns.length
+    || Boolean(sortError) || unsupportedV1Sort;
 
+  useEffect(() => {
+    setPreview(null);
+    setSortJob(null);
+    setSortProgress(null);
+    currentSortJob.current = null;
+    setPage(1);
+  }, [configKey]);
+
+  const makePreviewRequest = (requestedPage) => ({
+    requestedPage,
+    definitionKey: configKey,
+    linkKey,
+  });
   useEffect(() => {
     setConfig((current) => current == null || typeof current !== "object"
       || current.start_object_id == null
       || String(current.start_object_id) === String(objectId)
       ? current : makeReportConfig(objectId));
     setPreview(null);
+    setSortJob(null);
+    setSortProgress(null);
+    currentSortJob.current = null;
   }, [objectId]);
   useEffect(() => {
     onConfigChange?.(config);
   }, [config, onConfigChange]);
   const previewMutation = useMutation({
-    mutationFn: async (requestedPage) => {
+    mutationFn: async ({ requestedPage, definitionKey: requestedKey, linkKey: requestLink }) => {
       if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before preview.");
-      const requestLink = linkKey;
-      const data = await relationshipRequest(reportUrl(objectId, "preview"), {
-      method: "POST",
-      body: JSON.stringify({ definition: reconciled.config, page: requestedPage, pageSize: 50 }),
+      const requestedDefinition = reconciled.config;
+      const requestKey = reportDefinitionKey(requestedDefinition);
+      if (requestKey !== requestedKey || requestLink !== linkKey) return null;
+      const post = (body) => relationshipRequest(reportUrl(objectId, "preview"), {
+        method: "POST",
+        body: JSON.stringify(body),
       });
-      if (currentLink.current === requestLink) { setPreview(data); setPage(requestedPage); }
+      let data;
+      const activeJob = currentSortJob.current;
+      if (activeJob?.definitionKey === requestKey) {
+        try {
+          data = await post({ definition: requestedDefinition, action: "page", job_id: activeJob.id, page: requestedPage, pageSize: 50 });
+        } catch {
+          if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return null;
+          currentSortJob.current = null;
+          setSortJob({ id: activeJob.id, status: "failed" });
+          throw new Error("Sorted preview snapshot expired or is unavailable. Retry Preview to prepare a new sorted snapshot; the report was not run unsorted.");
+        }
+      } else {
+        data = await post({ definition: requestedDefinition, page: requestedPage, pageSize: 50 });
+        if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return data;
+        if (data?.sort_job?.status === "complete" && data.sort_job.id) {
+          currentSortJob.current = { id: data.sort_job.id, definitionKey: requestKey };
+          setSortJob(data.sort_job);
+        }
+        if (data?.sort_job && data.sort_job.status !== "complete") {
+          if (data.sort_job.status === "failed") {
+            setSortJob(data.sort_job);
+            throw new Error("Sorted preview preparation failed. The saved report was not run unsorted.");
+          }
+          const job = { id: data.sort_job.id, definitionKey: requestKey };
+          currentSortJob.current = job;
+          setSortJob(data.sort_job);
+          setSortProgress(data.sort_job);
+          let completed;
+          let stalledAttempts = 0;
+          let preparedRows = Number(data.sort_job.processed) || 0;
+          for (; stalledAttempts < 60;) {
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return data;
+            try {
+              completed = await post({
+                definition: requestedDefinition, action: "process", job_id: job.id,
+                page: requestedPage, pageSize: 50,
+              });
+            } catch {
+              if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return data;
+              currentSortJob.current = null;
+              setSortJob({ id: job.id, status: "failed" });
+              throw new Error("Sorted preview preparation failed or expired. Retry Preview to prepare a new sorted snapshot; the report was not run unsorted.");
+            }
+            if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return data;
+            if (completed?.sort_job) {
+              setSortJob(completed.sort_job);
+              setSortProgress(completed.sort_job);
+              const processed = Number(completed.sort_job.processed) || 0;
+              stalledAttempts = processed > preparedRows ? 0 : stalledAttempts + 1;
+              preparedRows = processed;
+            }
+            if (completed?.sort_job?.status === "failed") {
+              currentSortJob.current = null;
+              throw new Error("Sorted preview preparation failed. The saved report was not run unsorted.");
+            }
+            if (completed?.sort_job?.status === "complete" || Array.isArray(completed?.data)) break;
+          }
+          if (currentDefinitionKey.current !== requestKey || currentLink.current !== requestLink) return data;
+          if (!completed || !Array.isArray(completed.data) || completed.sort_job?.status !== "complete") {
+            currentSortJob.current = null;
+            throw new Error("Sorted preview preparation did not finish in time. The saved report was not run unsorted; retry Preview.");
+          }
+          data = completed;
+          currentSortJob.current = job;
+          setSortProgress(null);
+        }
+      }
+      if (currentDefinitionKey.current === requestKey && currentLink.current === requestLink) {
+        setPreview(data); setPage(requestedPage);
+      }
       return data;
     },
-    onError: (error) => { setPreview(null); toast.error(error.message); },
+    onError: (error, request) => {
+      if (request?.definitionKey !== currentDefinitionKey.current || request?.linkKey !== currentLink.current) return;
+      setPreview(null); setSortProgress(null); toast.error(error.message);
+    },
   });
   useEffect(() => {
     if (!linkKey || appliedLink !== linkKey || executionBlocked || previewedLink === linkKey) return;
     setPreviewedLink(linkKey);
-    previewMutation.mutate(1);
+    previewMutation.mutate(makePreviewRequest(1));
   }, [linkKey, appliedLink, executionBlocked, previewedLink]);
   const exportMutation = useMutation({
     mutationFn: async () => {
       if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before export.");
       const storageKey = `custom-object-report-export:${objectId}`;
+      const requestedKey = reportDefinitionKey(reconciled.config);
       const downloadCsv = (parts, name) => {
         const blob = new Blob(parts, { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
@@ -195,6 +318,13 @@ export function CustomObjectReports({
       let job = savedJobId
         ? await request({ action: "status", job_id: savedJobId }).catch(() => null)
         : null;
+      if (job) {
+        try {
+          if (!job.definition || reportDefinitionKey(job.definition) !== requestedKey) job = null;
+        } catch {
+          job = null;
+        }
+      }
       if (!job || ["complete", "failed"].includes(job.status)) {
         job = await request({ action: "start", definition: reconciled.config,
           name: saved.activeReport?.name || object.plural_label || "custom-object-report" });
@@ -235,15 +365,54 @@ export function CustomObjectReports({
     setConfig(loadReportConfig(objectId, report.config));
     setColumnPath([]);
     setPreview(null);
+    setSortJob(null);
+    setSortProgress(null);
+    currentSortJob.current = null;
+    setPage(1);
   };
   const editConfig = (updater) => {
     setConfig((current) => (typeof updater === "function" ? updater(current) : updater));
     setPreview(null);
+    setSortJob(null);
+    setSortProgress(null);
+    currentSortJob.current = null;
+    setPage(1);
   };
   const setColumns = (updater) => editConfig((current) => ({
-    ...current, columns: typeof updater === "function"
-      ? updater(Array.isArray(current?.columns) ? current.columns : []) : updater,
+    ...current,
+    ...(() => {
+      const nextColumns = typeof updater === "function"
+        ? updater(Array.isArray(current?.columns) ? current.columns : []) : updater;
+      const validIds = new Set((Array.isArray(nextColumns) ? nextColumns : [])
+        .map((column) => column?.id).filter((id) => typeof id === "string"));
+      return {
+        columns: nextColumns,
+        ...(Array.isArray(current?.sort)
+          ? { sort: current.sort.filter((rule) => validIds.has(rule?.column_id)) }
+          : {}),
+      };
+    })(),
   }));
+  const addSortRule = () => editConfig((current) => {
+    const columns = Array.isArray(current?.columns) ? current.columns : [];
+    const used = new Set();
+    const repaired = columns.map((column) => {
+      let id = typeof column?.id === "string" && column.id.trim() ? column.id : "";
+      if (!id || used.has(id)) {
+        id = `report-column:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      }
+      used.add(id);
+      return id === column?.id ? column : { ...column, id };
+    });
+    const rules = Array.isArray(current?.sort) ? [...current.sort] : [];
+    const nextColumn = repaired.find((column) => !rules.some((rule) => rule?.column_id === column.id));
+    return { ...current, columns: repaired, sort: nextColumn ? [...rules, { column_id: nextColumn.id, direction: "asc" }] : rules };
+  });
+  const updateSort = (updater) => editConfig((current) => ({
+    ...current,
+    sort: typeof updater === "function" ? updater(Array.isArray(current?.sort) ? current.sort : []) : updater,
+  }));
+  const sortRules = Array.isArray(configView.sort) ? configView.sort : [];
   const isV2 = configView.version === 2;
   const selectedStart = isV2 && configView.start_endpoint
     && typeof configView.start_endpoint === "object"
@@ -348,7 +517,10 @@ export function CustomObjectReports({
               start={selectedStart} definitions={graph} objects={graphObjects} object={object} label="One row per" />
             <p className="mt-1 text-xs text-slate-500">Values reached through to-many paths are joined with semicolons. Row-relative counts, indicators and filters follow this selection.</p>
           {isV2 && <label className="mt-3 flex items-center gap-2 text-sm"><input data-testid="report-include-empty" type="checkbox" disabled={!canManage} checked={configView.include_empty === true} onChange={(event) => editConfig((current) => ({ ...current, include_empty: event.target.checked }))} />Include starting records with no related row</label>}</div>
-          <Button className="self-end" disabled={!canManage || executionBlocked || previewMutation.isPending} onClick={() => previewMutation.mutate(1)}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
+          <Button className="self-end" disabled={!canManage || executionBlocked || previewMutation.isPending} onClick={() => {
+            currentSortJob.current = null; setSortJob(null); setPreview(null);
+            previewMutation.mutate(makePreviewRequest(1));
+          }}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
         </div>
         {configView.version === 1 && <div className="rounded-md border bg-slate-50/50 p-3 text-sm text-slate-600">
           This legacy V1 report is retained unchanged. Create a new current-version report to use relationship filters; existing reports are not automatically converted.
@@ -410,6 +582,60 @@ export function CustomObjectReports({
                 onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
           </div>;
         })}</div></section>
+        <section className="min-w-0 space-y-3 rounded-md border p-3" aria-label="Report sorting" data-testid="report-sort-editor">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><Label>Sort priority</Label><p className="mt-1 max-w-3xl text-xs text-slate-500">
+              Blank and null values sort last. Numbers, dates and booleans use typed ordering; text is case-sensitive.
+              Joined multi-value cells sort as their displayed joined text, retaining identity order within each cell.
+              Equal values keep a stable row tie-breaker.
+            </p></div>
+            <Button type="button" variant="outline" data-testid="add-report-sort"
+              disabled={!canManage || !renderedColumns.length || sortRules.length >= 10
+                || renderedColumns.every((column) => sortRules.some((rule) => rule?.column_id === column.id))}
+              onClick={addSortRule}><Plus className="mr-1 h-4 w-4" />Add sort</Button>
+          </div>
+          {configView.version === 1 && <p className="text-xs text-slate-600">
+            V1 sorting supports the root and a single-hop to-many path. Complex legacy V1 reports must be recreated as V2 before sorting; this report will not be upgraded automatically.
+          </p>}
+          {!sortRules.length && <p className="rounded-md border border-dashed p-3 text-sm text-slate-500">No sort rules. Rows retain the report’s default order.</p>}
+          <ol className="space-y-2">
+            {sortRules.map((rule, index) => {
+              const columnIndex = renderedColumns.findIndex((column) => column?.id === rule?.column_id);
+              const unavailable = columnIndex < 0;
+              return <li key={`${rule?.column_id || "invalid"}-${index}`} className="grid min-w-0 gap-2 rounded border p-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,0.7fr)_auto] sm:items-end">
+                <span className="pb-2 text-sm font-medium">Priority {index + 1}</span>
+                <div className="min-w-0"><Label htmlFor={`sort-column-${index}`} className="text-xs">Column</Label>
+                  <select id={`sort-column-${index}`} data-testid={`sort-column-${index}`} aria-label={`Sort priority ${index + 1} column`}
+                    disabled={!canManage} value={rule?.column_id || ""} className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
+                    onChange={(event) => updateSort((rules) => rules.map((item, itemIndex) =>
+                      itemIndex === index ? { ...item, column_id: event.target.value } : item))}>
+                    {unavailable && <option value={rule?.column_id || ""}>Unavailable saved column</option>}
+                    {renderedColumns.filter((column) => typeof column?.id === "string" && column.id
+                      && (!sortRules.some((other, otherIndex) => otherIndex !== index && other?.column_id === column.id)
+                        || column.id === rule?.column_id)).map((column) =>
+                      <option key={column.id} value={column.id}>{column.label || "Untitled column"}</option>)}
+                  </select>
+                </div>
+                <div className="min-w-0"><Label htmlFor={`sort-direction-${index}`} className="text-xs">Direction</Label>
+                  <select id={`sort-direction-${index}`} data-testid={`sort-direction-${index}`} aria-label={`Sort priority ${index + 1} direction`}
+                    disabled={!canManage} value={rule?.direction || "asc"} className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    onChange={(event) => updateSort((rules) => rules.map((item, itemIndex) =>
+                      itemIndex === index ? { ...item, direction: event.target.value } : item))}>
+                    <option value="asc">Ascending</option><option value="desc">Descending</option>
+                  </select>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" size="sm" variant="ghost" aria-label={`Move sort priority ${index + 1} up`}
+                    disabled={!canManage || index === 0} onClick={() => updateSort((rules) => moveReportColumn(rules, index, -1))}>↑</Button>
+                  <Button type="button" size="sm" variant="ghost" aria-label={`Move sort priority ${index + 1} down`}
+                    disabled={!canManage || index === sortRules.length - 1} onClick={() => updateSort((rules) => moveReportColumn(rules, index, 1))}>↓</Button>
+                  <Button type="button" size="sm" variant="ghost" aria-label={`Remove sort priority ${index + 1}`}
+                    disabled={!canManage} onClick={() => updateSort((rules) => rules.filter((_, ruleIndex) => ruleIndex !== index))}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              </li>;
+            })}
+          </ol>
+        </section>
         {isV2 && <ReportRelationshipFilters filters={configView.filters}
           onChange={(filters) => editConfig((current) => ({ ...current, filters }))}
           canManage={canManage} start={selectedEndpoint}
@@ -417,11 +643,17 @@ export function CustomObjectReports({
           metadataLoading={graphLoading} metadataError={fieldQueries.some((query) => query.isError)}
           onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
         {organizationFieldsQuery.isError && <div role="alert" className="rounded-md border p-3 text-sm text-red-600">Organisation custom fields could not be loaded: {organizationFieldsQuery.error?.message}. Saved selections are preserved.<Button type="button" variant="outline" size="sm" className="ml-2" onClick={() => organizationFieldsQuery.refetch()}>Retry organisation fields</Button></div>}
+        {sortError && <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Saved sort rules are invalid: {sortError}. They are preserved, but preview and export are blocked until repaired.</p>}
+        {unsupportedV1Sort && <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Complex V1 reports cannot be sorted. Create a new V2 report to add sorting; this legacy definition will not be upgraded automatically.</p>}
         {(graphLoading || reconciled.indicatorsPending || reconciled.filtersPending || reconciled.columnsPending) && <p role="status" className="rounded-md border p-3 text-sm text-slate-500">Waiting for authorised relationship or field metadata. Saved selections are preserved; preview and export are blocked.</p>}
+        {sortProgress && <p role="status" aria-live="polite" className="rounded-md border p-3 text-sm text-slate-600">
+          Preparing globally sorted preview · {sortProgress.processed ?? 0} of {sortProgress.total ?? "…"} rows
+        </p>}
+        {sortJob?.status === "failed" && <p role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">Sorted preview preparation failed. The saved report was not run unsorted. Retry Preview to start a new preparation.</p>}
         {previewMutation.isError && <p role="alert" className="text-sm text-red-600">Preview failed: {previewMutation.error?.message}. Retry Preview after resolving the issue.</p>}
         <div className="flex flex-wrap items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span role="alert" className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || executionBlocked || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
       </CardContent>
     </Card>
-    {preview && <Card className="min-w-0"><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="min-w-0 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : renderedColumns[index]?.kind === "exists_related" && typeof value === "boolean" ? value ? "True" : "False" : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={executionBlocked || page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={executionBlocked || (!preview.has_more && !(preview.total > page * 50)) || previewMutation.isPending} onClick={() => previewMutation.mutate(page + 1)}>Next</Button></div></CardContent></Card>}
+    {preview && <Card className="min-w-0"><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="min-w-0 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : renderedColumns[index]?.kind === "exists_related" && typeof value === "boolean" ? value ? "True" : "False" : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={executionBlocked || page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(makePreviewRequest(page - 1))}>Previous</Button><Button size="sm" variant="outline" disabled={executionBlocked || (!preview.has_more && !(preview.total > page * 50)) || previewMutation.isPending} onClick={() => previewMutation.mutate(makePreviewRequest(page + 1))}>Next</Button></div></CardContent></Card>}
   </div>;
 }
