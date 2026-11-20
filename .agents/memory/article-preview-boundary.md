@@ -9,6 +9,12 @@ For authenticated draft editing and image preservation, see [Article editor imag
 
 For scheduled posts, see [Scheduled article visibility](article-scheduling-policy.md); author/admin preview remains available before release.
 
+Editor Preview must not promote a draft to published, even when the author has changed the unsaved status selector. Normal Save remains the explicit status-change action.
+
+**Why:** Preview is an authoring check, not permission to publish. Its automatic save must not turn a request to inspect a draft into a publication.
+
+**How to apply:** Reuse the authenticated article view and its Edit return action, not the password-sharing page. Use the latest confirmed save/autosave status, never the originally loaded status, or Preview can reverse a subsequent publication decision. Unreleased scheduled articles also need preview mode; retain the normal save flow's date semantics.
+
 **Why:** Guest entity reads returned session-invalid responses and repeatedly cleared the shared query cache. Client-side password comparison also disclosed the protected draft and its password before verification.
 
 **How to apply:** Use the tenant-resolved public password endpoint, minimal display-author projections, and fresh verification on navigation. Preserve generic entity authorization and tenant page-visibility overrides.

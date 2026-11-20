@@ -17,6 +17,7 @@ export default function SEOSettings({
   defaultDescription,
   ogImageUrl,
   onOgImageUrlChange,
+  onUploadingChange,
 }) {
   const showSocialImage = typeof onOgImageUrlChange === 'function';
   const ogInputRef = useRef(null);
@@ -28,6 +29,7 @@ export default function SEOSettings({
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    onUploadingChange?.(true);
     setDimWarning('');
     try {
       const dims = await new Promise((resolve, reject) => {
@@ -63,6 +65,7 @@ export default function SEOSettings({
       toast({ title: 'Upload failed', description: 'Could not upload social image. Please try again.', variant: 'destructive' });
     } finally {
       setUploading(false);
+      onUploadingChange?.(false);
       if (ogInputRef.current) ogInputRef.current.value = '';
     }
   };

@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Save, Eye, EyeOff, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User, Share2, Copy, Check, Crosshair } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
@@ -22,10 +22,12 @@ import SEOSettings from "../components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import MemberCombobox from "@/components/MemberCombobox";
+import { isArticlePublished } from "../../../shared/articlePublication.js";
 
 export default function ArticleEditorPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
-  const { getArticleListUrl, getArticleEditorUrl, getMyArticlesUrl, baseUrlPath } = useArticleUrl();
+  const { getArticleListUrl, getArticleEditorUrl, getArticleViewUrlFromArticle, getMyArticlesUrl, baseUrlPath, isLoading: articleUrlsLoading } = useArticleUrl();
+  const navigate = useNavigate();
   const urlParams = new URLSearchParams(window.location.search);
   const articleId = urlParams.get('id');
   const isEditing = !!articleId;
@@ -35,6 +37,12 @@ export default function ArticleEditorPage() {
   const [hydratedArticleId, setHydratedArticleId] = useState(null);
   const imageChangedRef = useRef(false);
   const lastAutoSaveSnapshot = useRef(null);
+  const autoSaveTimerRef = useRef(null);
+  const saveBusyRef = useRef(false);
+  const savedRecordIdRef = useRef(null);
+  const persistedStatusRef = useRef('draft');
+  const uploadCountRef = useRef(0);
+  const [saveError, setSaveError] = useState('');
   
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
@@ -68,6 +76,7 @@ export default function ArticleEditorPage() {
   const coAuthorsInitRef = useRef(false);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
+  const [validatedSlugKey, setValidatedSlugKey] = useState(null);
   // Share draft functionality
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [sharePassword, setSharePassword] = useState("");
@@ -154,6 +163,7 @@ export default function ArticleEditorPage() {
   useEffect(() => {
     if (article && !articleFetching && article.id === articleId && hydratedArticleId !== articleId) {
       imageChangedRef.current = false;
+      persistedStatusRef.current = article.status || 'draft';
       lastAutoSaveSnapshot.current = null;
       setTitle(article.title || "");
       setSummary(article.summary || "");
@@ -184,7 +194,7 @@ export default function ArticleEditorPage() {
   }, [article, articleFetching, articleId, hydratedArticleId]);
 
   // Fetch current author's handle if article has an author_id
-  const { data: currentAuthorMember } = useQuery({
+  const { data: currentAuthorMember, isFetching: authorFetching } = useQuery({
     queryKey: ['current-author', article?.author_id],
     queryFn: async () => {
       if (!article?.author_id) return null;
@@ -200,7 +210,7 @@ export default function ArticleEditorPage() {
   });
 
   // Fetch the persisted original author's details (from original_author_id column)
-  const { data: persistedOriginalAuthorMember } = useQuery({
+  const { data: persistedOriginalAuthorMember, isFetching: originalAuthorFetching } = useQuery({
     queryKey: ['persisted-original-author', article?.original_author_id],
     queryFn: async () => {
       if (!article?.original_author_id) return null;
@@ -302,11 +312,15 @@ export default function ArticleEditorPage() {
   }, [title, isEditing]);
 
   // Per-author slug uniqueness validation
+  const slugValidationKey = JSON.stringify([slug, authorType, originalAuthorId, persistedOriginalAuthorId, selectedGuestWriterId, currentMember?.id, articleId]);
   useEffect(() => {
+    let cancelled = false;
     if (!slug) {
       setSlugError(null);
+      setCheckingSlug(false);
       return;
     }
+    setCheckingSlug(true);
 
     // Determine the author ID for uniqueness check
     let authorIdToCheck = null;
@@ -314,6 +328,8 @@ export default function ArticleEditorPage() {
     
     if (authorType === "guest") {
       guestWriterIdToCheck = selectedGuestWriterId;
+    } else if (authorType === "revert_original" && persistedOriginalAuthorId) {
+      authorIdToCheck = persistedOriginalAuthorId;
     } else if (authorType === "other_member" && originalAuthorId) {
       authorIdToCheck = originalAuthorId;
     } else if (currentMember?.id) {
@@ -324,6 +340,7 @@ export default function ArticleEditorPage() {
       setCheckingSlug(true);
       try {
         const allArticles = await base44.entities.BlogPost.list();
+        if (cancelled) return;
         
         // Find articles with the same slug from the same author
         const duplicates = allArticles.filter(a => {
@@ -355,17 +372,19 @@ export default function ArticleEditorPage() {
         } else {
           setSlugError(null);
         }
+        setValidatedSlugKey(slugValidationKey);
       } catch (error) {
         console.error('Error checking slug uniqueness:', error);
+        if (!cancelled) setSlugError('Could not check this URL. Change the slug or reload to try again.');
       } finally {
-        setCheckingSlug(false);
+        if (!cancelled) setCheckingSlug(false);
       }
     };
 
     // Debounce the check
     const timer = setTimeout(checkSlugUniqueness, 500);
-    return () => clearTimeout(timer);
-  }, [slug, authorType, originalAuthorId, selectedGuestWriterId, currentMember?.id, isEditing, articleId]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [slug, authorType, originalAuthorId, persistedOriginalAuthorId, selectedGuestWriterId, currentMember?.id, isEditing, articleId]);
 
   // Co-authors (Task #1222) -------------------------------------------------
   // The current primary author, derived the same way the save logic does, so we
@@ -404,11 +423,11 @@ export default function ArticleEditorPage() {
   };
 
   // Rehydrate existing authors when editing.
-  const { data: existingAuthorsData } = useQuery({
+  const { data: existingAuthorsData, isFetching: coAuthorsFetching, error: coAuthorsError } = useQuery({
     queryKey: ['blog-post-authors', articleId],
     queryFn: async () => {
       const r = await fetch(`/api/articles/authors?blog_post_id=${articleId}`, { credentials: 'include' });
-      if (!r.ok) return { authors: [] };
+      if (!r.ok) throw new Error('Could not load the saved authors. Reload before saving.');
       return r.json();
     },
     enabled: isEditing && !!articleId,
@@ -416,7 +435,7 @@ export default function ArticleEditorPage() {
 
   useEffect(() => {
     if (coAuthorsInitRef.current) return;
-    if (!isEditing || !article || !existingAuthorsData?.authors) return;
+    if (!isEditing || !article || coAuthorsFetching || !existingAuthorsData?.authors) return;
     const primaryAuthorId = article.author_id;
     const primaryGuestId = article.guest_writer_id;
     const cos = existingAuthorsData.authors
@@ -429,7 +448,7 @@ export default function ArticleEditorPage() {
       }));
     setCoAuthors(cos);
     coAuthorsInitRef.current = true;
-  }, [existingAuthorsData, article, isEditing]);
+  }, [existingAuthorsData, article, isEditing, coAuthorsFetching]);
 
   const removeCoAuthor = (type, id) => {
     setCoAuthors((prev) => prev.filter((c) => !(c.type === type && c.id === id)));
@@ -475,8 +494,11 @@ export default function ArticleEditorPage() {
   };
 
   useEffect(() => {
-    if (!memberInfo || !title) return;
+    if (!memberInfo || !title.trim()) return;
     if (isEditing && (hydratedArticleId !== articleId || articleFetching || articleError || uploadingImage)) return;
+    if (saveBusyRef.current || autoSaving || uploadingImage || checkingSlug || validatedSlugKey !== slugValidationKey || slugError || !slug?.trim()) return;
+    if (isEditing && (authorFetching || originalAuthorFetching || coAuthorsFetching || !coAuthorsInitRef.current)) return;
+    if (authorType === 'guest' && !selectedGuestWriterId) return;
     // For member type, require handle. For other types, no handle required.
     if (authorType === "member" && !currentMember?.handle) return;
     const snapshot = JSON.stringify([articleId, title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, authorType, selectedGuestWriterId, coAuthors]);
@@ -486,8 +508,10 @@ export default function ArticleEditorPage() {
     }
     if (lastAutoSaveSnapshot.current === snapshot) return;
 
-    const autoSaveTimer = setTimeout(async () => {
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (saveBusyRef.current || uploadCountRef.current) return;
       if (isEditing) {
+        saveBusyRef.current = true;
         setAutoSaving(true);
         try {
           let autoSaveData = {
@@ -535,22 +559,25 @@ export default function ArticleEditorPage() {
             : (autoSaveData.author_id ? { type: 'member', id: autoSaveData.author_id } : null);
           autoSaveData.authors = buildAuthorsArray(autoPrimaryRef);
 
-          await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(autoSaveData, imageChangedRef.current));
+          const saved = await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(autoSaveData, imageChangedRef.current));
+          persistedStatusRef.current = saved?.status ?? autoSaveData.status;
           lastAutoSaveSnapshot.current = snapshot;
           setLastSaved(new Date());
         } catch (error) {
           console.error('Auto-save failed:', error);
         } finally {
+          saveBusyRef.current = false;
           setAutoSaving(false);
         }
       }
     }, 3000);
 
-    return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article, coAuthors, hydratedArticleId, articleFetching, articleError, uploadingImage]);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article, coAuthors, hydratedArticleId, articleFetching, articleError, uploadingImage, autoSaving, checkingSlug, validatedSlugKey, slugValidationKey, slugError, authorFetching, originalAuthorFetching, coAuthorsFetching]);
 
   const saveMutation = useMutation({
-    mutationFn: async (publishNow = false) => {
+    mutationFn: async (intent = 'save') => {
+      const publishNow = intent === 'publish';
       if (isEditing && (hydratedArticleId !== articleId || articleFetching || articleError || uploadingImage)) {
         throw new Error('Wait for the saved article and image to finish loading before saving.');
       }
@@ -696,29 +723,68 @@ export default function ArticleEditorPage() {
         ? { type: 'guest', id: articleData.guest_writer_id }
         : (articleData.author_id ? { type: 'member', id: articleData.author_id } : null);
       articleData.authors = buildAuthorsArray(primaryRef);
+      // Preview is not a publication action, including for unsaved new records.
+      if (intent === 'preview') articleData.status = persistedStatusRef.current;
 
-      if (isEditing) {
-        return await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(articleData, imageChangedRef.current));
+      const recordId = articleId || savedRecordIdRef.current;
+      if (recordId) {
+        const saved = await base44.entities.BlogPost.update(recordId, articleUpdateWithImageIntent(articleData, imageChangedRef.current));
+        if (!saved?.id) throw new Error('The saved article could not be confirmed. Please try again.');
+        persistedStatusRef.current = saved.status ?? articleData.status;
+        return saved;
       } else {
-        return await base44.entities.BlogPost.create(articleData);
+        const saved = await base44.entities.BlogPost.create(articleData);
+        if (!saved?.id) throw new Error('The saved article could not be confirmed. Please try again.');
+        savedRecordIdRef.current = saved.id;
+        persistedStatusRef.current = saved.status ?? articleData.status;
+        return saved;
       }
     },
-    onSuccess: (data, publishNow) => {
+    onSuccess: async (data, intent) => {
       queryClient.invalidateQueries({ queryKey: ['articles'] });
       queryClient.invalidateQueries({ queryKey: ['my-articles'] });
       queryClient.invalidateQueries({ queryKey: ['all-articles-admin'] });
       queryClient.invalidateQueries({ queryKey: ['published-articles'] });
-      toast.success(publishNow ? `${singularDisplayName} published successfully!` : `${singularDisplayName} saved successfully!`);
+      toast.success(intent === 'publish' ? `${singularDisplayName} published successfully!` : `${singularDisplayName} saved successfully!`);
       setLastSaved(new Date());
+      if (intent === 'preview') {
+        // Cancel older view reads before evicting them so the saved version is fetched.
+        await queryClient.cancelQueries({ queryKey: ['article-by-slug'] });
+        queryClient.removeQueries({ queryKey: ['article-by-slug'] });
+        queryClient.invalidateQueries({ queryKey: ['article-authors', data.id] });
+        const handles = {};
+        for (const member of [currentMember, currentAuthorMember, persistedOriginalAuthorMember]) {
+          if (member?.id && (member.handle || member.blog_handle)) handles[member.id] = member.handle || member.blog_handle;
+        }
+        const destination = getArticleViewUrlFromArticle(data, handles);
+        navigate(!isArticlePublished(data) ? `${destination}?preview=true` : destination);
+        return;
+      }
       
       if (!isEditing) {
         window.location.href = getArticleEditorUrl(data.id);
       }
     },
     onError: (error) => {
+      setSaveError(error.message || `Failed to save ${singularDisplayName.toLowerCase()}`);
       toast.error(error.message || `Failed to save ${singularDisplayName.toLowerCase()}`);
     },
+    onSettled: () => { saveBusyRef.current = false; },
   });
+
+  const saveDisabled = saveMutation.isPending || autoSaving || uploadingImage || articleUrlsLoading ||
+    articleFetching || authorFetching || originalAuthorFetching || coAuthorsFetching ||
+    (isEditing && !coAuthorsInitRef.current) || !!coAuthorsError || checkingSlug || validatedSlugKey !== slugValidationKey || !!slugError ||
+    !title.trim() || !slug.trim() || !currentMember ||
+    (authorType === 'guest' && !selectedGuestWriterId);
+
+  const handleSave = (intent) => {
+    if (saveDisabled || saveBusyRef.current || uploadCountRef.current) return;
+    saveBusyRef.current = true; // Synchronous guard against double clicks and queued autosaves.
+    clearTimeout(autoSaveTimerRef.current);
+    setSaveError('');
+    saveMutation.mutate(intent);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => base44.entities.BlogPost.delete(articleId),
@@ -801,6 +867,7 @@ export default function ArticleEditorPage() {
     if (!file) return;
 
     setUploadingImage(true);
+    uploadCountRef.current++;
     try {
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       imageChangedRef.current = true;
@@ -809,7 +876,8 @@ export default function ArticleEditorPage() {
     } catch (error) {
       showUploadErrorToast(error, 'Failed to upload image');
     } finally {
-      setUploadingImage(false);
+      uploadCountRef.current--;
+      setUploadingImage(uploadCountRef.current > 0);
     }
   };
 
@@ -821,6 +889,8 @@ export default function ArticleEditorPage() {
       const file = e.target.files?.[0];
       if (!file) return;
 
+      uploadCountRef.current++;
+      setUploadingImage(true);
       try {
         const { file_url } = await base44.integrations.Core.UploadFile({ file });
         const quill = quillRef.current?.getEditor();
@@ -831,6 +901,9 @@ export default function ArticleEditorPage() {
         toast.success('Image inserted');
       } catch (error) {
         showUploadErrorToast(error, 'Failed to upload image');
+      } finally {
+        uploadCountRef.current--;
+        setUploadingImage(uploadCountRef.current > 0);
       }
     };
     input.click();
@@ -977,7 +1050,7 @@ export default function ArticleEditorPage() {
 
         {/* Header actions */}
         <div className="flex items-center justify-end mb-6">
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap justify-end items-center gap-3">
             {autoSaving && (
               <span className="text-sm text-slate-500 flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1004,19 +1077,34 @@ export default function ArticleEditorPage() {
               </Button>
             )}
             
+            <div className="flex items-center gap-3">
             <Button
-              onClick={() => saveMutation.mutate(false)}
-              disabled={saveMutation.isPending || !title || !slug || !!slugError}
+              variant="outline"
+              onClick={() => handleSave('preview')}
+              disabled={saveDisabled}
+              aria-busy={saveMutation.isPending && saveMutation.variables === 'preview'}
+              className="gap-2"
+              data-testid="button-preview-article"
+            >
+              {saveMutation.isPending && saveMutation.variables === 'preview'
+                ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+              {saveMutation.isPending && saveMutation.variables === 'preview' ? 'Saving preview…' : 'Preview'}
+            </Button>
+            <Button
+              onClick={() => handleSave('save')}
+              disabled={saveDisabled}
               className="bg-blue-600 hover:bg-blue-700 gap-2"
               data-testid="button-save-article"
             >
               <Save className="w-4 h-4" />
               Save
             </Button>
+            </div>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        {(saveError || coAuthorsError) && <p role="alert" className="mb-4 text-red-600">{saveError || coAuthorsError.message}</p>}
+        <fieldset disabled={saveMutation.isPending} className="grid lg:grid-cols-3 gap-8 min-w-0">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-slate-200 shadow-sm">
@@ -1254,6 +1342,7 @@ export default function ArticleEditorPage() {
                   <Label>Content</Label>
                   <div style={{ height: '500px' }}>
                     <ReactQuill
+                      readOnly={saveMutation.isPending}
                       ref={quillRef}
                       theme="snow"
                       value={content}
@@ -1282,6 +1371,7 @@ export default function ArticleEditorPage() {
                     <div 
                       className="relative rounded-lg overflow-hidden cursor-crosshair"
                       onClick={(e) => {
+                        if (saveMutation.isPending) return;
                         const rect = e.currentTarget.getBoundingClientRect();
                         const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
                         const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
@@ -1420,6 +1510,10 @@ export default function ArticleEditorPage() {
               onSeoDescriptionChange={setSeoDescription}
               ogImageUrl={ogImageUrl}
               onOgImageUrlChange={setOgImageUrl}
+              onUploadingChange={(uploading) => {
+                uploadCountRef.current += uploading ? 1 : -1;
+                setUploadingImage(uploadCountRef.current > 0);
+              }}
               defaultTitle={title}
               defaultDescription={summary}
             />
@@ -1441,7 +1535,7 @@ export default function ArticleEditorPage() {
               </Button>
             )}
           </div>
-        </div>
+        </fieldset>
       </div>
 
       <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
