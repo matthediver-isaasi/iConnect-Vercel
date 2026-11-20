@@ -309,6 +309,88 @@ test('rendered credit choices retain first-month estimates and unavailable estim
   }
 });
 
+test('voucher selection keeps the VAT summary and both monthly choices consistent without writes', async () => {
+  for (const count of [12, null]) {
+    window.history.replaceState({}, '', '/forms/renew');
+    const writes = [], changes = [];
+    const quote = {
+      ...renewalQuote(), memberScoped: true, finalCost: 40, totalWithVat: 47,
+      vatRatePercent: 17.5, vatAmount: 7,
+      costBreakdown: { annualCostBeforeDiscounts: 50, annualCost: 40, customDiscountTotal: 10 },
+      cardMonthly: { monthlyAmount: 3.92, planTotal: 47.04, instalmentCount: count },
+      directDebit: { monthlyAmount: 3.92, planTotal: 47.04, instalmentCount: count,
+        collectionPolicy: { end_policy: 'continue', pricing_policy: 'dynamic' } },
+      renewal: { state: 'eligible_renewal', eligible: true },
+    };
+    const originalQuote = structuredClone(quote);
+    globalThis.fetch = async (input, options) => {
+      if (options?.method && options.method !== 'GET') {
+        writes.push(options);
+        throw new Error('Selection must not write or reserve credit');
+      }
+      return new Response(JSON.stringify(String(input).includes('payment-plan') ? { currentPlan: null }
+        : String(input).includes('action=vouchers') ? { currency: 'GBP', checkoutReady: true, vouchers: [
+          { id: 'one', code: 'ONE', value: 20 }, { id: 'two', code: 'TWO', value: 12.79 },
+          { id: 'full', code: 'FULL', value: 47 }, { id: 'excess', code: 'EXCESS', value: 100 },
+        ] } : quote));
+    };
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<MembershipPaymentField field={{ id: 'payment' }}
+        resolvedMemberId="member" onChange={value => changes.push(value)} />));
+      const card = label => [...host.querySelectorAll('button[aria-pressed]')].find(b => b.textContent.startsWith(label));
+      const checkboxes = host.querySelectorAll('input[type="checkbox"]');
+      assert.equal(checkboxes.length, 4);
+      const total = () => host.querySelector('[data-testid="text-total-amount"]').textContent;
+      const row = label => [...host.querySelectorAll('span')].find(span => span.textContent === label)?.parentElement.textContent;
+      const assertTax = () => {
+        assert.equal(row('Subtotal'), 'Subtotal£40.00');
+        assert.equal(row('VAT (17.5%)'), 'VAT (17.5%)£7.00');
+        assert.equal(row('Discount'), 'Discount-£10.00');
+      };
+      assert.equal(total(), '£47.00');
+      assert.match(card('Pay monthly by card').textContent, /£47\.04 in total/);
+      for (const [index, balance, credit] of [
+        [0, '£27.00', '£20.00'], [1, '£14.21', '£32.79'],
+        [0, '£34.21', '£12.79'], [1, '£47.00', null],
+        [2, '£0.00', '£47.00'], [3, '£0.00', '£47.00'],
+        [2, '£0.00', '£47.00'], [3, '£47.00', null],
+      ]) {
+        await click(checkboxes[index]);
+        assert.equal(total(), balance);
+        assertTax();
+        const deduction = host.querySelector('[data-testid="selected-credit-deduction"]');
+        if (credit) {
+          assert.equal(deduction.textContent, `Selected voucher credit (estimate)−${credit}`);
+          assert.equal(row('Total before credit'), 'Total before credit£47.00');
+          assert.ok(row('Remaining to pay (estimate)'));
+          assert.ok(card('Pay in full by card').textContent.includes(`${balance} after credit (estimate)`));
+          const monthly = card('Pay monthly by card');
+          assert.doesNotMatch(monthly.textContent, /47\.04|in total/);
+          assert.match(monthly.textContent, /Payments are estimated after credit and may vary for rounding/);
+          assert.equal(monthly.textContent.includes('12 monthly payments'), !!count);
+          const dd = card('Pay monthly by Direct Debit');
+          assert.equal(dd.textContent, 'Pay monthly by Direct Debit' + (count
+            ? monthly.querySelector('.text-sm').textContent : 'Credit estimate unavailable'));
+          if (balance === '£14.21' && count) assert.match(dd.textContent, /£1\.18 first month after credit \(estimate\)/);
+          if (!count) assert.match(monthly.textContent, /Credit estimate unavailable/);
+          await click(dd);
+          await click(monthly);
+        } else {
+          assert.equal(deduction, null);
+          assert.equal(row('Total'), 'Total£47.00');
+          assert.match(card('Pay monthly by card').textContent, /£47\.04 in total/);
+          assert.equal(card('Pay monthly by Direct Debit').textContent, 'Pay monthly by Direct Debit£3.92/month');
+        }
+        assert.equal(writes.length, 0);
+        assert.deepEqual(changes, [], 'a preview is not payment completion');
+      }
+      assert.deepEqual(quote, originalQuote);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  }
+});
+
 test('class mapping and saved form identity accompany quotes and every payment method', async () => {
   for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
     const mounted = await mountRenewal({

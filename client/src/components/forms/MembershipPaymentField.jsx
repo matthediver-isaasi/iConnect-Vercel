@@ -14,11 +14,13 @@ import { renewalCreditPreview } from "./renewalCreditPreview";
 import { formMembershipFeeQuery } from "@/lib/formMembershipFeeQuery";
 import { renewalReviewSnapshot } from "./renewalReviewSnapshot";
 
-export function renewalOptions(data, vouchers = []) {
+export function renewalOptions(data, vouchers = [], preview = null) {
   if (!data?.membershipYear || data.approvalPending || data.zeroDue) return [];
   const monthlyTerms = offer => [
     offer.instalmentCount ? `${offer.instalmentCount} monthly payments` : 'Monthly payments',
-    offer.planTotal != null ? `${formatCurrency(offer.planTotal, offer.currency || data.currency)} in total for this term.` : '',
+    vouchers.length
+      ? 'Payments are estimated after credit and may vary for rounding and variable fees.'
+      : offer.planTotal != null ? `${formatCurrency(offer.planTotal, offer.currency || data.currency)} in total for this term.` : '',
   ].filter(Boolean).join(' — ');
   const options = [
     data.stripeEnabled && !isBelowStripeMinimum(data.totalWithVat ?? data.finalCost, data.currency)
@@ -29,7 +31,7 @@ export function renewalOptions(data, vouchers = []) {
     data.directDebit && { id: 'direct_debit', label: 'Pay monthly by Direct Debit', price: `${formatCurrency(data.directDebit.monthlyAmount, data.directDebit.currency || data.currency)}/month` },
   ].filter(Boolean);
   if (!vouchers.length) return options;
-  const preview = renewalCreditPreview(data, vouchers);
+  preview ??= renewalCreditPreview(data, vouchers);
   return options.map(option => ({ ...option, price: preview[option.id] == null
     ? 'Credit estimate unavailable'
     : `${formatCurrency(preview[option.id], data.currency)}${option.id === 'upfront' ? ' after credit (estimate)' : ' first month after credit (estimate)'}` }));
@@ -905,6 +907,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   }
   const payableAmount = data.totalWithVat ?? data.finalCost;
   const belowMinimum = isBelowStripeMinimum(payableAmount, data.currency);
+  // Display only: retain the gross server quote for eligibility and payment actions.
+  const creditPreview = renewalCreditPreview(data, selectedVouchers);
+  const hasSelectedCredit = selectedVouchers.length > 0;
 
   return (
     <Card data-testid={`membership-payment-${field.id}`}>
@@ -1000,9 +1005,19 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               </div>
             )}
 
+            {hasSelectedCredit && <>
+              <div className="flex justify-between flex-wrap gap-1">
+                <span>Total before credit</span>
+                <span data-testid="text-total-before-credit">{formatCurrency(payableAmount, data.currency)}</span>
+              </div>
+              <div className="flex justify-between flex-wrap gap-1" data-testid="selected-credit-deduction">
+                <span>Selected voucher credit (estimate)</span>
+                <span>−{formatCurrency(creditPreview.credit, data.currency)}</span>
+              </div>
+            </>}
             <div className="flex justify-between flex-wrap gap-1 font-semibold text-base pt-1">
-              <span>Total</span>
-              <span data-testid="text-total-amount">{formatCurrency(payableAmount, data.currency)}</span>
+              <span>{hasSelectedCredit ? 'Remaining to pay (estimate)' : 'Total'}</span>
+              <span data-testid="text-total-amount">{formatCurrency(hasSelectedCredit ? creditPreview.upfront : payableAmount, data.currency)}</span>
             </div>
           </div>
         </div>}
@@ -1033,11 +1048,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         {usesMethodChooser && choicesStage && (isJoining ? joiningAvailable : (renewal.eligible === true || resuming)) && (
           <>
           {selectedVouchers.length > 0 && <p className="text-sm text-muted-foreground" role="status">
-            Selected credit towards this membership: {formatCurrency(renewalCreditPreview(data, selectedVouchers).credit, data.currency)}.
+            Selected credit towards this membership: {formatCurrency(creditPreview.credit, data.currency)}.
             {' '}The cards below show estimates, not an applied payment. Monthly credit is spread across the membership period;
             rounding and variable fees can change later payments. Any credit above the membership cost remains unused.
           </p>}
-          <RenewalMethodChooser options={renewalOptions(data, selectedVouchers)} selectedMethod={selectedMethod}
+          <RenewalMethodChooser options={renewalOptions(data, selectedVouchers, creditPreview)} selectedMethod={selectedMethod}
             busyMethod={busyMethod} disabled={busy || creditCheckoutActive}
             onSelect={chooseRenewalMethod} />
           {!selectedVouchers.length && !creditCheckoutActive && <MembershipPrimaryAction>

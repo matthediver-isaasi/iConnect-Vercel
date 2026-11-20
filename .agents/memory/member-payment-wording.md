@@ -23,3 +23,9 @@ Keep the renewal Direct Debit choice to its heading and quoted monthly amount (o
 **Why:** The owner explicitly requested concise choice copy, not a billing change or removal of payment consent disclosures.
 
 **How to apply:** Keep collection timing, continuation and variable-price explanations on the separate checkout/consent surface, not the renewal choice card. Do not infer a fixed total or future-price guarantee.
+
+Selected renewal voucher credit is a proposed funding source, not a membership price discount or a settled payment.
+
+**Why:** The owner requires the taxable membership price and VAT to stay intact while the choices screen shows an estimated balance after selected credit.
+
+**How to apply:** Present credit after the gross price calculation, label the remaining balance as an estimate, and keep payment authority with the server. A rounded monthly plan total must not replace the membership's quoted gross cost or imply a fixed after-credit collection total.
