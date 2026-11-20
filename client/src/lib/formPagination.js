@@ -17,6 +17,7 @@ export function getFormPagination({
   filterVisibleFields,
   formContainerRef,
   toast,
+  navigationBlockedReason,
 }) {
   const pages = form?.pages || [];
   const visiblePages = pages.filter(p => !hiddenPageIds.has(p.id));
@@ -77,6 +78,10 @@ export function getFormPagination({
   };
 
   const goToNextPage = () => {
+    if (navigationBlockedReason) {
+      toast.error(navigationBlockedReason);
+      return;
+    }
     if (validateCurrentPage()) {
       setCurrentPageIndex(prev => Math.min(prev + 1, visiblePages.length - 1));
       scrollToForm();

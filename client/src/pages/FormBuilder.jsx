@@ -12939,6 +12939,28 @@ function FormBuilderEditor() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Row 1: Core Settings */}
               <div className="space-y-2">
+                <Label htmlFor="department-selector-position">Department selector position</Label>
+                <select
+                  id="department-selector-position"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  disabled={formData.layout_type === 'card_swipe'}
+                  value={(formData.fields || []).find(field => field.department_selector_before
+                    && (!field.page_id || field.page_id === formData.pages?.[0]?.id))?.id || ''}
+                  onChange={event => {
+                    const id = event.target.value;
+                    setFormData(previous => ({
+                      ...previous,
+                      fields: previous.fields.map(field => ({ ...field, department_selector_before: field.id === id })),
+                    }));
+                  }}
+                >
+                  <option value="">At the beginning of the form</option>
+                  {(formData.fields || []).filter(field => !field.page_id || field.page_id === formData.pages?.[0]?.id)
+                    .map(field => <option key={field.id} value={field.id}>Before: {field.label || field.type}</option>)}
+                </select>
+                <p className="text-xs text-slate-500">For assigned-Department forms only. Appears on the first page; choose a field to place introductory content above it. Card-swipe forms always show it at the beginning.</p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="name">Form Name *</Label>
                 <Input
                   id="name"

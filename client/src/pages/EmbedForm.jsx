@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import FormCartCount from "@/components/forms/FormCartCount";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Lock } from "lucide-react";
-import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
+import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/PositionedFormRenderer";
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
@@ -1226,6 +1226,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   };
 
   const handleNext = () => {
+    if (departmentCurrentSet.active && !departmentCurrentSet.departmentId) {
+      toast.error('Choose the Department to update before continuing.');
+      return;
+    }
     if (!validateCurrentPage()) {
       toast.error('Please fill in all required fields correctly');
       return;
@@ -1617,7 +1621,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
               <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
             )}
             <div className="mt-3">
-              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentStep === 0 }} />
             </div>
             <div className="flex gap-1 mt-4">
               {visibleFields.map((_, index) => (
@@ -1823,7 +1827,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
             <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
           )}
           <div className="mt-3">
-            <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+            <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0 }} />
           </div>
           {surveyIntroText(form) && (
             <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
@@ -1895,6 +1899,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
           <div className="space-y-4">
             {currentPageFields.map(field => (
               <FormRenderer
+                departmentPlacement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0, state: departmentCurrentSet, blockedReason: departmentCurrentSetBlocked }}
                 groupInitialSelectionReady={groupInitialSelectionReady}
                 membershipPaymentMemberId={prefillMemberId}
                 key={field.id}

@@ -1,5 +1,6 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { currentSetIdentityName } from '@/lib/departmentCurrentSet';
+import { showDepartmentSelector } from '@/lib/departmentSelectorPlacement';
 
 /**
  * Deliberate acknowledgement prevents a failed/partial prefill from being
@@ -8,8 +9,10 @@ import { currentSetIdentityName } from '@/lib/departmentCurrentSet';
 export default function DepartmentCurrentSetNotice({
   state,
   blockedReason,
+  placement,
 }) {
   if (!state?.active) return null;
+  if (placement && !showDepartmentSelector(placement)) return null;
   const departmentLabel = currentSetIdentityName(state.displayIdentity?.department?.label)
     || currentSetIdentityName(state.displayIdentity?.department?.name)
     || 'Department unavailable';

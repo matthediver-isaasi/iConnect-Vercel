@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
-import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
+import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/PositionedFormRenderer";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import MemberChangeFormLink from "@/components/MemberChangeFormLink";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
@@ -3255,6 +3255,7 @@ function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null })
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">
               <DepartmentCurrentSetNotice
+                placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentStep === 0 }}
                 state={departmentCurrentSet}
                 blockedReason={departmentCurrentSetBlocked}
               />
@@ -3523,7 +3524,7 @@ function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null })
                   !(currentField?.type === 'image_buttons' && currentField?.auto_advance !== false && currentField?.hide_next_button === true && !disabledFieldIds.has(currentField?.id)) && (
                     <Button
                       onClick={() => setCurrentStep(currentStep + 1)}
-                      disabled={!canProceed}
+                      disabled={!canProceed || (departmentCurrentSet.active && !departmentCurrentSet.departmentId)}
                     >
                       Next
                       <ChevronRight className="w-4 h-4 ml-2" />
@@ -3566,6 +3567,7 @@ function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null })
     currentPage,
     displayFields,
   } = getFormPagination({
+    navigationBlockedReason: departmentCurrentSet.active && !departmentCurrentSet.departmentId ? 'Choose the Department to update before continuing.' : null,
     form,
     formValues,
     hiddenPageIds,
@@ -3590,6 +3592,7 @@ function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null })
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">
               <DepartmentCurrentSetNotice
+                placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0 }}
                 state={departmentCurrentSet}
                 blockedReason={departmentCurrentSetBlocked}
               />
@@ -3692,6 +3695,7 @@ function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null })
 
               const renderField = (field) => (
                 <FormRenderer
+                  departmentPlacement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0, state: departmentCurrentSet, blockedReason: departmentCurrentSetBlocked }}
                   groupInitialSelectionReady={groupInitialSelectionReady}
                   membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                   key={field.id}

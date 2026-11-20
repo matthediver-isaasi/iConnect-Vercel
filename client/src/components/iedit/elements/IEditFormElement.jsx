@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, useContext } from "r
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
-import FormRenderer from "../../forms/FormRenderer";
+import FormRenderer from "../../forms/PositionedFormRenderer";
 import LayoutContext from "@/contexts/LayoutContext";
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { base44 } from "@/api/base44Client";
@@ -1476,6 +1476,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     currentPage,
     displayFields,
   } = getFormPagination({
+    navigationBlockedReason: departmentCurrentSet.active && !departmentCurrentSet.departmentId ? 'Choose the Department to update before continuing.' : null,
     form,
     formValues,
     hiddenPageIds,
@@ -2167,7 +2168,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   <CardDescription className="whitespace-pre-line" data-testid="text-survey-intro">{surveyIntroText(form)}</CardDescription>
                 )}
                 <div className="mt-3">
-                  <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+                  <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentStep === 0 }} />
                 </div>
                 <div className="flex gap-1 mt-4">
                   {visibleFields.map((_, index) => (
@@ -2274,7 +2275,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 ) : (
                   <Button
                     onClick={() => setCurrentStep(currentStep + 1)}
-                    disabled={!canProceed}
+                    disabled={!canProceed || (departmentCurrentSet.active && !departmentCurrentSet.departmentId)}
                   >
                     Next
                     <ChevronRight className="w-4 h-4 ml-2" />
@@ -2322,7 +2323,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
             )}
             <div className="mt-3">
-              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} />
+              <DepartmentCurrentSetNotice state={departmentCurrentSet} blockedReason={departmentCurrentSetBlocked} placement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0 }} />
             </div>
             {hasPages && (
               <div className="mt-4">
@@ -2361,6 +2362,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               if (columnCount === 1 || !hasPages) {
                 return displayFields.map(field => (
                   <FormRenderer
+                    departmentPlacement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0, state: departmentCurrentSet, blockedReason: departmentCurrentSetBlocked }}
                     groupInitialSelectionReady={groupInitialSelectionReady}
                     membershipPaymentMemberId={prefillMemberId}
                     key={field.id}
@@ -2396,6 +2398,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     <div className="space-y-4 mb-4">
                       {unassignedFields.map(field => (
                         <FormRenderer
+                          departmentPlacement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0, state: departmentCurrentSet, blockedReason: departmentCurrentSetBlocked }}
                           groupInitialSelectionReady={groupInitialSelectionReady}
                           membershipPaymentMemberId={prefillMemberId}
                           key={field.id}
@@ -2431,6 +2434,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                         <div key={colIndex} className="space-y-4">
                           {columnFields.map(field => (
                             <FormRenderer
+                              departmentPlacement={{ form, hiddenIds: hiddenFieldIds, firstPage: currentPageIndex === 0, state: departmentCurrentSet, blockedReason: departmentCurrentSetBlocked }}
                               groupInitialSelectionReady={groupInitialSelectionReady}
                               membershipPaymentMemberId={prefillMemberId}
                               key={field.id}

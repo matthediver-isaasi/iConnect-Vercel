@@ -17,6 +17,12 @@ Reporting Year has no meaning in the current workforce model. Ignore it when map
 
 Department current-data forms require sign-in and an assigned Department respondent, not anonymous access or invitation-token access.
 
+The Department selector belongs only at the beginning of the form, with builder-controlled positioning among first-page fields.
+
+**Why:** The owner requires the Department to be chosen at the start, not repeated at the top of every page, and wants introductory fields before it.
+
+**How to apply:** Preserve the assigned-respondent boundary and current-set save protections across standalone, iframe and Canvas forms. Retain beginning-of-form placement for older configurations.
+
 **Why:** The user explicitly confirmed this access choice when revisiting Workforce and Equipment prefill, then confirmed that an assigned respondent may belong to a different organisation. Department IDs in URLs must never be treated as authorization.
 
 **How to apply:** Keep the department picker and explicit-link load/save paths consistent: require sign-in, the same tenant, and an active explicit survey-respondent assignment, but never require matching organisations. Do not change organisation membership to make an assigned respondent pass. Publish the matching client/API before activating a prepared form configuration; schema installation alone is not activation.
