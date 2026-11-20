@@ -7,3 +7,4 @@ description: Navigation for invoice duplication, overrides, add-ons and PO rules
 - [Override display versus simulation](membership-override-display-vs-sim.md)
 - [Add-on invoice lines](membership-invoice-addons.md)
 - [PO contract](membership-invoice-po-contract.md)
+- [Organisation Xero identity](organisation-xero-contact-identity.md) — verified organisation identity must not be rejected solely because the billing email differs.
