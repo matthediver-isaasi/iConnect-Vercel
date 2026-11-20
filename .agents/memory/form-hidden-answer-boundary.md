@@ -20,3 +20,9 @@ Submitter-requested copies follow respondent visibility, not administrator expor
 **Why:** The owner explicitly requires hidden labels and retained internal answers to be omitted, while retaining blank visible questions. Treating missing answers as hidden would silently remove legitimate questions; changing shared export defaults would remove administrator evidence.
 
 **How to apply:** Keep this policy specific to the submitter-copy consumer, including row-local labels and supporting-file links. Preserve administrator exports and other notification policies unless separately authorized.
+
+For BNMS's “Full member junior join for existing member” form, the primary-department and additional-site questions must remain hidden until the hospital/site question is answered Yes.
+
+**Why:** The owner explicitly confirmed that an unanswered hospital/site question must not expose these dependants; an existing member's prefilled organisation is not that confirmation.
+
+**How to apply:** Gate the relevant form rules explicitly on Yes while retaining the organisation selection for later use. Do not globally discard hidden answers to enforce this form-specific requirement.
