@@ -1,5 +1,5 @@
 import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
-import { canDiscoverInternalReport } from "@/lib/internalReportNavigation";
+import { canAccessReportAwareMenuItem } from "@/lib/internalReportNavigation";
 import { MainLandmarkContext } from "@/contexts/MainLandmarkContext";
 import PopupRuntime from "@/components/popups/PopupRuntime";
 import { popupPortalTargetForPath } from "@shared/popupPortalTargets.js";
@@ -2763,8 +2763,8 @@ useEffect(() => {
   // Filter navigation items based on member's excluded features
   // Inspect destinations too: a saved custom menu may carry an unrelated grant.
   const canDiscoverReportDestination = (item) => {
-    if (!canDiscoverInternalReport(item, { ready: internalReportCatalogReady,
-      allowed: internalReportDestinationIds, origin: window.location.origin })) return false;
+    if (!canAccessReportAwareMenuItem(item, { ready: internalReportCatalogReady,
+      allowed: internalReportDestinationIds, origin: window.location.origin, isFeatureExcluded })) return false;
     // A custom Sales URL cannot borrow a saved unrelated permission while its
     // tenant naming is unresolved. Fixed destinations remain independently usable.
     if (!item.isExternal && /^\/sales\//i.test(item.url || '')
@@ -2772,7 +2772,7 @@ useEffect(() => {
     return !isNmcReportDestination(item) || !isFeatureExcluded(NMC_REPORT_FEATURE);
   };
   const filterNavTree = (items) => items.flatMap((item) => {
-    if (!canDiscoverReportDestination(item) || isFeatureExcluded(item.featureId)) return [];
+    if (!canDiscoverReportDestination(item)) return [];
     if (!item.subItems) return [item];
     const children = filterNavTree(item.subItems);
     return children.length ? [{ ...item, subItems: children }] : [];

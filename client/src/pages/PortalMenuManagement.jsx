@@ -3,6 +3,7 @@ import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, close
 import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import SortablePortalMenuItem from '@/components/SortablePortalMenuItem';
 import { createPortalMenuOrderQueue } from '@/lib/portalMenuOrder';
+import { getInternalReportMenuDestinations, internalReportDestination } from '@/lib/internalReportNavigation';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -367,6 +368,22 @@ export default function PortalMenuManagementPage() {
   });
 
   const reportDestination = parseCustomObjectReportDestination(editingItem?.url);
+  const internalReportKey = getPortalMenuLinkType(editingItem) === PORTAL_MENU_LINK_TYPES.INTERNAL
+    ? internalReportDestination(editingItem?.url, window.location.origin) : null;
+  const { data: internalReportCatalog = [], isFetching: internalReportsLoading, isError: internalReportsError, refetch: retryInternalReports } = useQuery({
+    queryKey: ['internal-reports-catalog', 'portal-menu-management', ...(navigationScope || ['unverified'])],
+    enabled: Boolean(accessChecked && navigationScope),
+    queryFn: async () => {
+      const response = await fetch('/api/internal-reports/catalog', { credentials: 'include', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(data.reports)) {
+        throw new Error('Saved internal reports could not be loaded.');
+      }
+      return data.reports;
+    },
+    retry: false,
+    staleTime: 15_000,
+  });
   const reportOptionsQuery = useQuery({
     queryKey: ['portal-menu-report-options', reportDestination?.objectId],
     enabled: showDialog && Boolean(reportDestination),
@@ -435,13 +452,14 @@ export default function PortalMenuManagementPage() {
       ...dynamicDirectories,
       ...customObjectDestinations,
       ...getCustomObjectReportPortalDestinations(customObjectDestinations),
+      ...getInternalReportMenuDestinations(internalReportsError ? [] : internalReportCatalog, window.location.origin),
     ].filter(item => isBnmsTenant || !isNmcReportDestination(item)).sort((a, b) => {
       // Keep "_none" at top
       if (a.value === "_none") return -1;
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug, voucherDefaultMenuLabel]);
+  }, [ieditPages, dynamicDirectories, customObjectDestinations, internalReportCatalog, internalReportsError, isBnmsTenant, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug, voucherDefaultMenuLabel]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),
@@ -552,7 +570,8 @@ export default function PortalMenuManagementPage() {
     const customObjectId = linkType === PORTAL_MENU_LINK_TYPES.INTERNAL
       ? getCustomObjectIdFromPortalListUrl(url)
       : null;
-    let featureId = isNmcReportDestination(editingItem) ? NMC_REPORT_FEATURE : customObjectId
+    let featureId = internalReportKey ? `internal-report:${internalReportKey}:view`
+      : isNmcReportDestination(editingItem) ? NMC_REPORT_FEATURE : customObjectId
       ? getCustomObjectPortalRoleAccessId(customObjectId)
       : editingItem.feature_id;
     if (!featureId) {
@@ -858,6 +877,7 @@ export default function PortalMenuManagementPage() {
                       link_type: value,
                       url: "",
                       open_in_new_tab: false,
+                      ...(internalReportKey ? { feature_id: "" } : {}),
                     })}
                   >
                     <SelectTrigger data-testid="select-portal-link-type">
@@ -891,6 +911,9 @@ export default function PortalMenuManagementPage() {
                           // This identifier is interpreted against the same
                           // custom_object_role_permission view grant as direct access.
                           next.feature_id = selectedDestination.featureId;
+                        } else if (internalReportKey) {
+                          // Do not carry report-only metadata onto ordinary pages.
+                          next.feature_id = PAGE_DEFAULT_FEATURES[value] || "";
                         }
                         // Pre-associate the matching RBAC permission when the page has one.
                         else if (
@@ -908,12 +931,15 @@ export default function PortalMenuManagementPage() {
                         <SelectValue placeholder="No Page (Parent Menu)" />
                       </SelectTrigger>
                       <SelectContent className="max-h-[400px]">
+                        {internalReportKey && !availablePages.some(page => page.value === editingItem.url) && (
+                          <SelectItem value={editingItem.url} disabled>Saved internal report unavailable</SelectItem>
+                        )}
                         {availablePages.map((page) => (
                           <SelectItem key={page.value} value={page.value}>
                             <div className="flex flex-col">
                               <span>{page.label}</span>
                               {page.value && page.value !== "_none" && (
-                                <span className="text-xs text-muted-foreground">/{page.value}</span>
+                                <span className="text-xs text-muted-foreground">/{page.value.replace(/^\/+/, "")}</span>
                               )}
                             </div>
                           </SelectItem>
@@ -921,6 +947,17 @@ export default function PortalMenuManagementPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
+                    {internalReportsLoading && <p role="status" className="text-xs text-slate-500">Loading saved internal reports…</p>}
+                    {internalReportsError && <p role="alert" className="text-xs text-red-600">
+                      Could not load internal reports. Other destinations remain available.{" "}
+                      <button type="button" onClick={() => retryInternalReports()}>Retry</button>
+                    </p>}
+                    {!internalReportsLoading && !internalReportsError && internalReportCatalog.length === 0 && <p className="text-xs text-slate-500">
+                      To add a read-only report, create its internal link in the object's Reports tab first.
+                    </p>}
+                    {internalReportKey && !availablePages.some(page => page.value === editingItem.url) && <p role="alert" className="text-xs text-amber-700">
+                      This saved internal report is unavailable. It will remain hidden from users without report access.
+                    </p>}
                     {reportDestination && (
                       <div className="space-y-2 pt-2">
                         <Label>Report</Label>
@@ -1015,7 +1052,10 @@ export default function PortalMenuManagementPage() {
                   </Select>
                 </div>
 
-                <div className="space-y-2">
+                {internalReportKey ? <div className="space-y-2">
+                  <Label>Report access</Label>
+                  <p className="text-sm text-slate-600">Controlled by this report's View permission under Saved report access in Role Management. Data Studio access is not required. CSV downloads use the report's separate Download CSV permission.</p>
+                </div> : <div className="space-y-2">
                   <Label>Role Access ID (for permissions)</Label>
                   <Popover open={roleAccessOpen} onOpenChange={setRoleAccessOpen}>
                     <PopoverTrigger asChild>
@@ -1099,7 +1139,7 @@ export default function PortalMenuManagementPage() {
                       </span>
                     )}
                   </p>
-                </div>
+                </div>}
 
                 <div className="flex items-center gap-2">
                   <Switch

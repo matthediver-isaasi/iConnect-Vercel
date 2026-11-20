@@ -13,3 +13,25 @@ export function canDiscoverInternalReport(item, { ready, allowed, origin }) {
   const key = internalReportDestination(item?.url, origin);
   return Boolean(!item?.isExternal && ready && key && allowed.has(key));
 }
+
+export function getInternalReportMenuDestinations(reports = [], origin) {
+  return reports.flatMap(report => {
+    if (!report?.name || !report.object_id || !report.report_id) return [];
+    const value = `/internal-reports/${encodeURIComponent(report.object_id)}/${encodeURIComponent(report.report_id)}`;
+    const key = internalReportDestination(value, origin);
+    return key ? [{
+      value,
+      label: `Internal report: ${report.name}${report.object_name ? ` · ${report.object_name}` : ''}`,
+      featureId: `internal-report:${key}:view`,
+    }] : [];
+  });
+}
+
+// The server-filtered catalogue is the authority for report destinations.
+// A stale Data Studio feature_id must neither hide an authorized report nor
+// expose an unauthorized one. Ordinary menu items retain their existing gate.
+export function canAccessReportAwareMenuItem(item, { isFeatureExcluded, ...reportAccess }) {
+  if (!canDiscoverInternalReport(item, reportAccess)) return false;
+  if (internalReportDestination(item?.url, reportAccess.origin)) return true;
+  return !isFeatureExcluded(item?.featureId);
+}

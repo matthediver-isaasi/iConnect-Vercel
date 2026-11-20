@@ -79,7 +79,8 @@ it uses normal sign-in, not the external-sharing password.
 
 **Why:** The owner confirmed external sharing works and approved per-report
 internal roles so report links can be used in navigation without exposing the
-Data Studio builder or wider CRM.
+Data Studio builder or wider CRM. This applies to both website navigation and
+the portal menu; report View access must not require a separate builder grant.
 
 **How to apply:** Keep internal and external sharing independent. Treat navigation
 visibility as presentation only; direct reads, paging and exports need the same
