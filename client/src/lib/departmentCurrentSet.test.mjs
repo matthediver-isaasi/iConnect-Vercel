@@ -198,7 +198,7 @@ test('delayed prefill retains draft sections, freezes its version, and loads all
   }
 });
 
-test('requires both acknowledgements before the complete-array payload can save', () => {
+test('complete safely loaded data can save without built-in review acknowledgements', () => {
   const loaded = payload('v1', []);
   const currentSet = {
     version: 'v1',
@@ -206,11 +206,24 @@ test('requires both acknowledgements before the complete-array payload can save'
     workforce: { complete: true },
     equipment: { complete: true },
   };
-  assert.match(currentSetSaveBlocked({
+  assert.equal(currentSetSaveBlocked({
     enabled: true, departmentId, loading: false, error: null, baselineReady: true,
     currentSet, sectionIds: { workforce: 'workforce', equipment: 'equipment' },
     acknowledgements: { workforce: true, equipment: false },
-  }), /acknowledge/i);
+  }), null);
+  assert.equal(currentSetSaveBlocked({
+    enabled: true, departmentId, loading: false, error: null, baselineReady: true,
+    currentSet, sectionIds: { workforce: 'workforce', equipment: 'equipment' },
+  }), null);
+  assert.match(currentSetSaveBlocked({
+    enabled: true, departmentId, loading: false, error: null, baselineReady: false,
+    currentSet, sectionIds: { workforce: 'workforce', equipment: 'equipment' },
+  }), /safely applied/i);
+  assert.match(currentSetSaveBlocked({
+    enabled: true, departmentId, loading: false, error: null, baselineReady: true,
+    currentSet: { ...currentSet, equipment: { complete: false } },
+    sectionIds: { workforce: 'workforce', equipment: 'equipment' },
+  }), /partially loaded/i);
   const metadata = currentSetSubmissionMetadata({
     form, departmentId, currentSet,
     acknowledgements: { workforce: true, equipment: true },

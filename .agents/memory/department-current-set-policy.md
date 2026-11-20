@@ -19,6 +19,12 @@ Department current-data forms require sign-in and an assigned Department respond
 
 The Department selector belongs only at the beginning of the form, with builder-controlled positioning among first-page fields.
 
+The shared selector must not contain mandatory Workforce or Equipment review acknowledgements on any form.
+
+**Why:** The owner wants review questions authored as standard form fields at the appropriate point, without returning to the first page.
+
+**How to apply:** Do not reinstate selector-specific acknowledgement gates. Keep complete-load, safely-applied baseline, version and server reconciliation safeguards independent of authored review questions.
+
 **Why:** The owner requires the Department to be chosen at the start, not repeated at the top of every page, and wants introductory fields before it.
 
 **How to apply:** Preserve the assigned-respondent boundary and current-set save protections across standalone, iframe and Canvas forms. Retain beginning-of-form placement for older configurations.

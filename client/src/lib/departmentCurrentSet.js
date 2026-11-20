@@ -148,9 +148,8 @@ export function currentSetSaveBlocked({
   if (!currentSet.workforce.complete || !currentSet.equipment.complete) {
     return 'Current Department data was only partially loaded. Reload before saving.';
   }
-  if (acknowledgements?.workforce !== true || acknowledgements?.equipment !== true) {
-    return 'Review and acknowledge both complete sections before saving current Department data.';
-  }
+  // Review questions belong to the authored form, not the shared selector.
+  // Version, complete-load and safely-applied checks above remain mandatory.
   return null;
 }
 

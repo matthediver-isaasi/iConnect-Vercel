@@ -1,10 +1,9 @@
-import { Checkbox } from '@/components/ui/checkbox';
 import { currentSetIdentityName } from '@/lib/departmentCurrentSet';
 import { showDepartmentSelector } from '@/lib/departmentSelectorPlacement';
 
 /**
- * Deliberate acknowledgement prevents a failed/partial prefill from being
- * mistaken for a request to archive an entire current section.
+ * Department selection and current-data context only. Authors may place
+ * ordinary review questions elsewhere in the form.
  */
 export default function DepartmentCurrentSetNotice({
   state,
@@ -91,22 +90,6 @@ export default function DepartmentCurrentSetNotice({
           Some saved values use legacy choices. They remain available for review and will be preserved unless changed.
         </p>
       )}
-      {['workforce', 'equipment'].map(section => (
-        <label key={section} className="flex items-start gap-2">
-          <Checkbox
-            checked={state.acknowledgements?.[section] === true}
-            onCheckedChange={checked => state.setAcknowledgements(previous => ({
-              ...previous,
-              [section]: checked === true,
-            }))}
-            data-testid={`acknowledge-current-${section}`}
-          />
-          <span>
-            I have reviewed the complete current {section === 'workforce' ? 'Workforce' : 'Equipment'} set,
-            including any removals or an intentionally empty section.
-          </span>
-        </label>
-      ))}
     </div>
   );
 }
