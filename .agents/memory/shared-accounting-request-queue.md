@@ -74,3 +74,9 @@ Database timestamp round-trips must be compared by instant, not literal ISO spel
 **Why:** PostgreSQL returned an equivalent `+00:00` timestamp instead of `Z`, causing the final queue check to report review despite a verified invoice, recorded payment and successfully saved source link.
 
 **How to apply:** Keep exact comparisons for invoice/provider identities and other non-date fields; reject absent, invalid or genuinely changed timestamps. Recover affected finalization holds without resetting completed financial stages.
+
+Owner-approved linkage to an independently created invoice does not prove that the original queued request completed its preparation or provider-write stages.
+
+**Why:** An existing Xero invoice can predate a failed renewal request and lack that request's recovery marker. Inventing successful preparation or a provider-write receipt would falsify its history and weaken duplicate prevention.
+
+**How to apply:** Revalidate the exact invoice, company, contact, period, totals and payment status; reconcile local links atomically with an audit note. When the normal queue completion contract cannot truthfully be met, retain a non-retrying review hold with explicit manual-reconciliation evidence rather than resetting or replaying it. Preserve original snapshots and stage statuses.

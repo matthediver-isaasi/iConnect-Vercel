@@ -19,6 +19,30 @@ const readOnlyFetch = async (url, init = {}) => {
   if (parsed.origin !== 'https://api.xero.com') throw new Error('Unexpected provider host');
   return fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
 };
+if (process.argv.includes('--verify-approved')) {
+  const expected = [
+    { id: 'fcf450ae-1ea3-4381-8f98-878ef8bdf8dd', number: 'SI-43043', total: 3847.2, due: 0, status: 'PAID', reference: '8132266', net: 3206, description: 'Service Membership - August 2025 - July 2026' },
+    { id: 'b7bc6529-bf70-4db8-a99a-a623d76f7f3c', number: 'SI-44957', total: 4559.7, due: 4559.7, status: 'AUTHORISED', reference: '8140415', net: 3799.75, description: 'HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 10\nFee: GBP 3799.75' },
+  ];
+  for (const target of expected) {
+    const response = await readOnlyFetch(`https://api.xero.com/api.xro/2.0/Invoices/${target.id}`, {
+      headers: { Authorization: `Bearer ${token.accessToken}`, 'xero-tenant-id': token.tenantId, Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Exact invoice verification returned HTTP ${response.status}`);
+    const { Invoices = [] } = await response.json();
+    const invoice = Invoices[0];
+    if (Invoices.length !== 1 || invoice.InvoiceID !== target.id || invoice.InvoiceNumber !== target.number
+      || invoice.Contact?.ContactID !== '3ece7d50-6515-4e5a-b321-1f6252514718'
+      || invoice.Type !== 'ACCREC' || invoice.CurrencyCode !== 'GBP'
+      || invoice.Total !== target.total || invoice.AmountDue !== target.due
+      || invoice.Status !== target.status || invoice.Reference !== target.reference
+      || invoice.SubTotal !== target.net || invoice.LineItems?.length !== 1
+      || invoice.LineItems[0].Description !== target.description) throw new Error('Approved invoice evidence changed; stopping');
+    console.log(JSON.stringify({ verified: true, company: token.tenantId, ...target,
+      fullyPaidOnDate: invoice.FullyPaidOnDate || null, checkedAt: new Date().toISOString() }));
+  }
+  process.exit(0);
+}
 try {
   await prepareMembershipSourceRequest({ row, transport: {
     fetch: readOnlyFetch, timeoutMs: 20000, deadlineAt: Date.now() + 60000,
