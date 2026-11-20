@@ -33,6 +33,19 @@ export function parseJobPostingPrice(setting, fallback = DEFAULT_JOB_POSTING_PRI
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+export function parseJobPostingTerms(setting) {
+  try {
+    const parsed = JSON.parse(setting?.setting_value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return {
+      title: typeof parsed.title === 'string' ? parsed.title : '',
+      content: typeof parsed.content === 'string' ? parsed.content : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function resolveJobPostingSettings(settings = []) {
   const rows = Array.isArray(settings) ? settings : [];
   const byKey = new Map(rows.map((setting) => [setting?.setting_key, setting]));
@@ -41,5 +54,6 @@ export function resolveJobPostingSettings(settings = []) {
     jobTypes: parseJobPostingOptions(byKey.get('job_types'), DEFAULT_JOB_TYPES),
     hours: parseJobPostingOptions(byKey.get('job_hours'), DEFAULT_JOB_HOURS),
     price: parseJobPostingPrice(byKey.get('job_posting_price')),
+    terms: parseJobPostingTerms(byKey.get('job_posting_terms')),
   };
 }

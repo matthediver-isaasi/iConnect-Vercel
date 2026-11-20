@@ -16,6 +16,7 @@ test('job posting settings parse configured options and price', () => {
     jobTypes: ['Graduate', 'Part-time'],
     hours: ['Flexible', 'Evenings'],
     price: 75.5,
+    terms: null,
   });
 });
 
@@ -28,6 +29,7 @@ test('missing or malformed job posting settings use intentional defaults', () =>
     jobTypes: DEFAULT_JOB_TYPES,
     hours: DEFAULT_JOB_HOURS,
     price: DEFAULT_JOB_POSTING_PRICE,
+    terms: null,
   });
 });
 
@@ -44,5 +46,21 @@ test('settings from another tenant cannot be represented by the parser without b
     jobTypes: DEFAULT_JOB_TYPES,
     hours: DEFAULT_JOB_HOURS,
     price: DEFAULT_JOB_POSTING_PRICE,
+    terms: null,
   });
+});
+
+test('advertising terms preserve configured strings and reject malformed shapes', () => {
+  const terms = { title: 'Advertising agreement', content: '<p>Tenant terms</p>' };
+  assert.deepEqual(resolveJobPostingSettings([
+    { setting_key: 'job_posting_terms', setting_value: JSON.stringify(terms) },
+  ]).terms, terms);
+  for (const value of ['{', 'null', '[]', '"text"', '42']) {
+    assert.equal(resolveJobPostingSettings([
+      { setting_key: 'job_posting_terms', setting_value: value },
+    ]).terms, null);
+  }
+  assert.deepEqual(resolveJobPostingSettings([
+    { setting_key: 'job_posting_terms', setting_value: '{"title":{},"content":[]}' },
+  ]).terms, { title: '', content: '' });
 });

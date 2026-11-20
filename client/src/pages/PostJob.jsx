@@ -119,7 +119,8 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
 }
 
 export default function PostJobPage() {
-  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded, authResolved, sessionValidated } = useMemberAccess();
+  const isLoggedIn = authResolved && sessionValidated && !!memberInfo?.id;
   const { branding } = useTenantBranding();
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -136,7 +137,6 @@ export default function PostJobPage() {
   const [email, setEmail] = useState('');
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [isMember, setIsMember] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -159,7 +159,7 @@ export default function PostJobPage() {
   
   // Fetch organisations for search (only if user has permission)
   const { data: allOrganizations = [] } = useQuery({
-    queryKey: ['organizations-for-job-posting'],
+    queryKey: ['organizations-for-job-posting', memberInfo?.tenant_id, memberInfo?.id],
     queryFn: () => listOrganizationsForAdmin(),
     enabled: canPostOnBehalfOfOrg,
   });
@@ -229,24 +229,7 @@ export default function PostJobPage() {
     initStripe();
   }, []);
 
-  // Fetch terms and conditions from settings
-  const { data: termsSettings } = useQuery({
-    queryKey: ['job-terms-settings'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find((s) => s.setting_key === 'job_posting_terms');
-      if (setting) {
-        try {
-          return JSON.parse(setting.setting_value);
-        } catch (e) {
-          return null;
-        }
-      }
-      return null;
-    }
-  });
-
-  // Job type, hours, and non-member price are public tenant settings. Keep
+  // Terms, job type, hours, and non-member price are public tenant settings. Keep
   // these together so a guest either gets one consistent configuration or a
   // visible error rather than a mix of stale values and defaults.
   const {
@@ -260,12 +243,14 @@ export default function PostJobPage() {
     queryFn: () => publicClient.listSystemSettings(),
     staleTime: 0,
     refetchOnMount: true,
+    retry: false,
   });
 
   const {
     jobTypes: jobTypeSettings,
     hours: hoursSettings,
     price: jobPostingPrice,
+    terms: termsSettings,
   } = useMemo(() => resolveJobPostingSettings(publicJobSettings), [publicJobSettings]);
 
   // Update payment amount when jobPostingPrice changes
@@ -299,10 +284,9 @@ export default function PostJobPage() {
     }));
   };
 
-  // Initialize from props (portal mode) or sessionStorage (public mode)
+  // Stored member data is only a display hint, never proof of a session.
   useEffect(() => {
-    if (memberInfo) {
-      setIsLoggedIn(true);
+    if (isLoggedIn) {
       setIsMember(true);
       setEmail(memberInfo.email);
       setStep('form');
@@ -318,47 +302,18 @@ export default function PostJobPage() {
         }));
         setSelectedOrganization(null);
       }
-    } else {
-      const member = localStorage.getItem('agcas_member');
-      if (member) {
-        const memberData = JSON.parse(member);
-        setIsLoggedIn(true);
-        setIsMember(true);
-        setEmail(memberData.email);
-        setStep('form');
-
-        if (!isEditRef.current) {
-          const fetchOrganization = async () => {
-            if (memberData.organization_id) {
-              try {
-                const allOrgs = await base44.entities.Organization.list();
-                const org = allOrgs.find((o) => o.id === memberData.organization_id);
-                if (org) {
-                  setFormData((prev) => ({
-                    ...prev,
-                    company_name: org.name,
-                    company_logo_url: org.logo_url || '',
-                    contact_name: `${memberData.first_name} ${memberData.last_name}`,
-                    job_type: jobTypeSettings[0] || '',
-                    hours: hoursSettings[0] || ''
-                  }));
-                }
-              } catch (error) {
-                console.error('Failed to fetch organization:', error);
-              }
-            }
-          };
-          fetchOrganization();
-        }
-      }
     }
-  }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
+  }, [isLoggedIn, memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
 
   useEffect(() => {
-    if (editJobId) {
+    let cancelled = false;
+    if (editJobId && isLoggedIn) {
+      setEditJobLoaded(false);
+      setEditLoadError(null);
       const fetchJobForEdit = async () => {
         try {
           const job = await base44.entities.JobPosting.get(editJobId);
+          if (cancelled) return;
           if (job) {
             const newFormData = {
               title: job.title || '',
@@ -383,13 +338,13 @@ export default function PostJobPage() {
             isEditRef.current = true;
             setEditJobLoaded(true);
             setStep('form');
-            setIsLoggedIn(true);
             setAgreedToTerms(true);
           } else {
             setEditLoadError('Job posting not found.');
             setEditJobLoaded(true);
           }
         } catch (error) {
+          if (cancelled) return;
           console.error('Failed to fetch job for editing:', error);
           setEditLoadError('Failed to load job posting.');
           setEditJobLoaded(true);
@@ -397,7 +352,8 @@ export default function PostJobPage() {
       };
       fetchJobForEdit();
     }
-  }, [editJobId]);
+    return () => { cancelled = true; };
+  }, [editJobId, isLoggedIn, memberInfo?.id, memberInfo?.tenant_id]);
 
   const handleEmailCheck = async (e) => {
     e.preventDefault();
@@ -748,6 +704,21 @@ export default function PostJobPage() {
     }
   });
 
+  if (!authResolved || (editJobId && !isLoggedIn)) {
+    return (
+      <div className="p-12 text-center">
+        {!authResolved ? <p>Checking your session...</p> : (
+          <>
+            <p>Please log in to edit a job posting.</p>
+            <Link to={'/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search)}>
+              Log in
+            </Link>
+          </>
+        )}
+      </div>
+    );
+  }
+
   if (editJobId && (!editJobLoaded || editLoadError)) {
     return (
       <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center min-h-[400px] px-4">
@@ -806,7 +777,7 @@ export default function PostJobPage() {
     );
   }
 
-  // PRIORITY CHECK: If member is logged in (via props or sessionStorage), skip email check
+  // Only a validated member session may skip email entry.
   // Only show email check form if NOT logged in AND step is 'email'
   if (!isLoggedIn && step === 'email') {
     return (

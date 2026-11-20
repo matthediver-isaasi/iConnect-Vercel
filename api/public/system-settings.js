@@ -57,6 +57,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'job_types',
   'job_hours',
   'job_posting_price',
+  'job_posting_terms',
   'show_event_card_prices',
   'featured_events_background',
   'tbc_events_banner',

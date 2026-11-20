@@ -20,3 +20,12 @@ contexts and falsely report that no QueryClient was set.
 
 **How to apply:** Keep provider and hooks on the same package entrypoint;
 this applies to bundled SSR or mounted test harnesses, not production imports.
+
+Always assign a string filename before compiling an in-memory CommonJS test module.
+
+**Why:** On Node 24, passing an undefined filename to `Module._compile` can
+abort the entire process with a native assertion rather than report a JavaScript
+test failure.
+
+**How to apply:** Set the module's filename and resolver paths before compiling
+an esbuild fixture; do not diagnose this native assertion as application code.
