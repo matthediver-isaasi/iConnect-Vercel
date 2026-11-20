@@ -54,6 +54,7 @@ export default function HomePageRedirect() {
     ? "editor"
     : (isLoggedIn ? "member" : "guest");
   const tenantId = branding?.id || tenantSlug || null;
+  const tenantQuery = tenantSlug ? `?tenant=${encodeURIComponent(tenantSlug)}` : "";
   const settingsQueryEnabled =
     authResolved && !brandingLoading && !brandingError && !!tenantId;
 
@@ -64,7 +65,7 @@ export default function HomePageRedirect() {
     // homepage slug (as before), never a page payload or member authority.
     queryKey: ["home-page-setting", window.location.host, tenantSlug, pageAudience],
     queryFn: async () => {
-      const response = await fetch("/api/public/portal-branding", {
+      const response = await fetch(`/api/public/portal-branding${tenantQuery}`, {
         credentials: "include",
         cache: "no-store",
       });
@@ -91,7 +92,7 @@ export default function HomePageRedirect() {
       popupDiscovery.current = !isCanvasPreview && (!memberInfo || (sessionValidated && isAccessReady))
         ? startPopupDiscovery(homePageSlug, viewerIdentity, signal) : null;
       const response = await fetch(
-        `/api/public/page/${encodeURIComponent(homePageSlug)}`,
+        `/api/public/page/${encodeURIComponent(homePageSlug)}${tenantQuery}`,
         { credentials: "include", signal }
       );
       if (!response.ok) {
