@@ -8,11 +8,51 @@ import {
 import {
   CustomObjectHttpError,
   createCustomObjectService,
+  createSharedReportExecutor,
 } from './customObjectService.js';
 
 const tenantId = '22222222-2222-4222-8222-222222222222';
 const objectId = '11111111-1111-4111-8111-111111111111';
 const roleId = '33333333-3333-4333-8333-333333333333';
+
+test('report capability has no session or general record API and cannot access admin or other guests snapshots', async () => {
+  const definition = { version: 2, start_object_id: objectId, start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [], include_empty: false, columns: [{ id: 'headcount', kind: 'field', path: [], field_id: 'field-1' }] };
+  const db = mockDb({ custom_object_definition: [object()], preference_field: [field()],
+    custom_object_relationship_definition: [],
+    custom_object_report_sort_job: [{
+      id: 'admin-job', tenant_id: tenantId, custom_object_id: objectId, mode: 'preview', definition,
+      requested_by_tenant_user_id: 'admin', requested_by_member_id: null, requested_by_report_grant_id: null,
+    }, {
+      id: 'other-guest-job', tenant_id: tenantId, custom_object_id: objectId, mode: 'preview', definition,
+      requested_by_report_grant_id: 'other-guest', requested_by_member_id: null, requested_by_tenant_user_id: null,
+    }],
+  });
+  let checks = 0;
+  const engine = createSharedReportExecutor({ db, tenantId, objectId, definition, grantId: 'guest', reauthorize: async () => { checks++; } });
+  assert.deepEqual(Object.keys(engine).sort(), ['export', 'preview', 'validate']);
+  await engine.validate();
+  assert.equal(checks, 2);
+  assert.equal(engine.getRecord, undefined);
+  assert.equal(engine.createRecord, undefined);
+  for (const job_id of ['admin-job', 'other-guest-job']) {
+    await assert.rejects(engine.preview({ action: 'page', job_id }), e => e.status === 404);
+  }
+  await assert.rejects(engine.export({ action: 'start' }), e => e.status === 403);
+  assert.throws(() => createCustomObjectService({ db, context: { tenantId },
+    reportAuthority: { authority: Symbol('shared-report-authority') } }), e => e.status === 401);
+});
+test('shared report capability rejects file columns and fences revocation during validation', async () => {
+  const db = mockDb({ custom_object_definition: [object()], preference_field: [field({ field_type: 'file' })],
+    custom_object_relationship_definition: [] });
+  const definition = { version: 2, start_object_id: objectId, start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [], include_empty: false, columns: [{ id: 'file', kind: 'field', path: [], field_id: 'field-1' }] };
+  const make = reauthorize => createSharedReportExecutor({ db, tenantId, objectId, definition, grantId: 'guest', reauthorize });
+  await assert.rejects(make(async () => {}).validate(), /File and image/);
+  db.tables.preference_field[0].field_type = 'number';
+  let checks = 0;
+  await assert.rejects(make(async () => { if (++checks === 2) throw new CustomObjectHttpError(401, 'Revoked'); }).validate(), /Revoked/);
+});
 
 test('sorted materialisation preserves typed numbers, booleans, dates and true missing values from the real report renderer', async () => {
   const db = mockDb({

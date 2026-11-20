@@ -4,7 +4,8 @@ import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
 
 // A sorted report is collected in bounded natural-cursor pages, then ordered
 // once in PostgreSQL. Preview and CSV read the same immutable ranked rows.
-export function createReportSortService({ db, tenantId, context, now, validate, execute, ErrorType }) {
+export function createReportSortService({ db, tenantId, context, now, validate, execute, ErrorType,
+  allowNaturalOrder = false, commitRpc = 'custom_object_report_sort_commit' }) {
   const fail = (status, message) => { throw new ErrorType(status, message); };
   const checked = result => {
     if (result.error) fail(['42P01', 'PGRST202', 'PGRST205'].includes(result.error.code) ? 503 : 500,
@@ -15,6 +16,8 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
   };
   function owned(query, objectId, mode) {
     query = query.eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('mode', mode);
+    if (context.reportGrantId) return query.eq('requested_by_report_grant_id', context.reportGrantId)
+      .is('requested_by_member_id', null).is('requested_by_tenant_user_id', null);
     if (context.tenantUserId) return query.eq('requested_by_tenant_user_id', context.tenantUserId);
     if (context.memberId) return query.eq('requested_by_member_id', context.memberId);
     fail(403, 'Report requires an authenticated owner');
@@ -37,7 +40,7 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
     const definition = body.definition;
     const validated = await validate(objectId, definition);
     const rules = validateReportSort(definition);
-    if (!rules.length) fail(400, 'A sorted report needs at least one sort rule');
+    if (!rules.length && !(allowNaturalOrder && context.reportGrantId)) fail(400, 'A sorted report needs at least one sort rule');
     const hop = validated.grain.hops.at(-1);
     const many = hop && (hop.definition.cardinality === 'many_to_many'
       || (hop.definition.cardinality === 'one_to_many' && hop.fromSide === 'source')
@@ -54,6 +57,7 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
       sort_rules: rules, filename, headers: [], status: 'queued',
       requested_by_member_id: context.tenantUserId ? null : context.memberId || null,
       requested_by_tenant_user_id: context.tenantUserId || null,
+      ...(context.reportGrantId ? { requested_by_report_grant_id: context.reportGrantId } : {}),
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       created_at: now(), updated_at: now(),
     }).select('*').single());
@@ -75,7 +79,7 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
       });
       if (!result.bounded || !Array.isArray(result.data) || typeof result.has_more !== 'boolean') fail(503, 'Report source did not return a complete bounded page');
       if (result.has_more && (!result.next_cursor || result.next_cursor === job.cursor_value)) fail(503, 'Sorted report source cursor did not advance');
-      const updated = checked(await db.rpc('custom_object_report_sort_commit', {
+      const updated = checked(await db.rpc(commitRpc, {
         p_tenant_id: tenantId, p_object_id: objectId, p_job_id: job.id,
         p_claim_token: claim, p_page: job.next_page,
         p_rows: result.data.map(row => ({ id: row.id, values: row.values, sort_values: row.sort_values })),

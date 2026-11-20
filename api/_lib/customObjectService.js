@@ -23,7 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { createChainedListService } from './customObjectChainedList.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 import { formatOrganisationDirectoryCsvValue } from './organisationDirectoryCsv.js';
-import { validateReportSort, reportSortValue } from '../../shared/customObjectReportSort.mjs';
+import { validateReportSort, reportSortValue, reportDefinitionKey } from '../../shared/customObjectReportSort.mjs';
 import { createReportSortService } from './customObjectReportSort.js';
 
 export class CustomObjectHttpError extends Error {
@@ -79,6 +79,9 @@ const ENDPOINT_ID_BATCH_SIZE = 200;
 const RELATIONSHIP_FIELD_TYPES = new Set(['boolean']);
 const V2_REPORT_MAX_CELL_EXPANSION = 10_000;
 const V2_REPORT_MAX_PAGE_EXPANSION = 100_000;
+// A module-private authority, never accepted from a request or serialized
+// session. Public execution exposes only a fixed, administrator-published report.
+const SHARED_REPORT_AUTHORITY = Symbol('shared-report-authority');
 
 // Mirrors custom_object_report_filter_value: typed, literal comparisons and
 // all conditions on one endpoint/final-edge occurrence (never sibling values).
@@ -571,8 +574,10 @@ export function createCustomObjectService({
   canViewSchema = false,
   canManageSchema = false,
   now = () => new Date().toISOString(),
+  reportAuthority = null,
 }) {
-  if (!context?.isAuthenticated) throw new CustomObjectHttpError(401, 'Authentication required');
+  const sharedReport = reportAuthority?.authority === SHARED_REPORT_AUTHORITY;
+  if (!sharedReport && !context?.isAuthenticated) throw new CustomObjectHttpError(401, 'Authentication required');
   if (context.tenantMismatch) throw new CustomObjectHttpError(409, 'Tenant context mismatch');
   if (!context.tenantId) throw new CustomObjectHttpError(400, 'Tenant context not found');
   if (!db) throw new CustomObjectHttpError(503, 'Database unavailable');
@@ -693,6 +698,7 @@ export function createCustomObjectService({
   async function fieldAccess(objectId, definitions) {
     const ids = (definitions || []).map((field) => String(field.id));
     const access = new Map(ids.map((id) => [id, 'edit']));
+    if (sharedReport) return new Map(ids.map(id => [id, 'read']));
     if (isAdmin || !context.roleId || ids.length === 0) return access;
     const { data, error } = await db.from('custom_object_field_role_permission').select('*')
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
@@ -1122,6 +1128,8 @@ export function createCustomObjectService({
   }
 
   async function hasCapability(objectId, capability) {
+    if (sharedReport) return capability === 'view_records'
+      || (capability === 'export_records' && reportAuthority.allowCsv);
     if (!isAdmin) {
       const definition = await object(objectId);
       if (
@@ -4285,7 +4293,7 @@ export function createCustomObjectService({
         .some((key) => Object.hasOwn(column, key))) {
       throw new CustomObjectHttpError(400, 'Organization report columns require an unambiguous preference_field_id on an organization endpoint');
     }
-    if (!isAdmin) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+    if (!isAdmin && !sharedReport) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
     const { data: preferenceField, error } = await db.from('preference_field').select('*')
       .eq('tenant_id', tenantId).eq('entity_scope', 'organization')
       .eq('is_active', true).eq('id', column.preference_field_id).maybeSingle();
@@ -4397,7 +4405,7 @@ export function createCustomObjectService({
       if (value.kind === 'custom_object') {
         await activeObject(value.customObjectId);
         await requireCapability(value.customObjectId, 'view_records');
-      } else if (!isAdmin) {
+      } else if (!isAdmin && !sharedReport) {
         throw new CustomObjectHttpError(
           403,
           'Tenant administrator access is required for reports containing core entities',
@@ -4444,7 +4452,7 @@ export function createCustomObjectService({
       }
     }
     if (!authorizedStart) {
-      if (deniedEndpointSeen || (startEndpoint.kind !== 'custom_object' && !isAdmin)) {
+      if (deniedEndpointSeen || (startEndpoint.kind !== 'custom_object' && !isAdmin && !sharedReport)) {
         throw new CustomObjectHttpError(403, 'Report start endpoint is not authorized');
       }
       throw new CustomObjectHttpError(409, 'Report start endpoint is disconnected or unavailable');
@@ -4719,7 +4727,7 @@ export function createCustomObjectService({
           await activeObject(next.customObjectId);
           await requireCapability(next.customObjectId, 'view_records');
         }
-        else if (!isAdmin) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+        else if (!isAdmin && !sharedReport) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
         definitionSeen.add(id); endpointSeen.add(endpointKey(next));
         resolved.push({ definition, fromSide, toSide, endpoint: next });
         current = next;
@@ -5571,8 +5579,51 @@ export function createCustomObjectService({
   }
 
   const sortedReports = createReportSortService({
-    db, tenantId, context, now, validate: validateReportDefinition, execute: executeReport, ErrorType: CustomObjectHttpError,
+    db, tenantId, context, now, validate: sharedReport ? validateSharedDefinition : validateReportDefinition,
+    execute: executeReport, ErrorType: CustomObjectHttpError,
+    allowNaturalOrder: sharedReport, commitRpc: sharedReport ? 'custom_object_report_share_commit' : undefined,
   });
+  async function validateSharedDefinition(ownerId, definition) {
+    if (String(ownerId) !== String(reportAuthority.objectId)
+      || reportDefinitionKey(definition) !== reportDefinitionKey(reportAuthority.definition)) {
+      throw new CustomObjectHttpError(403, 'Shared report definition is fixed');
+    }
+    const validated = await validateReportDefinition(ownerId, definition);
+    if (validated.columns.some(column =>
+      ['file', 'image', 'images', 'attachment'].includes(column.fieldDefinition?.field_type || column.preferenceField?.field_type))) {
+      throw new CustomObjectHttpError(400, 'File and image columns cannot be externally shared');
+    }
+    const hop = validated.grain.hops.at(-1);
+    const many = hop && (hop.definition.cardinality === 'many_to_many'
+      || (hop.definition.cardinality === 'one_to_many' && hop.fromSide === 'source')
+      || (hop.definition.cardinality === 'many_to_one' && hop.fromSide === 'target'));
+    if (definition.version === 1 && hop && (validated.grain.hops.length !== 1 || !many)) {
+      throw new CustomObjectHttpError(400, 'Create a current-version report to share this complex legacy report');
+    }
+    return validated;
+  }
+  if (sharedReport) {
+    const guarded = async operation => {
+      await reportAuthority.reauthorize();
+      const result = await operation();
+      await reportAuthority.reauthorize();
+      return result;
+    };
+    return Object.freeze({
+      validate: () => guarded(() => validateSharedDefinition(reportAuthority.objectId, reportAuthority.definition)),
+      preview: input => guarded(() => sortedReports.preview(reportAuthority.objectId, {
+        definition: reportAuthority.definition, action: input.action, job_id: input.job_id,
+        page: input.page, pageSize: input.pageSize,
+      })),
+      export: input => guarded(async () => {
+        if (!reportAuthority.allowCsv) throw new CustomObjectHttpError(403, 'CSV download is disabled');
+        return sortedReports.export(reportAuthority.objectId, {
+          definition: reportAuthority.definition, action: input.action, job_id: input.job_id,
+          chunk_index: input.chunk_index, name: reportAuthority.name,
+        });
+      }),
+    });
+  }
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
     updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, writeTrustedPersistedRecord, normalizeTrustedPersistedRecordData, initialRelationshipCandidates, getRecord, updateRecord,
@@ -5584,4 +5635,12 @@ export function createCustomObjectService({
     createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
     previewReport, exportReport, validateReportDefinition, reportOrganizationFields,
   };
+}
+
+export function createSharedReportExecutor({ db, tenantId, objectId, definition, grantId, allowCsv = false, name, reauthorize }) {
+  if (typeof reauthorize !== 'function' || !grantId) throw new CustomObjectHttpError(403, 'A scoped report grant is required');
+  return createCustomObjectService({
+    db, context: { tenantId, reportGrantId: grantId },
+    reportAuthority: { authority: SHARED_REPORT_AUTHORITY, objectId, definition, allowCsv, name, reauthorize },
+  });
 }

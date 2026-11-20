@@ -2,8 +2,11 @@ import { supabase } from './database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantContext.js';
 import { CustomObjectHttpError, createCustomObjectService } from './customObjectService.js';
 import { resolveTrustedSchemaCapabilities } from './customObjectSchemaAccess.js';
+import { createReportSharingManager } from './customObjectReportSharing.js';
+import { getTenantTrustedBaseUrl } from './publicBaseUrl.js';
 
 function schemaAccessRequired(level, resource, method) {
+  if (resource === 'report-sharing') return 'manage';
   if ([
     'records',
     'export',
@@ -91,7 +94,17 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (req.method === 'DELETE') data = await service.updateObject(objectId, req.body, true);
         else return methodNotAllowed(res, ['GET', 'PATCH', 'DELETE']);
       } else if (level === 'resource') {
-        if (objectId === 'core' && resource === 'relationship-definitions' && req.method === 'GET') {
+        if (resource === 'report-sharing') {
+          if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+          if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
+          res.setHeader('Cache-Control', 'private, no-store');
+          res.setHeader('Referrer-Policy', 'no-referrer');
+          const { data: tenant, error } = await db.from('tenant').select('slug,domain').eq('id', context.tenantId).maybeSingle();
+          if (error || !tenant) throw new CustomObjectHttpError(503, 'Report sharing is temporarily unavailable');
+          const sharing = createReportSharingManager({ db, context, isAdmin, baseUrl: getTenantTrustedBaseUrl(req, tenant) });
+          data = req.method === 'GET' ? await sharing.get(objectId, req.query.report_id) : await sharing.change(objectId, req.body);
+        }
+        else if (objectId === 'core' && resource === 'relationship-definitions' && req.method === 'GET') {
           data = await service.listCoreRelationshipDefinitions(req.query.kind, req.query.recordId);
         } else if (objectId === 'core' && resource === 'relationship-panel-preference' && req.method === 'GET') {
           data = await service.getRelationshipPanelPreference(req.query);

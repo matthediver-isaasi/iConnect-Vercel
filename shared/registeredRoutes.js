@@ -28,7 +28,7 @@ const extra = `
 /sales/tasks /sales/reports /sales/settings /sales/allocations/:allocationId
 /events/:eventSlug /gallery/:slug /CampaignEdit/:id
 /OrganisationDirectory/members/:organizationId /organisations/:id /OrganisationGroups/:id
-/survey/:token /FormSubmission/:submissionId /news-preview/:id /article-preview/:id
+/survey/:token /FormSubmission/:submissionId /news-preview/:id /article-preview/:id /shared-reports/:token
 /help/:slug /CPDCertificateTemplates/:templateId /CustomObjectsAdmin/:objectId
 /CustomObjectsAdmin/:objectId/records /CustomObjectsAdmin/:objectId/records/new
 /CustomObjectsAdmin/:objectId/records/:recordId /CustomObjectsAdmin/:objectId/records/:recordId/edit

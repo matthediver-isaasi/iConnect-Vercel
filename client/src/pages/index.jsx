@@ -245,6 +245,7 @@ import NewsSettings from "./NewsSettings";
 import NewsPreview from "./NewsPreview";
 
 import ArticlePreview from "./ArticlePreview";
+const SharedCustomObjectReport = lazy(() => import("./SharedCustomObjectReport"));
 
 const DataExport = lazy(() => import("./DataExport"));
 
@@ -752,6 +753,7 @@ const PAGES = {
     NewsPreview: NewsPreview,
     
     ArticlePreview: ArticlePreview,
+    SharedCustomObjectReport: SharedCustomObjectReport,
     
     DataExport: DataExport,
     ImportManager: ImportManager,
@@ -893,6 +895,7 @@ function _getCurrentPage(url, quoteNaming) {
     // Handle parameterized routes like /members/:id (and member-list aliases)
     const urlParts = url.split('/').filter(Boolean);
     if (urlParts[0]?.toLowerCase() === 'article-preview') return 'ArticlePreview';
+    if (urlParts[0]?.toLowerCase() === 'shared-reports') return 'SharedCustomObjectReport';
     if (urlParts[0]?.toLowerCase() === 'sales') {
         const salesPage = urlParts[1]?.toLowerCase() || 'dashboard';
         const salesPages = {
@@ -1323,6 +1326,7 @@ function PagesContent() {
                 <Route path="/news-preview/:id" element={<NewsPreview />} />
                 
                 <Route path="/article-preview/:id" element={<ArticlePreview />} />
+                <Route path="/shared-reports/:token" element={<SharedCustomObjectReport />} />
                 
                 <Route path="/DataExport" element={<DataExport />} />
                 <Route path="/ImportManager" element={<ImportManager />} />
@@ -1515,6 +1519,7 @@ function StandaloneRoutes() {
     return (
         <Routes>
             <Route path="/signup" element={<TenantSignup />} />
+            <Route path="/shared-reports/:token" element={<SharedCustomObjectReport />} />
             <Route path="/Signup" element={<TenantSignup />} />
             <Route path="/register" element={<TenantSignup />} />
             <Route path="/signup-verify" element={<SignupVerify />} />
@@ -1624,6 +1629,11 @@ function SaasRoutes() {
 
 function AppRoutes() {
     const location = useLocation();
+
+    // Capability links must not mount Layout or any member/CRM data providers.
+    if (location.pathname.toLowerCase().startsWith('/shared-reports/')) {
+        return <StandaloneRoutes />;
+    }
     
     if (isRootDomain()) {
         return <SaasRoutes />;
@@ -1633,6 +1643,7 @@ function AppRoutes() {
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );
+    const isSharedReportPage = location.pathname.toLowerCase().startsWith('/shared-reports/');
     
     const isEmbedPage = location.pathname.toLowerCase().startsWith('/embed/');
     const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
@@ -1661,7 +1672,7 @@ function AppRoutes() {
         return <Layout currentPageName={_getCurrentPage(location.pathname)} authenticationOnly><StandaloneRoutes /></Layout>;
     }
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isPublicQuotePage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
+    if (isStandalonePage || isSharedReportPage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isPublicQuotePage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

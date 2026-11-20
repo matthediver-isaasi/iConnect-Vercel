@@ -10,6 +10,7 @@ import { resolveTenantBrandingPayload } from './tenantBranding.js';
 import { buildGoogleFontsHref } from './installedFontsShared.js';
 import { homepageRoute } from './homepage.js';
 import { FAVICON_LINKS } from '../../shared/tenantFavicon.js';
+import { isSharedReportPage } from './reportShareHeaders.js';
 
 let cachedTemplate = null;
 
@@ -374,6 +375,12 @@ function injectMeta(html, values) {
 
 export async function renderTenantHtml(req, options = {}) {
   const template = options.template || loadTemplate();
+  // Do not inject tenant tracking, entity metadata or capability URLs into a
+  // shared report's HTML. Authentication and all content are resolved only by
+  // the narrowly scoped public report endpoint.
+  if (isSharedReportPage(req)) return template
+    .replace(/<title>[\s\S]*?<\/title>/i, '<title>Shared report</title>')
+    .replace(/<head([^>]*)>/i, '<head$1><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">');
   let tenant = null;
   try {
     tenant = await (options.resolveTenant || resolvePageTenant)(req, { fresh: true });

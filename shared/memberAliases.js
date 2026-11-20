@@ -203,6 +203,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   // test (client/src/lib/reservedPageSlug.test.mjs) parses the route table
   // and fails if a new static route root is missing from this set.
   'article-preview',
+  'shared-reports',
   'badgemanagement',
   'bnmsmemberdemo',
   'book',

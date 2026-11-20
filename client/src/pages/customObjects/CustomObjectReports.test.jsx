@@ -791,6 +791,9 @@ test("organisation custom fields are discovered, added with typed references, sa
   const requests = [];
   const metadata = [{ id: "org-sector", label: "Organisation sector", field_type: "text" }];
   globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith("/report-sharing?report_id=organisation-fields")) {
+      return { ok: true, json: async () => ({ enabled: false, password_required: true, allow_csv: false, url: null, can_manage: true }) };
+    }
     requests.push({ url, options });
     return { ok: true, json: async () => ({ data: metadata }) };
   };

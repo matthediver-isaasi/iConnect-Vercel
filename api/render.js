@@ -1,13 +1,16 @@
 import { renderTenantHtml } from './_lib/renderHtml.js';
 import { applyUnknownPageHttpPolicy } from './_lib/unknownPageHttp.js';
+import { isSharedReportPage, privateReportHeaders } from './_lib/reportShareHeaders.js';
 
 export function createHtmlHandler({ applyPolicy = applyUnknownPageHttpPolicy, renderHtml = renderTenantHtml } = {}) {
 return async function handler(req, res) {
+  const sharedReport = isSharedReportPage(req);
+  if (sharedReport) privateReportHeaders(res);
   if (/^\/article-preview(?:\/|$)/i.test((req.url || '').split('?')[0])) {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
     res.setHeader('Referrer-Policy', 'no-referrer');
   }
-  if (await applyPolicy(req, res)) return;
+  if (!sharedReport && await applyPolicy(req, res)) return;
   try {
     const html = await renderHtml(req);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');

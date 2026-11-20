@@ -12,6 +12,7 @@ import { applyUnknownPageHttpPolicy } from "../api/_lib/unknownPageHttp.js";
 import faviconHandler from "../api/public/favicon.js";
 import manifestHandler from "../api/public/manifest.js";
 import { FAVICON_PATHS } from "../shared/tenantFavicon.js";
+import { isSharedReportPage, privateReportHeaders } from "../api/_lib/reportShareHeaders.js";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -30,6 +31,10 @@ app.use('/article-preview', (_req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+app.use('/shared-reports', (_req, res, next) => {
+  privateReportHeaders(res);
   next();
 });
 
@@ -81,7 +86,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       // Registration responses contain bearer links and delegate details.
-      if (capturedJsonResponse && !["/api/public/sales-ticket-registration", "/api/public/article-preview"].includes(path)) {
+      if (capturedJsonResponse && !["/api/public/sales-ticket-registration", "/api/public/article-preview",
+        "/api/public/custom-object-report"].includes(path) && !/\/report-sharing$/.test(path)) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -104,7 +110,7 @@ export default async function runApp(
   app.all(FAVICON_PATHS, faviconHandler);
   app.all('/site.webmanifest', manifestHandler);
   app.use(async (req, res, next) => {
-    if (await applyUnknownPageHttpPolicy(req, res)) return;
+    if (!isSharedReportPage(req) && await applyUnknownPageHttpPolicy(req, res)) return;
     next();
   });
 

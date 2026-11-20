@@ -7,6 +7,20 @@ const { __setRoleAccessOverlayForTests } = await import('./roleVisibility.js');
 __setRoleAccessOverlayForTests([]);
 const { createCustomObjectRouteHandler } = await import('./customObjectRoute.js');
 
+test('report sharing requires a real administrator even when schema management permission is present', async () => {
+  let queried = false;
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role' }),
+    hasAdminAccess: async () => false, hasFeatureAccess: async () => true,
+    db: { from() { queried = true; throw new Error('Must not load sharing metadata'); } },
+    createCustomObjectService: () => ({}),
+  });
+  const res = response();
+  await handler({ method: 'GET', query: { objectId: 'object', resource: 'report-sharing', report_id: 'r_report' } }, res);
+  assert.equal(res.statusCode, 403);
+  assert.equal(queried, false);
+});
+
 function response() {
   return {
     statusCode: 200,
