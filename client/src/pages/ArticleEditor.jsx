@@ -21,6 +21,7 @@ import StatusSelector from "../components/blog/StatusSelector";
 import SEOSettings from "../components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { usePopupUnsavedChanges } from "@/hooks/usePopupUnsavedChanges";
 import MemberCombobox from "@/components/MemberCombobox";
 import { isArticlePublished } from "../../../shared/articlePublication.js";
 
@@ -74,6 +75,7 @@ export default function ArticleEditorPage() {
   const [coAuthors, setCoAuthors] = useState([]);
   const [memberPickerKey, setMemberPickerKey] = useState(0);
   const coAuthorsInitRef = useRef(false);
+  const [authorsHydrated, setAuthorsHydrated] = useState(false);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
   const [validatedSlugKey, setValidatedSlugKey] = useState(null);
@@ -86,6 +88,28 @@ export default function ArticleEditorPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [focalPoint, setFocalPoint] = useState({ x: 50, y: 50 });
   const [showSafeArea, setShowSafeArea] = useState(false);
+
+  // The baseline is a confirmed load/save, not an attempted autosave. Keep refs
+  // current synchronously so a successful save can navigate before React renders.
+  const editorSnapshot = JSON.stringify([title, slug, summary, content, featureImage,
+    focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription,
+    ogImageUrl, authorType, selectedGuestWriterId, coAuthors]);
+  const latestEditorSnapshot = useRef(editorSnapshot);
+  latestEditorSnapshot.current = editorSnapshot;
+  const confirmedSnapshotRef = useRef(isEditing ? null : editorSnapshot);
+  const [confirmedSnapshot, setConfirmedSnapshot] = useState(confirmedSnapshotRef.current);
+  const manualSaveSnapshotRef = useRef(null);
+  const confirmSnapshot = (snapshot) => {
+    confirmedSnapshotRef.current = snapshot;
+    setConfirmedSnapshot(snapshot);
+  };
+  // This guard supports the app's BrowserRouter, including Back/Forward, as
+  // well as beforeunload. Uploads count as unsaved before they produce a URL.
+  const leaveGuard = usePopupUnsavedChanges({
+    isDirty: () => uploadCountRef.current > 0 ||
+      (confirmedSnapshotRef.current !== null &&
+        latestEditorSnapshot.current !== confirmedSnapshotRef.current),
+  });
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -448,7 +472,17 @@ export default function ArticleEditorPage() {
       }));
     setCoAuthors(cos);
     coAuthorsInitRef.current = true;
+    setAuthorsHydrated(true);
   }, [existingAuthorsData, article, isEditing, coAuthorsFetching]);
+
+  useEffect(() => {
+    if (isEditing && confirmedSnapshotRef.current === null &&
+        hydratedArticleId === articleId && authorsHydrated &&
+        !articleFetching && !articleError && !authorFetching && !originalAuthorFetching) {
+      confirmSnapshot(editorSnapshot);
+    }
+  }, [isEditing, hydratedArticleId, articleId, authorsHydrated, articleFetching,
+    articleError, authorFetching, originalAuthorFetching, editorSnapshot]);
 
   const removeCoAuthor = (type, id) => {
     setCoAuthors((prev) => prev.filter((c) => !(c.type === type && c.id === id)));
@@ -560,11 +594,15 @@ export default function ArticleEditorPage() {
           autoSaveData.authors = buildAuthorsArray(autoPrimaryRef);
 
           const saved = await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(autoSaveData, imageChangedRef.current));
+          if (!saved?.id) throw new Error('The saved article could not be confirmed. Please try again.');
           persistedStatusRef.current = saved?.status ?? autoSaveData.status;
           lastAutoSaveSnapshot.current = snapshot;
+          confirmSnapshot(editorSnapshot);
+          setSaveError('');
           setLastSaved(new Date());
         } catch (error) {
           console.error('Auto-save failed:', error);
+          setSaveError(error.message || 'Auto-save failed. Your changes have not been saved.');
         } finally {
           saveBusyRef.current = false;
           setAutoSaving(false);
@@ -741,6 +779,7 @@ export default function ArticleEditorPage() {
       }
     },
     onSuccess: async (data, intent) => {
+      confirmSnapshot(manualSaveSnapshotRef.current);
       queryClient.invalidateQueries({ queryKey: ['articles'] });
       queryClient.invalidateQueries({ queryKey: ['my-articles'] });
       queryClient.invalidateQueries({ queryKey: ['all-articles-admin'] });
@@ -783,6 +822,7 @@ export default function ArticleEditorPage() {
     saveBusyRef.current = true; // Synchronous guard against double clicks and queued autosaves.
     clearTimeout(autoSaveTimerRef.current);
     setSaveError('');
+    manualSaveSnapshotRef.current = editorSnapshot;
     saveMutation.mutate(intent);
   };
 
@@ -795,6 +835,7 @@ export default function ArticleEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['published-articles'] });
       setDeleteDialogOpen(false);
       toast.success(`${singularDisplayName} deleted successfully`);
+      confirmSnapshot(latestEditorSnapshot.current);
       window.location.href = getArticleListUrl();
     },
     onError: () => {
@@ -1104,7 +1145,7 @@ export default function ArticleEditorPage() {
         </div>
 
         {(saveError || coAuthorsError) && <p role="alert" className="mb-4 text-red-600">{saveError || coAuthorsError.message}</p>}
-        <fieldset disabled={saveMutation.isPending} className="grid lg:grid-cols-3 gap-8 min-w-0">
+        <fieldset disabled={saveMutation.isPending || (isEditing && confirmedSnapshot === null)} className="grid lg:grid-cols-3 gap-8 min-w-0">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-slate-200 shadow-sm">
@@ -1405,6 +1446,7 @@ export default function ArticleEditorPage() {
                       <Button
                         variant="destructive"
                         size="icon"
+                        aria-label="Remove image"
                         className="absolute top-2 right-2"
                         onClick={(e) => { e.stopPropagation(); imageChangedRef.current = true; setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
                       >
@@ -1603,6 +1645,23 @@ export default function ArticleEditorPage() {
               </p>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!leaveGuard.pending} onOpenChange={(open) => { if (!open) leaveGuard.stay(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave with unsaved changes?</DialogTitle>
+            <DialogDescription>
+              Your {singularDisplayName.toLowerCase()} changes have not been saved.
+              Stay here to finish saving, or leave without saving.
+              {uploadingImage && ' An image upload is still in progress.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={leaveGuard.stay}>Stay here</Button>
+            <Button variant="destructive" onClick={leaveGuard.discard}>Leave without saving</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

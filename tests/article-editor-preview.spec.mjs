@@ -53,7 +53,7 @@ test.beforeAll(async () => {
   const result = await build({
     stdin: { contents: `
       import React from 'react';import{createRoot}from'react-dom/client';
-      import{BrowserRouter,Routes,Route}from'react-router-dom';
+      import{BrowserRouter,Routes,Route,Link,useNavigate}from'react-router-dom';
       import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
       import{ArticleUrlProvider}from'./client/src/contexts/ArticleUrlContext.jsx';
       import Editor from './client/src/pages/ArticleEditor.jsx';
@@ -63,11 +63,16 @@ test.beforeAll(async () => {
       client.setQueryData(['article-by-slug','alex','original',true],{article:{
         id:'saved',title:'Cached obsolete title',slug:'original',author_id:'m1',status:'draft'}});
       window.fixtureClient=client;
+      function Navigation(){
+        window.fixtureNavigate=useNavigate();
+        return <Link to="/elsewhere">Elsewhere</Link>;
+      }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}>
-      <BrowserRouter><ArticleUrlProvider><Routes>
+      <BrowserRouter><ArticleUrlProvider><Navigation/><Routes>
         <Route path="/ArticleEditor" element={<Editor/>}/><Route path="/blogseditor" element={<Editor/>}/>
         <Route path="/articles/:authorHandle/:articleSlug" element={<View/>}/>
         <Route path="/blogs/:authorHandle/:articleSlug" element={<View/>}/>
+        <Route path="*" element={<><h1>Other page</h1><Link to="/ArticleEditor?id=saved">Open editor</Link></>}/>
       </Routes></ArticleUrlProvider></BrowserRouter></QueryClientProvider>);`,
       resolveDir: process.cwd(), loader: 'jsx' },
     bundle: true, write: false, jsx: 'automatic', alias: { '@': path.resolve('client/src') },
@@ -86,7 +91,7 @@ async function mount(page, { name = 'Articles', fresh = false, admin = false, re
     record: fresh ? null : { id: 'saved', title: 'Original title', slug: 'original',
       content: '<p>Saved content</p>', status: 'draft', author_id: 'm1', original_author_id: 'm1',
       feature_image_url: 'https://preview.test/retained.svg', published_date: '2030-01-01T12:00:00.000Z', ...record },
-    writes: [], fail: false, delay: 0, uploadDelay: 0, readDelay, slugDelay: 0, slugFail: false, duplicate: false,
+    writes: [], fail: false, unconfirmed: false, delay: 0, uploadDelay: 0, readDelay, slugDelay: 0, slugFail: false, duplicate: false,
   };
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url());
@@ -109,6 +114,7 @@ async function mount(page, { name = 'Articles', fresh = false, admin = false, re
           state.writes.push({ action, id, data });
           if (state.delay) await new Promise(r => setTimeout(r, state.delay));
           if (state.fail) return route.fulfill({ status: 503, json: { error: 'Fixture save failed. Your edits are still here.' } });
+          if (state.unconfirmed) return route.fulfill({ json: {} });
           state.record = { ...state.record, ...data, id: id || 'created' };
           body = state.record;
         }
@@ -141,6 +147,186 @@ async function mount(page, { name = 'Articles', fresh = false, admin = false, re
 
 const preview = page => page.getByTestId('button-preview-article');
 const title = page => page.getByTestId('input-article-title');
+const leaveDialog = page => page.getByRole('dialog', { name: 'Leave with unsaved changes?' });
+const unloadBlocked = page => page.evaluate(() => {
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+});
+
+test('pristine drafts leave freely; even an untitled draft protects edits', async ({ page }) => {
+  await mount(page, { fresh: true });
+  expect(await unloadBlocked(page)).toBe(false);
+  await page.getByLabel('Article content').fill('An untitled draft');
+  expect(await unloadBlocked(page)).toBe(true);
+  await page.getByRole('link', { name: 'Back to' }).click();
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  await expect(page.getByLabel('Article content')).toHaveValue('An untitled draft');
+  await page.getByLabel('Article content').fill('');
+  expect(await unloadBlocked(page)).toBe(false);
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Other page' })).toBeVisible();
+});
+
+test('new titled drafts do not silently autosave and warn on other links and replace navigation', async ({ page }) => {
+  const state = await mount(page, { fresh: true });
+  await title(page).fill('Unsaved new title');
+  await expect(preview(page)).toBeEnabled();
+  await page.waitForTimeout(3300);
+  expect(state.writes).toHaveLength(0);
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  await expect(title(page)).toHaveValue('Unsaved new title');
+  await page.evaluate(() => window.fixtureNavigate('/elsewhere', { replace: true }));
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page.getByRole('heading', { name: 'Other page' })).toBeVisible();
+  expect(await unloadBlocked(page)).toBe(false);
+});
+
+test('browser Back and Forward retain edits when cancelled and resume the requested route when discarded', async ({ page }) => {
+  await mount(page);
+  await expect(preview(page)).toBeEnabled();
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await page.getByRole('link', { name: 'Open editor' }).click();
+  await expect(preview(page)).toBeEnabled();
+  await title(page).fill('Retain across Back');
+  await page.evaluate(() => window.history.back());
+  await expect(leaveDialog(page)).toBeVisible();
+  await expect(page).toHaveURL(/ArticleEditor\?id=saved$/);
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  await expect(title(page)).toHaveValue('Retain across Back');
+  await page.evaluate(() => window.history.back());
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page.getByRole('heading', { name: 'Other page' })).toBeVisible();
+  // Back once more returns to the first editor, with a forward entry available.
+  await page.goBack();
+  await expect(preview(page)).toBeEnabled();
+  await title(page).fill('Retain across Forward');
+  await page.evaluate(() => window.history.forward());
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  await expect(title(page)).toHaveValue('Retain across Forward');
+  await page.evaluate(() => window.history.forward());
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page.getByRole('heading', { name: 'Other page' })).toBeVisible();
+});
+
+for (const unconfirmed of [false, true]) test(`${unconfirmed ? 'unconfirmed' : 'failed'} autosaves retain protection until a confirmed save`, async ({ page }) => {
+  const state = await mount(page);
+  await expect(preview(page)).toBeEnabled();
+  state.fail = !unconfirmed;
+  state.unconfirmed = unconfirmed;
+  await title(page).fill('Not yet saved');
+  await expect(page.getByRole('alert')).toContainText(unconfirmed ? 'could not be confirmed' : 'Fixture save failed', { timeout: 7000 });
+  expect(await unloadBlocked(page)).toBe(true);
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  state.fail = false;
+  state.unconfirmed = false;
+  await page.getByTestId('button-save-article').click();
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(false);
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Other page' })).toBeVisible();
+});
+
+test('an older successful autosave cannot clear newer edits; reverting to the saved value clears protection', async ({ page }) => {
+  const state = await mount(page);
+  await expect(preview(page)).toBeEnabled();
+  state.delay = 1200;
+  await title(page).fill('Saved by in-flight request');
+  await expect.poll(() => state.writes.length, { timeout: 7000 }).toBe(1);
+  await title(page).fill('Newer unsaved text');
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(true);
+  await title(page).fill('Saved by in-flight request');
+  expect(await unloadBlocked(page)).toBe(false);
+});
+
+test('failed manual saves stay guarded and a new draft Save redirect does not warn', async ({ page }) => {
+  const state = await mount(page, { fresh: true });
+  await title(page).fill('Save this new draft');
+  await expect(preview(page)).toBeEnabled();
+  state.fail = true;
+  await page.getByTestId('button-save-article').click();
+  await expect(page.getByRole('alert')).toContainText('Fixture save failed');
+  expect(await unloadBlocked(page)).toBe(true);
+  state.fail = false;
+  const dialogs = [];
+  page.on('dialog', dialog => { dialogs.push(dialog.type()); dialog.dismiss(); });
+  await page.getByTestId('button-save-article').click();
+  await expect(page).toHaveURL(/ArticleEditor\?id=created$/);
+  expect(dialogs).toEqual([]);
+  expect(state.writes.map(write => write.action)).toEqual(['create', 'create']);
+});
+
+test('reload uses the native browser warning and cancellation preserves the draft', async ({ page }) => {
+  await mount(page, { fresh: true });
+  await title(page).fill('Do not lose this on reload');
+  const dialogEvent = page.waitForEvent('dialog');
+  const reload = page.evaluate(() => window.location.reload());
+  const dialog = await dialogEvent;
+  expect(dialog.type()).toBe('beforeunload');
+  await dialog.dismiss();
+  await reload;
+  await expect(title(page)).toHaveValue('Do not lose this on reload');
+  const closeEvent = page.waitForEvent('dialog');
+  await page.close({ runBeforeUnload: true });
+  const closeDialog = await closeEvent;
+  expect(closeDialog.type()).toBe('beforeunload');
+  await closeDialog.dismiss();
+  expect(page.isClosed()).toBe(false);
+  await expect(title(page)).toHaveValue('Do not lose this on reload');
+});
+
+test('image removal, focal changes and pending feature/content/social uploads are protected', async ({ page }) => {
+  const state = await mount(page);
+  await expect(preview(page)).toBeEnabled();
+  // Keep the image-only edits unsaved while the navigation warning is checked.
+  state.fail = true;
+  await page.getByTestId('focal-point-picker').click({ position: { x: 10, y: 10 } });
+  expect(await unloadBlocked(page)).toBe(true);
+  await page.getByRole('link', { name: 'Elsewhere', exact: true }).click();
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Stay here' }).click();
+  await page.getByRole('button', { name: 'Remove image', exact: true }).click();
+  expect(await unloadBlocked(page)).toBe(true);
+  state.fail = false;
+  await page.getByTestId('button-save-article').click();
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(false);
+  state.uploadDelay = 800;
+  const upload = { name: 'fixture.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') };
+  await page.locator('input[type=file]').first().setInputFiles(upload);
+  await expect(preview(page)).toBeDisabled();
+  expect(await unloadBlocked(page)).toBe(true);
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(true);
+  await page.getByTestId('button-save-article').click();
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(false);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Insert content image' }).click();
+  await (await chooser).setFiles(upload);
+  await expect(preview(page)).toBeDisabled();
+  expect(await unloadBlocked(page)).toBe(true);
+  await expect(preview(page)).toBeEnabled();
+  await page.getByTestId('button-save-article').click();
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(false);
+  await page.getByRole('button', { name: 'SEO & Social' }).click();
+  await page.locator('input[type=file]').last().setInputFiles(upload);
+  await expect(preview(page)).toBeDisabled();
+  expect(await unloadBlocked(page)).toBe(true);
+  await expect(preview(page)).toBeEnabled();
+  expect(await unloadBlocked(page)).toBe(true);
+});
 
 for (const name of ['Articles', 'Blogs']) test(`${name}: immediate save, fresh cached preview, retained image and Edit round trip`, async ({ page }) => {
   const state = await mount(page, { name, mobile: name === 'Blogs' });
