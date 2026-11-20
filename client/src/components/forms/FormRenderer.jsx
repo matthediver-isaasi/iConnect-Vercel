@@ -2478,7 +2478,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     if (autoValue && !value) {
       onChange(autoValue);
     }
-  }, [field.type, field.id, memberInfo?.first_name, memberInfo?.last_name, memberInfo?.email, memberInfo?.job_title, organizationInfo?.name, value]);
+    // Parent initialization can replace the answer map after this child effect
+    // runs. Observe its current writer as well, so an erased initial value is
+    // retried on that render even when it remains undefined across commits.
+  }, [field.type, field.id, memberInfo?.id, memberInfo?.first_name, memberInfo?.last_name, memberInfo?.email, memberInfo?.job_title, organizationInfo?.name, value, onChange]);
 
   // Check if current value is "Other" or a custom value when component mounts
   useEffect(() => {

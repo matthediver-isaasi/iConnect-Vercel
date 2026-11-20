@@ -2,6 +2,8 @@
 - [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 
+- [Automatic profile fields](form-auto-populate-lifecycle.md) — child population must survive parent answer-map initialization; test all four automatic profile types.
+
 - [Form checkout query scope](form-checkout-query-scope.md) — duplicate query keys can falsely reject a correctly scoped saved purchase.
 
 - [Form archive history](form-archive-history.md) — archive rather than delete; restore does not republish.
