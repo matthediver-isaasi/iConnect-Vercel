@@ -19,9 +19,9 @@ Department current-data forms require sign-in and an assigned Department respond
 
 The Department selector belongs only at the beginning of the form, with builder-controlled positioning among first-page fields.
 
-The user rejected a separate Form Settings positioning dropdown. Automatically show a draggable selector block among builder fields only on forms that use Department selection; keep it first-page-only and non-deletable.
+The user rejected a separate Form Settings positioning dropdown. Automatically show a draggable selector block among builder fields only for the specifically configured Department current-set workflow; keep it first-page-only and non-deletable. An ordinary relationship dropdown returning Departments is not authority to enable this workflow.
 
-**Why:** Positioning belongs in the same visual sequence as the other fields, not a separate settings control. The selector is required workflow infrastructure, not a respondent answer.
+**Why:** Positioning belongs in the same visual sequence as the other fields, not a separate settings control. The selector is required workflow infrastructure, not a respondent answer. The user explicitly prohibited widening current-set eligibility while restoring its visibility.
 
 **How to apply:** Preserve existing saved positions and avoid introducing a fake submission field or mapping destination merely to support builder drag and drop.
 

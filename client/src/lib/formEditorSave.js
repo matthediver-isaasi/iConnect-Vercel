@@ -10,7 +10,7 @@ const equal = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonica
 
 // Use exactly the same cleanup for the initial editor snapshot and each save.
 export function normalizeFormEditorSave(form) {
-  const { _ccCustomMode, _bccCustomMode, survey_audit_log, ...data } = form;
+  const { _ccCustomMode, _bccCustomMode, survey_audit_log, current_set_enabled, current_set_configuration, ...data } = form;
   data.structured_actions = {
     version: 1,
     actions: Array.isArray(form.structured_actions) ? form.structured_actions

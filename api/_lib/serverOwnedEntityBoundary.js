@@ -40,6 +40,7 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([
+  ['form', new Set(['current_set_enabled', 'current_set_configuration'])],
   ['event', new Set(['speaker_scope_ready','speaker_scope_attempted_at','speaker_awards_granted_at','speaker_recognition_processed_at'])],
   ['complexevent', new Set(['speaker_awards_granted_at','speaker_recognition_processed_at'])],
   ['eventagendaitem', new Set(['speaker_awards_error','speaker_awards_granted_at','speaker_recognition_processed_at'])],

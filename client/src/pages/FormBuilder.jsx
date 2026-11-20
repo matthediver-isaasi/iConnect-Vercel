@@ -32,6 +32,7 @@ import { Link, useLocation } from "react-router-dom";
 import { captureFormEditorBaseline, prepareFormEditorUpdate, formEditorPatch } from "@/lib/formEditorSave";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { departmentBuilderFields, saveDepartmentBuilderFields, DEPARTMENT_SELECTOR_ID } from "@/lib/departmentSelectorBuilder";
+import { loadFormEditorMetadata } from "@/lib/formEditorMetadata";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2, CreditCard } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11078,13 +11079,21 @@ function FormBuilderEditor() {
   }), [activeTenantId, isAccessReady, memberInfo?.id, memberInfo?.role_id]);
 
   const { data: existingForm, isLoading: formLoading } = useQuery({
-    queryKey: ['form', formId],
+    queryKey: ['form', formId, activeTenantId],
     queryFn: async () => {
       if (!formId) return null;
       const allForms = await base44.entities.Form.list();
       return allForms.find(f => f.id === formId);
     },
     enabled: !!formId
+  });
+
+  const editorMetadataQuery = useQuery({
+    queryKey: ['form-editor-metadata', activeTenantId, formId],
+    queryFn: () => loadFormEditorMetadata({ formId, tenantId: activeTenantId, fetchMetadata: adminFetch }),
+    enabled: Boolean(formId && isAccessReady && activeTenantId),
+    staleTime: 0,
+    retry: false,
   });
 
   // Fetch resource categories for category_multiselect field configuration (search categories)
@@ -11965,7 +11974,7 @@ function FormBuilderEditor() {
     };
   };
 
-  const builderFields = departmentBuilderFields({ ...formData, current_set_enabled: existingForm?.current_set_enabled === true });
+  const builderFields = departmentBuilderFields({ ...formData, current_set_enabled: editorMetadataQuery.data?.current_set_enabled === true });
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
@@ -12886,7 +12895,14 @@ function FormBuilderEditor() {
     }
   };
 
-  if (!accessChecked || formLoading) {
+  if (formId && editorMetadataQuery.isError) {
+    return <div className="min-h-screen p-8" role="alert" data-testid="form-editor-metadata-error">
+      <p>Form editor configuration could not be verified. Retry before editing.</p>
+      <Button className="mt-4" onClick={() => editorMetadataQuery.refetch()}>Retry</Button>
+    </div>;
+  }
+
+  if (!accessChecked || formLoading || (formId && !editorMetadataQuery.data)) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />

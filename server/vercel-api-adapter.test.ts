@@ -8,6 +8,12 @@ test("public article password verification resolves as an exact handler", async 
   assert.deepEqual(result?.params, {});
 });
 
+test("form editor metadata resolves independently of public form reads", async () => {
+  const result = await findHandler("/api/forms/8b6f44d3-83f8-449e-9496-b10b1dc28e5f/editor-metadata");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, { formId: "8b6f44d3-83f8-449e-9496-b10b1dc28e5f" });
+});
+
 test("publication imports resolve to the exact handler rather than a brief-id route", async () => {
   const result = await findHandler("/api/article-briefs/publication-import");
   assert.equal(typeof result?.handler, "function");

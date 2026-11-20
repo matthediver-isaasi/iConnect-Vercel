@@ -18,7 +18,7 @@ const WIDTHS = {
 
 const ADMIN_MEMBER = {
   id: "form-width-admin",
-  tenant_id: "form-width-tenant",
+  tenant_id: "33333333-3333-4333-8333-333333333333",
   organization_id: "form-width-organisation",
   role_id: "form-width-admin-role",
   email: "form-width-admin@example.invalid",
@@ -232,6 +232,9 @@ async function installFixtures(page) {
 
     if (path === "/api/entities/Form" && method === "GET") {
       return json(route, [state.form]);
+    }
+    if (path === `/api/forms/${FORM_ID}/editor-metadata` && method === "GET") {
+      return json(route, { form_id: FORM_ID, current_set_enabled: false });
     }
     if (path === `/api/entities/Form/${FORM_ID}` && method === "PATCH") {
       const patch = request.postDataJSON() || {};

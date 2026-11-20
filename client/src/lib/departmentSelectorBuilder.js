@@ -28,7 +28,7 @@ export function saveDepartmentBuilderFields(fields) {
   const index = fields.findIndex(field => field.id === DEPARTMENT_SELECTOR_ID);
   if (index < 0) return fields;
   const selector = fields[index];
-  const samePage = field => (field.page_id || null) === (selector.page_id || null);
+  const samePage = field => !field.page_id || (field.page_id || null) === (selector.page_id || null);
   const next = fields.slice(index + 1).find(samePage);
   const previous = fields.slice(0, index).findLast(samePage);
   return fields.filter(field => field.id !== DEPARTMENT_SELECTOR_ID).map(field => ({

@@ -99,6 +99,7 @@ async function install(page, {
   optionsStatus = 200,
   optionsBody = null,
   member = 'a',
+  anchored = false,
 } = {}) {
   const state = {
     currentRequests: [],
@@ -112,6 +113,18 @@ async function install(page, {
   await page.context().route('**/*', route => {
     const request = route.request();
     if (new URL(request.url()).origin !== new URL(appOrigin).origin) return route.abort();
+    // Load the actual client routes without letting tenant SSR contact a live
+    // database before the browser's API fixtures have taken control.
+    if (request.isNavigationRequest()) return route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><html><head><script type="module">
+        import RefreshRuntime from '/@react-refresh';
+        RefreshRuntime.injectIntoGlobalHook(window);
+        window.$RefreshReg$ = () => {};
+        window.$RefreshSig$ = () => type => type;
+        window.__vite_plugin_react_preamble_installed__ = true;
+      </script></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>`,
+    });
     return route.continue();
   });
   await page.context().route('**/api/**', async route => {
@@ -130,14 +143,37 @@ async function install(page, {
       return json(route, {
         id: state.currentMember,
         tenant_id: IDS.tenant,
+        role_id: '22222222-2222-4222-8222-222222222222',
         email: state.currentMember === IDS.memberB ? 'member-b@example.test' : 'member-a@example.test',
         first_name: 'Fixture',
         last_name: 'Respondent',
         member_excluded_features: [],
       });
     }
+    if (path === '/api/entities/Role/22222222-2222-4222-8222-222222222222' && method === 'GET') {
+      return json(route, { id: '22222222-2222-4222-8222-222222222222', name: 'Fixture respondent', excluded_features: [] });
+    }
     if (path === '/api/auth/tenant-user-me' && method === 'GET') return json(route, { user: null }, 401);
-    if (path === `/api/public/form/${SLUG}` && method === 'GET') return json(route, formFixture());
+    if (path === `/api/public/form/${SLUG}` && method === 'GET') {
+      const form = formFixture();
+      if (anchored) {
+        form.fields[0].department_selector_before = true;
+        form.fields.unshift({ id: 'intro', type: 'text', label: 'Introductory text' });
+      }
+      return json(route, form);
+    }
+    if (path === '/api/public/page/department-selector-canvas' && method === 'GET') return json(route, {
+      page: {
+        id: 'selector-canvas', slug: 'department-selector-canvas', name: 'Selector placement fixture',
+        status: 'published', builder_type: 'canvas', public_chrome: 'none',
+        canvas_design: { version: 1, root: { sections: [{ id: 'section', children: [{
+          id: 'selector-form', type: 'form-embed',
+          geom: { x: 0, y: 0, w: 1100, h: 1200 },
+          bp: { desktop: { x: 0, y: 0, w: 1100, h: 1200 } },
+          content: { formSlug: SLUG, mode: 'iframe', title: 'Department selector form' },
+        }] }] } },
+      }, elements: [], symbols: [],
+    });
     if (path === '/api/public/form/current-set' && method === 'GET') {
       const departmentId = url.searchParams.get('department_id');
       state.currentRequests.push({ departmentId, member: state.currentMember });
@@ -210,6 +246,25 @@ test('embed form renders the same loaded repeatable current-set rows', async ({ 
   expect(state.unexpectedWrites).toEqual([]);
   expect(state.pageErrors).toEqual([]);
 });
+
+for (const surfaceName of ['standalone', 'embedded', 'Canvas']) {
+  test(`${surfaceName} retains saved selector placement after introductory fields`, async ({ page }) => {
+    const state = await install(page, { anchored: true });
+    const query = `department_id=${IDS.departmentA}&tenant=bnms-fixture`;
+    const path = surfaceName === 'Canvas' ? `/department-selector-canvas?${query}`
+      : surfaceName === 'embedded' ? `/embed/form/${SLUG}?${query}` : `/FormView?slug=${SLUG}&${query}`;
+    await page.goto(path);
+    const surface = surfaceName === 'Canvas' ? page.frameLocator('[data-testid="iframe-form-embed"]') : page;
+    await expectLoadedRows(surface, 'Radiology — North');
+    const notice = surface.getByTestId('department-current-set-review');
+    await expect(notice).toHaveCount(1);
+    const introBox = await surface.getByText('Introductory text', { exact: true }).boundingBox();
+    const noticeBox = await notice.boundingBox();
+    expect(introBox.y).toBeLessThan(noticeBox.y);
+    expect(state.unexpectedWrites).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+  });
+}
 
 test('unauthorized, no-assignment, and assignment-service errors never render false empty sets', async ({ page }) => {
   const unauthorized = await install(page, {
