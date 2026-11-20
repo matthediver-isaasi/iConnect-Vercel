@@ -40,7 +40,7 @@ test('successful early home discovery cannot mask a later branding failure', asy
     StaticHtmlPageRenderer: unexpectedRenderer, Events: unexpectedRenderer,
     fetch: async url => {
       requests.push(url);
-      assert.equal(url, '/api/public/portal-branding');
+      assert.equal(url, '/api/public/portal-branding?tenant=tenant');
       return { ok: true, json: async () => ({ homePageSlug: 'welcome' }) };
     },
   });
@@ -52,7 +52,7 @@ test('successful early home discovery cannot mask a later branding failure', asy
   try {
     await act(async () => { render(); });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
-    assert.deepEqual(requests, ['/api/public/portal-branding']);
+    assert.deepEqual(requests, ['/api/public/portal-branding?tenant=tenant']);
     assert.ok(container.querySelector('[data-testid="loading-home-page"]'));
     assert.equal(decision, null);
     branding = { ...branding, loading: false, error: new Error('Branding unavailable') };
@@ -61,7 +61,7 @@ test('successful early home discovery cannot mask a later branding failure', asy
     assert.equal(container.querySelector('[data-testid="loading-home-page"]'), null);
     assert.equal(container.querySelector('header,footer'), null);
     assert.equal(decision.publicChrome, 'none');
-    assert.deepEqual(requests, ['/api/public/portal-branding'], 'disabled page transport never starts');
+    assert.deepEqual(requests, ['/api/public/portal-branding?tenant=tenant'], 'disabled page transport never starts');
   } finally {
     await act(async () => root.unmount());
     queryClient.clear();
@@ -102,8 +102,8 @@ test('homepage starts popup discovery alongside the page request but cannot rend
     StaticHtmlPageRenderer: () => null, Events: () => null,
     fetch: async url => {
       requests.push(url);
-      if (url === '/api/public/portal-branding') return { ok: true, json: async () => ({ homePageSlug: 'welcome' }) };
-      assert.equal(url, '/api/public/page/welcome');
+      if (url === '/api/public/portal-branding?tenant=tenant') return { ok: true, json: async () => ({ homePageSlug: 'welcome' }) };
+      assert.equal(url, '/api/public/page/welcome?tenant=tenant');
       return pageResponse;
     },
   });
@@ -115,7 +115,7 @@ test('homepage starts popup discovery alongside the page request but cannot rend
     for (let n = 0; n < 10 && requests.length < 3; n++) {
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
     }
-    assert.deepEqual(requests, ['/api/public/portal-branding', 'popup-discovery', '/api/public/page/welcome']);
+    assert.deepEqual(requests, ['/api/public/portal-branding?tenant=tenant', 'popup-discovery', '/api/public/page/welcome?tenant=tenant']);
     assert.equal(rendered.length, 0, 'loading the page is not display authority');
     releasePage({ ok: true, json: async () => ({ success: true, page: {
       id: 'page-fixture', slug: 'welcome', status: 'published', builder_type: 'canvas',

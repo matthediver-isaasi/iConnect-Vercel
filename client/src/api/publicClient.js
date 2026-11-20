@@ -28,7 +28,8 @@ import { notifyCartUnavailable } from '@/lib/formCart';
  */
 function getTenantSlugFromSubdomain(hostname) {
   // Development mode - no subdomain detection possible
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.includes('.repl.')) {
+  if (hostname === 'localhost' || hostname === '127.0.0.1'
+    || hostname.includes('.repl.') || hostname.endsWith('.replit.dev')) {
     return null;
   }
   
@@ -106,6 +107,8 @@ export function getTenantSlugFromLocation() {
   const queryTenant = urlParams.get('tenant');
   if (queryTenant && !subdomainTenant) {
     console.log('[publicClient] Using tenant from URL query param:', queryTenant);
+    // Full-page login redirects drop the query; retain the preview selection.
+    localStorage.setItem('tenant_slug', queryTenant);
     return queryTenant;
   }
   if (queryTenant && subdomainTenant && queryTenant !== subdomainTenant) {
