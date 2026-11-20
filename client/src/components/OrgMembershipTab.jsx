@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { getMembershipHistoryLifecycle } from "@/lib/membershipHistoryLifecycle";
+import MembershipInvoiceAvailability from "./membership/MembershipInvoiceAvailability";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
 
@@ -1882,7 +1883,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                             )}
                           </div>
                         ) : (
-                          <div className="text-center text-muted-foreground" data-testid={`text-no-invoice-${record.id}`}>—</div>
+                          <MembershipInvoiceAvailability record={record} />
                         )}
                       </td>
                     </tr>
