@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { homepageRoute } from '../_lib/homepage.js';
 import { FAVICON_LINKS } from '../../shared/tenantFavicon.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
@@ -211,6 +212,7 @@ async function renderArticlePage(supabaseClient, tenant, authorHandle, articleSl
       const { data: found } = await supabaseClient
         .from('blog_post')
         .select('id, title, slug, summary, content, feature_image_url, published_date, author_id, guest_writer_id')
+        .or(articlePublicationDateFilter())
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .eq('author_id', member.id)
@@ -222,6 +224,7 @@ async function renderArticlePage(supabaseClient, tenant, authorHandle, articleSl
     const { data: found } = await supabaseClient
       .from('blog_post')
       .select('id, title, slug, summary, content, feature_image_url, published_date, author_id, guest_writer_id')
+      .or(articlePublicationDateFilter())
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
       .not('guest_writer_id', 'is', null)
@@ -232,6 +235,7 @@ async function renderArticlePage(supabaseClient, tenant, authorHandle, articleSl
     const { data: found } = await supabaseClient
       .from('blog_post')
       .select('id, title, slug, summary, content, feature_image_url, published_date, author_id, guest_writer_id')
+      .or(articlePublicationDateFilter())
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
       .or(`slug.eq.${articleSlug},slug.like.${articleSlug}-by-%`)
@@ -1309,6 +1313,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
         const { data } = await supabaseClient
           .from('blog_post')
           .select('id, title, summary, published_date')
+          .or(articlePublicationDateFilter())
           .eq('tenant_id', tenant.id)
           .eq('status', 'published')
           .order('published_date', { ascending: false })

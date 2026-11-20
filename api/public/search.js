@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { stripHtml } from '../_lib/searchTextBuilder.js';
@@ -148,6 +149,7 @@ export default async function handler(req, res) {
         .from('blog_post')
         .select('id, title, summary, content, feature_image_url, feature_image_focal_point, published_date, slug, search_text')
         .eq('tenant_id', tenant.id)
+        .or(articlePublicationDateFilter())
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum)),

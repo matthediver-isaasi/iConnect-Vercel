@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -48,6 +50,7 @@ export default async function handler(req, res) {
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
+      .or(articlePublicationDateFilter())
       .order('published_date', { ascending: false });
 
     if (error) {

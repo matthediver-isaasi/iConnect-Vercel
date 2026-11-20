@@ -1,10 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveBlogPostAuthors } from '../_lib/blogPostAuthors.js';
 import { findPublishedArticleBySlug } from '../_lib/articleSlugLookup.js';
 
 // Public API endpoint for fetching a single article by slug and author handle
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -72,6 +74,7 @@ export default async function handler(req, res) {
           `)
           .eq('tenant_id', tenant.id)
           .eq('status', 'published')
+          .or(articlePublicationDateFilter())
           .eq('author_id', member.id)
           .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
           .single();
@@ -101,6 +104,7 @@ export default async function handler(req, res) {
         `)
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
+        .or(articlePublicationDateFilter())
         .not('guest_writer_id', 'is', null)
         .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
         .single();
@@ -129,6 +133,7 @@ export default async function handler(req, res) {
         `)
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
+        .or(articlePublicationDateFilter())
         .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
         .single();
 

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { isArticlePublished } from "../../../shared/articlePublication.js";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { apiRequest } from "@/lib/queryClient";
@@ -113,7 +114,7 @@ export default function ArticlesPage() {
       console.log('[Articles] Fetching articles, isAuthenticated:', isAuthenticated);
       if (isAuthenticated) {
         const allArticles = await base44.entities.BlogPost.list('-published_date');
-        const filtered = allArticles.filter(article => article.status === 'published');
+        const filtered = allArticles.filter(article => isArticlePublished(article));
         return { articles: filtered, authors: {}, guestWriters: {} };
       } else {
         console.log('[Articles] Calling publicClient.listArticles()');
@@ -169,7 +170,7 @@ export default function ArticlesPage() {
       // Filter by author - only published articles. Include primary-authored AND
       // co-authored posts (primary author behaviour stays unchanged).
       return allArticles.filter(article => {
-        if (article.status !== 'published') return false;
+        if (!isArticlePublished(article)) return false;
         if (coAuthoredSet.has(article.id)) return true;
         if (authorInfo?.type === 'member') {
           return String(article.author_id) === String(authorInfo.id);

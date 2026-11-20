@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { isArticlePublished } from "../../../shared/articlePublication.js";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -641,7 +642,7 @@ export default function ArticleViewPage() {
   const isAuthor = memberInfo && article.author_id === memberInfo.id;
 
   // Check if article is a draft and if user has permission to view it
-  const isDraft = article.status !== 'published';
+  const isDraft = !isArticlePublished(article);
   const canViewDraft = isDraft && isPreviewMode && (isAuthor || isAdmin);
 
   // If it's a draft and user doesn't have permission, show not found

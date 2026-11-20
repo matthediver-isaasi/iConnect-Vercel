@@ -838,6 +838,11 @@ export default async function handler(req, res, dependencies = {}) {
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*')
         .eq('id', id);
       if (audienceContext) query = scopeTicketAudienceQuery(query, entityNorm, audienceContext);
+      if (entityNorm === 'blogpost') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        const { applyArticleReadRelease } = await import('../../_lib/articleReadRelease.js');
+        ({ query } = await applyArticleReadRelease(query, tenantCtx, hasAdminAccess));
+      }
 
       if (entityNorm === 'resource') {
         res.setHeader('Cache-Control', 'private, no-store');

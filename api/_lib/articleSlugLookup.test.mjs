@@ -16,12 +16,17 @@ function mockSb(rows) {
       const state = { eq: {}, like: null };
       const chain = {
         select: () => chain,
+        or: (filter) => { state.dateFilter = filter; return chain; },
         eq: (k, v) => { state.eq[k] = v; return chain; },
         like: (k, v) => { state.like = [k, v]; return chain; },
         order: () => chain,
         limit: (n) => {
           let matched = rows.filter((r) =>
             Object.entries(state.eq).every(([k, v]) => r[k] === v));
+          if (state.dateFilter) {
+            const cutoff = Date.parse(state.dateFilter.split('published_date.lte.')[1]);
+            matched = matched.filter(r => r.published_date == null || Date.parse(r.published_date) <= cutoff);
+          }
           if (state.like) {
             const [k, pattern] = state.like;
             const re = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$');
@@ -72,6 +77,15 @@ test('missing inputs return null without querying', async () => {
   assert.equal(await findPublishedArticleBySlug(null, TENANT_ID, 's', '*'), null);
   assert.equal(await findPublishedArticleBySlug(mockSb([]), null, 's', '*'), null);
   assert.equal(await findPublishedArticleBySlug(mockSb([]), TENANT_ID, '', '*'), null);
+});
+
+test('future exact and legacy-slug articles cannot resolve through fallback', async () => {
+  for (const slug of ['my-post', 'my-post-by-author']) {
+    assert.equal(await findPublishedArticleBySlug(mockSb([{
+      id: 'future', tenant_id: TENANT_ID, status: 'published', slug,
+      published_date: '2999-01-01T00:00:00Z',
+    }]), TENANT_ID, 'my-post', '*'), null);
+  }
 });
 
 test('source contract: prerender, entityMeta and the public article API all wire the shared fallback', async () => {

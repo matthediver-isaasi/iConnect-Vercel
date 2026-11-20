@@ -1,5 +1,6 @@
 import { resolveHomepage } from '../_lib/homepage.js';
 import { supabase } from '../_lib/database.js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
   isImmediateEvent,
@@ -113,6 +114,7 @@ return async function handler(req, res) {
       supabase
         .from('blog_post')
         .select('id, slug, author_id, guest_writer_id, published_date')
+        .or(articlePublicationDateFilter())
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .order('published_date', { ascending: false }),

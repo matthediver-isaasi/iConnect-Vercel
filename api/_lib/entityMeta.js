@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
@@ -140,6 +141,7 @@ async function resolveBlogPostBySlug(tenantId, slug, authorHandle, articleBasePa
     )
     .eq('tenant_id', tenantId)
     .eq('status', 'published')
+    .or(articlePublicationDateFilter())
     .or(`slug.eq.${slug},slug.like.${slug}-by-%`);
   let resolvedAuthorHandle = authorHandle || null;
   if (authorHandle && authorHandle !== 'guest') {

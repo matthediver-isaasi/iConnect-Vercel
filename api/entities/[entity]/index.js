@@ -63,6 +63,7 @@ import { sendSupportNotification, resolveAreaAssignee } from '../../support/noti
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexHook.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
+import { applyArticleReadRelease } from '../../_lib/articleReadRelease.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../../_lib/resourceCategoryAccess.js';
@@ -903,6 +904,10 @@ export default async function handler(req, res) {
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*', wantsCount ? { count: 'exact' } : undefined);
       if (audienceContext) query = scopeTicketAudienceQuery(query, entityNorm, audienceContext);
+      if (entityNorm === 'blogpost') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        ({ query } = await applyArticleReadRelease(query, tenantCtx, hasAdminAccess));
+      }
 
       if (entityNorm === 'resource') {
         res.setHeader('Cache-Control', 'private, no-store');

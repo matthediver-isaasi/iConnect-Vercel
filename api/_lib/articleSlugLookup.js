@@ -7,6 +7,8 @@
 // exists do we try the legacy "-by-{handle}" suffix. (A combined
 // .or(...).single() errors when a clean slug and a distinct legacy slug share
 // the same prefix.)
+import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
+
 export async function findPublishedArticleBySlug(supabase, tenantId, slug, select) {
   if (!supabase || !tenantId || !slug) return null;
 
@@ -15,6 +17,7 @@ export async function findPublishedArticleBySlug(supabase, tenantId, slug, selec
     .select(select)
     .eq('tenant_id', tenantId)
     .eq('status', 'published')
+    .or(articlePublicationDateFilter())
     .eq('slug', slug)
     .limit(1);
   if (exactRows && exactRows.length > 0) return exactRows[0];
@@ -24,6 +27,7 @@ export async function findPublishedArticleBySlug(supabase, tenantId, slug, selec
     .select(select)
     .eq('tenant_id', tenantId)
     .eq('status', 'published')
+    .or(articlePublicationDateFilter())
     .like('slug', `${slug}-by-%`)
     .order('slug')
     .limit(1);
