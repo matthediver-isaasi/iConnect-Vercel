@@ -28,7 +28,8 @@ import { notifyCartUnavailable } from '@/lib/formCart';
  */
 function getTenantSlugFromSubdomain(hostname) {
   // Development mode - no subdomain detection possible
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.includes('.repl.')) {
+  if (hostname === 'localhost' || hostname === '127.0.0.1'
+    || hostname.includes('.repl.') || hostname.endsWith('.replit.dev')) {
     return null;
   }
   
