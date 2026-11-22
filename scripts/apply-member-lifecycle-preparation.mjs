@@ -4,11 +4,13 @@ import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { destinationTarget } from './apply-custom-object-relationship-deleted-members-migration.mjs';
 
-const sql = await readFile(new URL('../supabase/migrations/20261122_member_lifecycle_preparation.sql', import.meta.url), 'utf8');
+const migrations = ['20261122_member_lifecycle_preparation.sql', '20261122_member_lifecycle_login_evidence.sql'];
+const sql = (await Promise.all(migrations.map(name =>
+  readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8')))).join('\n');
 const hash = createHash('sha256').update(sql).digest('hex');
 const args = process.argv.slice(2);
 if (!args.length) {
-  console.log(JSON.stringify({ sha256: hash, dryRun: true, executionEnabled: false }));
+  console.log(JSON.stringify({ sha256: hash, migrations, dryRun: true, executionEnabled: false }));
 } else if (args.length !== 2 || !args.includes('--apply') || !args.includes(`--review-sha256=${hash}`)) {
   console.error('Explicit approval and the exact reviewed migration SHA are required.');
   process.exitCode = 1;

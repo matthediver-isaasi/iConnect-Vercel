@@ -6,6 +6,7 @@ import { normalizeMemberLanding } from '../shared/memberLanding.js';
 import { resolveMemberLanding } from '../api/_lib/memberLanding.js';
 import { normalizeInternalReturnTo } from '../shared/safeReturnTo.js';
 import { authenticatedMemberProjection } from '../api/_lib/authenticatedMemberProjection.js';
+import { createEndMasqueradeHandler } from '../api/auth/end-masquerade.js';
 
 test('password auth response projects organisation-resolved session tenant without changing the CRM record', () => {
   const member = { id: 'legacy', tenant_id: null, organization_id: 'org', role_id: 'member-role' };
@@ -83,15 +84,12 @@ test('OAuth final redirect gives safe contextual destinations precedence over no
 });
 
 test('end masquerade restores original admin identity and return URL', async () => {
-  const source = readFileSync('api/auth/end-masquerade.js', 'utf8').replace(/^import .*;\n/gm, '').replace('export default ', '');
   let restored;
-  const context = {
-    console: { log() {}, error() {} },
-    supabase: { from() { return { select() { return this; }, eq() { return this; }, async single() { return { data: { id: 'admin', tenant_id: 'tenant', role_id: 'admin-role' } }; } }; } },
-    getSession: async () => ({ id: 'masquerade', data: { isMasquerading: true, masqueradeAdminMemberId: 'admin', masqueradeAdminUserType: 'member', masqueradeAdminTenantId: 'tenant', masqueradeReturnUrl: '/members/target?tab=notes#top' } }),
-    createSession: async (_res, data) => { restored = data; return { id: 'restored' }; },
-  };
-  const handler = vm.runInNewContext(`${source}; handler`, context);
+  const handler = createEndMasqueradeHandler({
+    db: { from() { return { select() { return this; }, eq() { return this; }, async single() { return { data: { id: 'admin', tenant_id: 'tenant', role_id: 'admin-role' } }; } }; } },
+    readSession: async () => ({ id: 'masquerade', data: { isMasquerading: true, masqueradeAdminMemberId: 'admin', masqueradeAdminUserType: 'member', masqueradeAdminTenantId: 'tenant', masqueradeReturnUrl: '/members/target?tab=notes#top' } }),
+    issueSession: async (_res, data) => { restored = data; return { id: 'restored' }; },
+  });
   const res = { setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
   await handler({ method: 'POST', headers: {} }, res);
   assert.equal(restored.memberId, 'admin');

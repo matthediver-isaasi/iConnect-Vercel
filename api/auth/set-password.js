@@ -447,7 +447,7 @@ export default async function handler(req, res) {
       roleId: fullMember?.role_id || null,
       identityId: fullMember?.identity_id || identity?.id || null,
       userType: 'member'
-    }, { req });
+    }, { req, loginEvidenceSource: 'password_setup' });
     if (!createdSession) {
       return res.status(403).json({
         success: false,

@@ -510,7 +510,7 @@ export default async function handler(req, res) {
       roleId: member.role_id || null,
       identityId: member.identity_id || identity?.id || null,
       userType: 'member'
-    }, { req });
+    }, { req, loginEvidenceSource: 'password' });
     if (!createdSession) {
       return res.status(403).json({
         success: false,

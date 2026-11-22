@@ -3,6 +3,7 @@ import { deriveAnnualTerm, addDays, toDateString, isAnnualNonRecurring } from '.
 import { resolveMemberAmendmentReadOverlays } from './membershipAmendmentReadOverlay.js';
 import { checkMemberDeletionBilling } from './memberDeletionBillingSafety.js';
 import { assessLifecycleCpd } from './memberLifecycleCpdEvidence.js';
+import { assessLifecycleLogins } from './memberLoginEvidence.js';
 
 // Never return a query builder from async: Supabase builders are thenables.
 export async function lifecycleRows(db, table, tenantId, filters = [], { pageSize = 200, maxRows = 10000 } = {}) {
@@ -122,6 +123,16 @@ export async function loadMemberLifecycleEvidence(db, tenantId, member, policy, 
         if (evidence.activity[type].complete) continue;
       } catch {
         evidence.activity[type].reasons = ['cpd_source_unavailable'];
+      }
+    }
+    if (type === 'portal_login') {
+      try {
+        const logins = await read(db, 'member_lifecycle_login_evidence', tenantId, [['member_id', member.id]]);
+        evidence.activity[type] = assessLifecycleLogins(logins, {
+          tenantId, memberId: member.id, timezone: policy.timezone, now,
+        });
+      } catch {
+        evidence.activity[type].reasons = ['login_source_unavailable'];
       }
     }
     evidence.unavailableSources.push(type);

@@ -299,7 +299,7 @@ export default async function handler(req, res) {
       };
     }
 
-    const created = await createBearerSession(sessionData);
+    const created = await createBearerSession(sessionData, { loginEvidenceSource: 'mobile_password' });
     if (!created) {
       return res.status(500).json({ success: false, error: 'Failed to issue token' });
     }

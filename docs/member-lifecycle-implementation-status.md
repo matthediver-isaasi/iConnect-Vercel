@@ -32,14 +32,19 @@ No live database, tenant configuration, member data or provider was changed.
 - Read-only CPD evidence uses effective ownership after merges, original occurrence
   dates, linked reversals and exact-decimal corrections. Missing occurrence dates
   remain explicit uncertainty; display/import timestamps are never substituted.
+- Genuine password, Google, mobile and password-setup logins explicitly finalize
+  evidence after session access revalidation. Refresh, tenant switch, portal SSO
+  projection, masquerade and team logins do not opt in. A prepared service-only
+  trigger records minimal forward evidence atomically with finalization and
+  retains it after session expiry. This migration has not been applied.
 
 ## Remaining implementation
 
 1. Connect authoritative attendance across simple/complex events and providers,
    CPD occurrence dates and reversals, and genuine tenant-specific member-login
    evidence. Credential `last_login` and member `last_activity` do not establish
-   complete historical evidence. Add forward login provenance at true login
-   completion, not masquerade/session refresh, without manufacturing old dates.
+   complete historical evidence. Forward login capture is implemented but does
+   not certify historical coverage or authorize inactivity decisions.
 2. Establish durable history provenance for verified never-members, imported
    former members and administrator resolution of evidence holds.
 3. Complete outstanding-obligation and retention-policy checks beyond recurring
@@ -73,6 +78,12 @@ fixtures and do not prove backend execution exists.
 CPD evidence now reads the complete effective ledger, but awards without reliable
 occurrence dates still hold for review. These multi-request reads are preview-only,
 not transactional authority to execute a lifecycle transition.
+Forward login observations likewise remain incomplete evidence until historical
+coverage and interrupted-capture handling are resolved. Before its migration is
+installed, login finalization stores only a session marker; do not infer durable
+coverage from those expiring sessions. After installation, evidence-storage
+failure prevents issuing the new session instead of silently losing the event.
+Existing sessions and non-login session operations do not require a new event.
 
 Preview rows currently scan directly tenant-owned member records. Legacy
 organisation-derived tenant ownership must be resolved before complete population
@@ -94,16 +105,20 @@ node scripts/run-isolated-tests.mjs node --no-experimental-global-navigator --im
   shared/memberLifecyclePolicy.test.mjs \
   api/_lib/memberLifecycleEvidence.test.mjs \
   api/_lib/memberLifecycleCpdEvidence.test.mjs \
+  api/_lib/memberLoginEvidence.test.mjs \
   api/admin/member-lifecycle.test.mjs \
   client/src/components/member-lifecycle/MemberLifecycle.mounted.test.mjs
 node scripts/run-isolated-tests.mjs --allow-local-postgres node --test \
   supabase/migrations/memberLifecyclePreparation.test.mjs
+node scripts/run-isolated-tests.mjs --allow-local-postgres node --test \
+  supabase/migrations/memberLifecycleLoginEvidence.test.mjs
 node scripts/run-isolated-tests.mjs node --import tsx --test client/src/lib/roleAccessMap.test.ts
 npm run build
 ```
 
 The migration runner `node scripts/apply-member-lifecycle-preparation.mjs` defaults
-to an offline hash-only dry run. Its explicit apply mode is pinned to the existing
+to an offline hash-only dry run covering configuration and forward-login migrations.
+Its explicit apply mode is pinned to the existing
 external DEST database with verified TLS. No apply was run. This preparatory
 migration is not a substitute for the remaining runtime migration and should
 not be applied as a completed feature rollout.

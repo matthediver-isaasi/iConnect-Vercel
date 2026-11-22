@@ -4,6 +4,7 @@ import cookieSignature from 'cookie-signature';
 import { supabase } from './database.js';
 import { evaluateMemberOrganisationLoginAccess } from './organisationLoginGate.js';
 import { sessionUnavailable, boundedSessionLookup } from './sessionAvailability.js';
+import { stampMemberLoginSession } from './memberLoginEvidence.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
 
@@ -243,7 +244,8 @@ export async function createSession(res, sessionData, options = {}) {
     console.log('[Session] Refusing member-derived session issuance:', sessionData?.memberId, fenced.access?.causes);
     return null;
   }
-  const fencedSessionData = fenced.sessionData;
+  // A replacement/refresh must not inherit an earlier genuine-login marker.
+  const { memberLoginEvidence: discardedLoginEvidence, ...fencedSessionData } = fenced.sessionData;
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
@@ -293,6 +295,13 @@ export async function createSession(res, sessionData, options = {}) {
       }
     }
     
+    if (options.loginEvidenceSource && !await stampMemberLoginSession(supabase, {
+      sessionId, sessionData: sessObject, source: options.loginEvidenceSource,
+    })) {
+      await supabase.from('session').delete().eq('sid', sessionId);
+      return null;
+    }
+
     // Do not destroy a usable masquerade/login session before its replacement
     // exists and passes the access fence. A failed return must remain retryable.
     if (replaceSessionId) {
@@ -354,7 +363,7 @@ export async function createBearerSession(sessionData, options = {}) {
 
   const fenced = await applyMemberSessionAccessFence(sessionData);
   if (!fenced.allowed) return null;
-  const fencedSessionData = fenced.sessionData;
+  const { memberLoginEvidence: discardedLoginEvidence, ...fencedSessionData } = fenced.sessionData;
 
   const token = crypto.randomBytes(48).toString('hex');
   const maxAge = options.maxAge || BEARER_TOKEN_MAX_AGE;
@@ -391,6 +400,13 @@ export async function createBearerSession(sessionData, options = {}) {
         await supabase.from('session').delete().eq('sid', token);
         return null;
       }
+    }
+
+    if (options.loginEvidenceSource && !await stampMemberLoginSession(supabase, {
+      sessionId: token, sessionData: sessObject, source: options.loginEvidenceSource,
+    })) {
+      await supabase.from('session').delete().eq('sid', token);
+      return null;
     }
 
     console.log('[Session] createBearerSession: Bearer token issued:', token.substring(0, 8), 'userType:', fencedSessionData?.userType);
@@ -511,6 +527,10 @@ export async function updateSession(sessionId, sessionData) {
     };
     
     // Update cookie expiry
+    // Login evidence belongs to the original successful issuance, never to a
+    // refresh or promotion. Do not accept a replacement marker from callers.
+    delete sessObject.memberLoginEvidence;
+    if (existingSess.memberLoginEvidence) sessObject.memberLoginEvidence = existingSess.memberLoginEvidence;
     sessObject.cookie.expires = expire.toISOString();
     
     console.log('[Session] updateSession: Writing to DB:', {

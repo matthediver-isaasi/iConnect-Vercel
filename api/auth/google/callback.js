@@ -297,7 +297,7 @@ export default async function handler(req, res) {
       tenantId: sessionTenantId || null,
       roleId: member.role_id || null,
       identityId: identityId || null
-    }, { cookieDomain, req });
+    }, { cookieDomain, req, loginEvidenceSource: 'google' });
     if (!createdSession) {
       return res.redirect(buildErrorRedirect(tenantSlug, 'organisation_login_gate', isProduction));
     }
