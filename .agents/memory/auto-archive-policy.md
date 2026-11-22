@@ -38,3 +38,9 @@ Uncertain historical membership or missing reliable activity dates must hold the
 **Why:** The owner explicitly selected “Hold for review” for uncertain history.
 
 **How to apply:** Leave the record unchanged by automatic lifecycle processing while uncertainty remains. Do not infer “never a member” from missing membership rows or infer inactivity from missing dates. This is an evidence-review hold, not approval for deletion.
+
+Permanent deletion requires one authorised administrator, not a two-person request/approval workflow.
+
+**Why:** The owner explicitly selected “One authorised administrator” during approval-policy clarification.
+
+**How to apply:** Require the dedicated permission through existing Role Management plus explicit confirmation. This does not bypass retention, billing or evidence-review blockers, and scheduled processing must never delete.
