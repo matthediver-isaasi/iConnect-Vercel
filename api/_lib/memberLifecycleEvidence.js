@@ -2,10 +2,14 @@ import { lifecycleDay } from '../../shared/memberLifecyclePolicy.mjs';
 import { deriveAnnualTerm, addDays, toDateString, isAnnualNonRecurring } from './annualRenewalPolicy.js';
 import { resolveMemberAmendmentReadOverlays } from './membershipAmendmentReadOverlay.js';
 import { checkMemberDeletionBilling } from './memberDeletionBillingSafety.js';
+import { assessLifecycleCpd } from './memberLifecycleCpdEvidence.js';
 
 // Never return a query builder from async: Supabase builders are thenables.
 export async function lifecycleRows(db, table, tenantId, filters = [], { pageSize = 200, maxRows = 10000 } = {}) {
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000
+    || !Number.isInteger(maxRows) || maxRows < 1) throw new Error('Invalid lifecycle read bounds');
   const rows = [];
+  let initialCount = null;
   for (let offset = 0; ; offset += pageSize) {
     let query = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
     for (const [key, value] of filters) query = query.eq(key, value);
@@ -14,6 +18,10 @@ export async function lifecycleRows(db, table, tenantId, filters = [], { pageSiz
       throw new Error(`Lifecycle source unavailable: ${table}`);
     }
     if (data.some(row => row.tenant_id !== tenantId)) throw new Error('Lifecycle source scope mismatch');
+    if (initialCount === null) initialCount = count;
+    if (count !== initialCount) throw new Error('Lifecycle source changed while reading');
+    if (count > maxRows) throw new Error(`Lifecycle source exceeds safe preview bound: ${table}`);
+    if (data.some(row => !row.id)) throw new Error('Lifecycle source identity is missing');
     rows.push(...data);
     if (rows.length > maxRows) throw new Error(`Lifecycle source exceeds safe preview bound: ${table}`);
     if (rows.length >= count) {
@@ -105,6 +113,17 @@ export async function loadMemberLifecycleEvidence(db, tenantId, member, policy, 
   // They cannot safely be presented as authoritative lifecycle evidence.
   for (const type of policy.activities) {
     evidence.activity[type] = { complete: false, lastOccurredAt: null };
+    if (type === 'cpd_activity') {
+      try {
+        const ledger = await read(db, 'member_cpd_effective_ledger', tenantId, [['effective_member_id', member.id]]);
+        evidence.activity[type] = assessLifecycleCpd(ledger, {
+          tenantId, memberId: member.id, timezone: policy.timezone, now,
+        });
+        if (evidence.activity[type].complete) continue;
+      } catch {
+        evidence.activity[type].reasons = ['cpd_source_unavailable'];
+      }
+    }
     evidence.unavailableSources.push(type);
   }
   return evidence;

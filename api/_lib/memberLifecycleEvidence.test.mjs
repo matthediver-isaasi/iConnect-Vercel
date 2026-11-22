@@ -57,6 +57,38 @@ test('truncated pages, absent counts and duplicate rows cannot establish complet
     { data: [{ id: '1', tenant_id: 'tenant' }, { id: '1', tenant_id: 'tenant' }], count: 2 },
   ]) await assert.rejects(lifecycleRows(pagingDb([page]), 'member', 'tenant'));
 });
+test('changing totals between pages and invalid read bounds are rejected', async () => {
+  const db = pagingDb([
+    { data: [{ id: '1', tenant_id: 'tenant' }], count: 3 },
+    { data: [{ id: '2', tenant_id: 'tenant' }], count: 2 },
+  ]);
+  await assert.rejects(lifecycleRows(db, 'member', 'tenant', [], { pageSize: 1 }), /changed/);
+  await assert.rejects(lifecycleRows({}, 'member', 'tenant', [], { pageSize: 0 }), /bounds/);
+  await assert.rejects(lifecycleRows(pagingDb([
+    { data: [{ tenant_id: 'tenant' }], count: 1 },
+  ]), 'member', 'tenant'), /identity/);
+});
+test('CPD reader scopes by effective ownership and reports missing dates explicitly', async () => {
+  const calls = [];
+  const evidence = await loadMemberLifecycleEvidence({}, 'tenant', { id: 'member', tenant_id: 'tenant' },
+    DEFAULT_LIFECYCLE_POLICY, new Date('2026-11-22'), {
+      readRows: async (_db, table, tenant, filters) => {
+        calls.push({ table, tenant, filters });
+        if (table === 'member_cpd_effective_ledger') return [{
+          id: 'award', tenant_id: tenant, member_id: 'old', effective_member_id: 'member',
+          entry_kind: 'event_award', points_value: 2, created_at: '2026-11-01',
+        }];
+        return [];
+      },
+      overlays: async ({ history: rows }) => rows,
+      billing: async () => ({ success: true, failures: [] }),
+    });
+  assert.deepEqual(calls.find(call => call.table === 'member_cpd_effective_ledger').filters,
+    [['effective_member_id', 'member']]);
+  assert.deepEqual(evidence.activity.cpd_activity.reasons, ['cpd_occurrence_date_missing']);
+  assert.ok(evidence.unavailableSources.includes('cpd_activity'));
+  assert.equal(evidence.obligationsComplete, false);
+});
 test('preparatory adapter explicitly reports incomplete activities and obligations', async () => {
   const evidence = await loadMemberLifecycleEvidence({}, 'tenant', { id: 'member', tenant_id: 'tenant' },
     DEFAULT_LIFECYCLE_POLICY, new Date('2026-11-22'), {

@@ -29,6 +29,9 @@ No live database, tenant configuration, member data or provider was changed.
 - All unsupported runtime/manual-action endpoints fail explicitly with 409.
 - Initial read-only membership adapter protects current/future/pending entitlements,
   rejects missing dates and exposes existing expiry access-policy conflicts.
+- Read-only CPD evidence uses effective ownership after merges, original occurrence
+  dates, linked reversals and exact-decimal corrections. Missing occurrence dates
+  remain explicit uncertainty; display/import timestamps are never substituted.
 
 ## Remaining implementation
 
@@ -63,10 +66,13 @@ No live database, tenant configuration, member data or provider was changed.
 
 ## Known preparation limitations
 
-The current evidence adapter deliberately reports activity and outstanding-
+The current evidence adapter deliberately reports attendance, login and outstanding-
 obligation coverage as incomplete; previews therefore hold records rather than
 present unsupported archive eligibility. Future manual-action UI tests use
 fixtures and do not prove backend execution exists.
+CPD evidence now reads the complete effective ledger, but awards without reliable
+occurrence dates still hold for review. These multi-request reads are preview-only,
+not transactional authority to execute a lifecycle transition.
 
 Preview rows currently scan directly tenant-owned member records. Legacy
 organisation-derived tenant ownership must be resolved before complete population
@@ -87,6 +93,7 @@ UI tests use fixtures and are not live-tenant or provider verification.
 node scripts/run-isolated-tests.mjs node --no-experimental-global-navigator --import tsx --test \
   shared/memberLifecyclePolicy.test.mjs \
   api/_lib/memberLifecycleEvidence.test.mjs \
+  api/_lib/memberLifecycleCpdEvidence.test.mjs \
   api/admin/member-lifecycle.test.mjs \
   client/src/components/member-lifecycle/MemberLifecycle.mounted.test.mjs
 node scripts/run-isolated-tests.mjs --allow-local-postgres node --test \
