@@ -20,3 +20,9 @@ Archive first; require a later authorised review before irreversible personal-da
 **Why:** The owner explicitly selected “Archive, then review minimisation” during policy clarification.
 
 **How to apply:** Keep archival and minimisation as separate actions and permissions. Review timing, retained fields and deletion eligibility still need agreement; this choice does not authorise live processing.
+
+Archived former members become eligible for manual deletion review after a tenant-configurable retention period.
+
+**Why:** The owner explicitly selected review after configurable retention rather than indefinite retention or permanent ineligibility.
+
+**How to apply:** Review eligibility must never itself delete or minimise data. Preserve financial and other retention blockers. The initial BNMS duration and retention clock require separate agreement.
