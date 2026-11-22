@@ -19,7 +19,7 @@ Archive first; require a later authorised review before irreversible personal-da
 
 **Why:** The owner explicitly selected “Archive, then review minimisation” during policy clarification.
 
-**How to apply:** Keep archival and minimisation as separate actions and permissions. Retained fields and minimisation review timing still need agreement; this choice does not authorise live processing.
+**How to apply:** Keep archival and minimisation as separate actions and permissions. Minimisation review timing still needs agreement; this choice does not authorise live processing.
 
 Archived former members become eligible for manual deletion review after a tenant-configurable retention period.
 
@@ -44,3 +44,9 @@ Permanent deletion requires one authorised administrator, not a two-person reque
 **Why:** The owner explicitly selected “One authorised administrator” during approval-policy clarification.
 
 **How to apply:** Require the dedicated permission through existing Role Management plus explicit confirmation. This does not bypass retention, billing or evidence-review blockers, and scheduled processing must never delete.
+
+After approved minimisation, keep the internal member ID, lifecycle dates and audit references. Preserve separately protected historical and financial records under their applicable retention rules. Remove names and contact/profile information from the member record unless a documented retention requirement applies.
+
+**Why:** The owner explicitly accepted this retained-information baseline, having been informed that ordinary duplicate matching by the former email address would not be preserved.
+
+**How to apply:** Translate this baseline into an explicit field-by-field policy before destructive implementation. It applies to authorised minimisation, not ordinary archiving, and does not establish legal retention durations or authorise erasing protected related records.
