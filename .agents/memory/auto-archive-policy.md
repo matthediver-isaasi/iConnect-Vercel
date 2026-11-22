@@ -14,3 +14,9 @@ Reuse as much existing RBAC control as possible rather than introducing a separa
 **Why:** The owner explicitly requested RBAC reuse when asking for the pre-build review.
 
 **How to apply:** Integrate any necessary new capabilities into the existing role hierarchy and server enforcement, with deliberate default exclusions for sensitive actions.
+
+Archive first; require a later authorised review before irreversible personal-data minimisation. Do not minimise personal data automatically at the point of archiving.
+
+**Why:** The owner explicitly selected “Archive, then review minimisation” during policy clarification.
+
+**How to apply:** Keep archival and minimisation as separate actions and permissions. Review timing, retained fields and deletion eligibility still need agreement; this choice does not authorise live processing.
