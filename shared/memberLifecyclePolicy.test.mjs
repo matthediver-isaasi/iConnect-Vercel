@@ -19,6 +19,17 @@ function fixture() {
   };
 }
 const evaluate = configure => { const input = fixture(); configure?.(input); return evaluateMemberLifecycle(input); };
+test('renewed former guests receive the latest term retention window even with old activity',()=>{
+  for(const role_id of [formerRole,guestRole]){
+    const result=evaluate(input=>{
+      input.member.lifecycle_state='guest';input.member.role_id=role_id;
+      input.evidence.membership.graceEndDate='2025-11-22';
+    });
+    assert.equal(result.action,role_id===formerRole?'former':'none');
+    assert.notEqual(result.action,'archive');
+    if(result.action==='none')assert.equal(result.eligibleOn,'2030-11-22');
+  }
+});
 test('policy is tenant-independent and excludes activation from writable settings', () => {
   assert.equal(DEFAULT_LIFECYCLE_POLICY.formerRoleId, null);
   assert.throws(() => validateLifecyclePolicy({ enabled: true }), /Unknown/);

@@ -25,7 +25,8 @@ export async function loadLifecycleMember(db, tenantId, memberId) {
   return {
     member: { ...member, tenant_id: tenantId, lifecycle_state: record.state, lifecycle_hold: record.hold,
       lifecycle_exempt: record.exempt, lifecycle_review_after: record.review_after, lifecycle_archived_at: record.archived_at,
-      lifecycle_history_review: record.history_review, lifecycle_login_review: record.login_review },
+      lifecycle_history_review: record.history_review, lifecycle_login_review: record.login_review,
+      lifecycle_financial_refs: record.financial_refs },
     record,
   };
 }
@@ -33,7 +34,9 @@ export async function loadLifecycleMember(db, tenantId, memberId) {
 export async function lifecycleReviewDetail(db, tenantId, memberId, policy, deps = {}) {
   const { member, record } = await loadLifecycleMember(db, tenantId, memberId);
   const readRows = deps.readRows || lifecycleRows;
-  const evidence = await (deps.loadEvidence || loadMemberLifecycleEvidence)(db, tenantId, member, policy);
+  const evidence = await (deps.loadEvidence || loadMemberLifecycleEvidence)(db, tenantId, member, policy, new Date(), {
+    expiryCoordinated: deps.expiryCoordinated === true,
+  });
   const roles = await readRows(db, 'role', tenantId);
   const proposal = evaluateMemberLifecycle({ tenantId, member, evidence, roles, policy });
   const result = await db.from('member_lifecycle_record_audit')

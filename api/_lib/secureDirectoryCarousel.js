@@ -4,6 +4,7 @@ import { isMemberPaused } from './memberPause.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 import { loadOrganizationCarouselSnapshot } from './organizationCarouselSnapshot.js';
 import { loadCarouselDetails } from './directoryCarouselDetails.js';
+import { lifecycleVisibilityInstalled } from './memberLifecycleVisibility.js';
 
 const MEMBER_SELECT = 'id, first_name, last_name, profile_photo_url, job_title, role_id, email, membership_paused';
 
@@ -171,11 +172,16 @@ export async function renderSecureDirectoryCarousel({
     let rows;
     let candidateIds = null;
     if (directory.entity_type === 'member') {
-      rows = await readDirectoryPages(() => db.from('member').select(MEMBER_SELECT)
+      const lifecycleVisible=await lifecycleVisibilityInstalled(db);
+      rows = await readDirectoryPages(() => {
+        let query=db.from('member').select(MEMBER_SELECT)
         .eq('tenant_id', tenantId)
         .or('show_in_directory.is.null,show_in_directory.neq.false')
         .or('login_enabled.is.null,login_enabled.neq.false')
-        .not('email', 'ilike', 'deleted_%@deleted.local').order('id'));
+        .not('email', 'ilike', 'deleted_%@deleted.local').order('id');
+        if(lifecycleVisible)query=query.not('lifecycle_state','in','(archived,minimised,deleted)');
+        return query;
+      });
       const visibleRoles = source === 'primary-member' ? settings.visible_role_ids || [] : [];
       rows = rows.filter(row => !isMemberPaused(row) && !isDeletedRelationshipMember(row)
         && (!visibleRoles.length || visibleRoles.includes(row.role_id)));

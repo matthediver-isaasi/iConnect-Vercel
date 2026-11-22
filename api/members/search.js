@@ -1,6 +1,7 @@
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { resolveFormOwnerOrganization } from '../_lib/formOwners.js';
+import { operationalMemberQuery } from '../_lib/memberLifecycleVisibility.js';
 
 // Resolve the tenant's primary organisation (is_primary=true, created at
 // provisioning). Falls back to the tenant's earliest-created organisation when
@@ -80,6 +81,7 @@ export default async function handler(req, res) {
       .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, linkedin_url, organization_id, organization (id, name)')
       .eq('tenant_id', tenantId)
       .not('email', 'ilike', 'deleted_%@deleted.local');
+    ({ query: memberQuery } = await operationalMemberQuery(supabase, memberQuery));
 
     // Optional organisation filter:
     // - '__primary__'                 => members of the tenant's primary organisation

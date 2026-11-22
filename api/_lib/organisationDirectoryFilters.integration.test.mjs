@@ -96,7 +96,7 @@ function database(seed = {}, failTable = null, schema = {}, onExecute = null) {
       return Promise.resolve(this.execute()).then(resolve, reject);
     }
   }
-  return { from: (table) => new Query(table), tables };
+  return { from: (table) => new Query(table), tables,rpc:async()=>({error:{code:'PGRST202'}}) };
 }
 
 function customField(id, name, overrides = {}) {

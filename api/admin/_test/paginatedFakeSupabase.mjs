@@ -3,6 +3,10 @@ export function makeFakeSupabase(resolveQuery) {
 
   return {
     calls,
+    async rpc(name){
+      if(name==='member_lifecycle_operational_ready')return{error:{code:'PGRST202'}};
+      throw new Error(`Unexpected fixture RPC: ${name}`);
+    },
     from(table) {
       const call = { table, methods: [] };
       calls.push(call);

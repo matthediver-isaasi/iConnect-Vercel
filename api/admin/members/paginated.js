@@ -1,3 +1,4 @@
+import { lifecycleVisibilityInstalled } from '../../_lib/memberLifecycleVisibility.js';
 import { supabase } from '../../_lib/database.js';
 import { loadMemberListTermExpiries } from '../../_lib/memberListTermExpiry.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
@@ -93,10 +94,12 @@ export async function handlePaginatedMembers(req, res, {
     const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
     await resolveMemberBooleanFilterDefaults(db, tenantId, filterCtx);
     await validateOrganizationFilterEntries(db, tenantId, filterCtx);
+    const lifecycleVisible=await lifecycleVisibilityInstalled(db);
     if (req.query.alphabet === '1') {
       if (!['first_name', 'last_name'].includes(sortField) || sortDir !== 'asc') return res.status(400).json({ error: 'Alphabet navigation requires name ascending' });
       const recorder = memberAlphabetRecorder(filterCtx);
       recorder.eq('tenant_id', tenantId).not('email', 'like', 'deleted_%@deleted.local');
+      if(lifecycleVisible)recorder.not('lifecycle_state','in','(archived,minimised,deleted)');
       if (drillIds.length) recorder.in('id', drillIds);
       applyMemberListFilters(recorder, filterCtx, { tenantId });
       const departments = filterCtx.departmentIds.length
@@ -146,6 +149,7 @@ export async function handlePaginatedMembers(req, res, {
     if (departmentMemberIds) query = query.in('id', departmentMemberIds);
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
+    if(lifecycleVisible)query=query.not('lifecycle_state','in','(archived,minimised,deleted)');
 
     query = applyMemberListFilters(query, filterCtx, { tenantId });
 

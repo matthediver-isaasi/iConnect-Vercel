@@ -1,6 +1,7 @@
 import { lifecycleDay } from '../../shared/memberLifecyclePolicy.mjs';
 
 const settled = new Set(['paid', 'settled', 'refunded', 'void', 'voided', 'deleted']);
+const bookingSettled = new Set(['paid','settled','refunded']);
 const pattern = value => `^${String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 const lower = value => String(value || '').toLowerCase();
 
@@ -15,8 +16,23 @@ export function lifecycleInvoiceBlocker(row) {
 
 export async function loadLifecycleObligations(db, tenantId, member, policy, now, read) {
   const blockers = new Set();
-  if (!member.email?.trim()) blockers.add('financial_identity_unavailable');
-  const load = (table, filters, options) => read(db, table, tenantId, filters, options);
+  const references = {};
+  if (!member.email?.trim() && !member.lifecycle_financial_refs) blockers.add('financial_identity_unavailable');
+  const load = async (table, filters, options) => {
+    const rows = [...await read(db, table, tenantId, filters, options)];
+    if (['event','complex_event'].includes(table)) return rows;
+    const key = options?.keyColumns?.[0] || 'id';
+    const retained = member.lifecycle_financial_refs?.[table] || [];
+    if (!Array.isArray(retained) || retained.length > 10000
+      || retained.some(value => typeof value !== 'string' || !value || value.length > 200)) throw new Error('Invalid retained financial links');
+    for (let start=0; start<retained.length; start+=100) {
+      rows.push(...await read(db, table, tenantId, [[key, retained.slice(start,start+100), 'in']], options));
+    }
+    const unique = [...new Map(rows.map(row=>[row[key],row])).values()];
+    if (unique.some(row=>!row[key])) throw new Error('Financial source identity unavailable');
+    references[table] = [...new Set([...(references[table] || []),...unique.map(row=>row[key])])];
+    return unique;
+  };
   const terms = await load('member_membership_history', [['member_id', member.id]]);
   for (const row of terms) {
     if (['cancelled', 'canceled', 'void', 'replaced', 'expired_checkout'].includes(lower(row.status))) continue;
@@ -39,6 +55,7 @@ export async function loadLifecycleObligations(db, tenantId, member, policy, now
   const pendingInvoices = await load('unified_booking_invoice', [['booker_member_id', member.id]], { keyColumns: ['purchase_key'] });
   for (const row of pendingInvoices) {
     if (!['queued', 'not_applicable'].includes(row.state)) blockers.add('booking_invoice_pending');
+    if(row.state==='queued' && lifecycleInvoiceBlocker(row))blockers.add('booking_invoice_settlement_unverified');
     if (!['completed', 'not_applicable'].includes(row.provision_state)) blockers.add('booking_provisioning_pending');
   }
   const vouchers = await load('voucher', [['member_id', member.id]]);
@@ -65,9 +82,23 @@ export async function loadLifecycleObligations(db, tenantId, member, policy, now
     const rows = [...await load(table, [['member_id', member.id]])];
     if (member.email) rows.push(...await load(table, [['attendee_email', pattern(member.email), 'imatch']]));
     for (const row of new Map(rows.map(row => [row.id, row])).values()) {
+      const amount=row.total_cost ?? row.total_price ?? row.ticket_price;
+      if(amount==null || amount==='' || !Number.isFinite(Number(amount)) || Number(amount)<0){
+        blockers.add('booking_charge_unverified');
+      }else if(Number(amount)>0 && !bookingSettled.has(lower(row.payment_status))){
+        blockers.add('booking_settlement_unverified');
+      }
+      for(const refund of [row.refund_status,row.payment_meta?.refund_status]){
+        if(refund && !['none','not_applicable','completed','succeeded','refunded'].includes(lower(refund))){
+          blockers.add('booking_refund_unresolved');
+        }
+      }
       if (['cancelled', 'canceled'].includes(lower(row.status))) {
         // Cancellation is not evidence that financial obligations were settled.
         if (Number(row.ticket_price) > 0 && !settled.has(lower(row.payment_status))) blockers.add('cancelled_booking_finances_unverified');
+        if(Number(amount)>0 && !['completed','succeeded','refunded','not_applicable'].includes(lower(row.refund_status || row.payment_meta?.refund_status))){
+          blockers.add('cancelled_booking_refund_unverified');
+        }
         continue;
       }
       if (row.status !== 'confirmed') { blockers.add('booking_incomplete'); continue; }
@@ -80,5 +111,5 @@ export async function loadLifecycleObligations(db, tenantId, member, policy, now
       } catch { blockers.add('booking_event_date_unverified'); }
     }
   }
-  return { complete: true, blockers: [...blockers].sort() };
+  return { complete: true, blockers: [...blockers].sort(), references };
 }

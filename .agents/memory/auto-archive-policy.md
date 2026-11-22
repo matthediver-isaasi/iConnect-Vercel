@@ -56,3 +56,15 @@ Lifecycle transitions must use dynamically configured existing tenant roles. Nev
 **Why:** The owner selected configured existing destination roles and explicitly reiterated that every tenant will have its own roles and the feature must be dynamic.
 
 **How to apply:** Treat lifecycle states and tenant role mappings as separate concepts. Resolve configured role IDs within the record's tenant; do not select by a hardcoded name, create standard roles implicitly, or use a different tenant's role. Preserve purchased membership history and separate team-administrator access.
+
+Lifecycle evidence versions alone are not enough to authorise a destructive write.
+
+**Why:** A source writer can start before validation and commit afterwards; a schema change can also introduce personal data without a row-write event. The initial safety choice is coarse source-generation/schema stamps plus short, non-waiting final relation locks.
+
+**How to apply:** Preserve the shared concurrency boundary when improving throughput. Busy sources must cause a retry, not an unlocked fallback. Do not claim historical login coverage merely because the schema is installed; all serving login producers must be deployed and historical gaps reviewed.
+
+The latest purchased membership cycle governs former-member retention, even if an older lifecycle state still says guest.
+
+**Why:** Renewing a previously downgraded guest must not let an old inactivity clock bypass the new term's grace and retention period. Similarly, a confirmed past booking or a queued invoice is not settlement evidence.
+
+**How to apply:** Reconcile classification against current roles and latest entitlement dates before inactivity rules. Require payment/refund evidence for chargeable booking history; hold when that evidence is absent rather than treating an old event as financially complete.

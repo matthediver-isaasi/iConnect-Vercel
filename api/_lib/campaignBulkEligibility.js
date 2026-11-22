@@ -55,8 +55,10 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const settled = await Promise.allSettled(queries);
   if (settled.some(r => r.status === 'rejected')) throw new Error('Campaign eligibility could not be verified');
   const [staged, members, preferences, bounces, ...unsubscribeSets] = settled.map(r => r.value);
-  const addressConsent = independentInbox
-    ? await campaignAddressConsent(db, tenantId, emails, campaign.communication_category_id) : null;
+  // Even an explicit consent bypass is not authority to contact an archived
+  // record through an external-audience copy of its address.
+  const addressConsent = await campaignAddressConsent(db, tenantId, emails,
+    independentInbox ? campaign.communication_category_id : null);
   const provenance = new Map(staged.map(r => [r.recipient_id, r.recipient]));
   const memberMap = new Map(members.map(r => [r.id, r]));
   const optedIn = new Set(preferences.map(r => r.member_id));
@@ -96,6 +98,7 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
     if (independentInbox && r.inbox_published_at) state = 'inbox_only';
     // Consent exceptions never exempt a hard-bounced address.
     if (bounced.has(email) && state !== 'inbox_only') state = 'cancelled';
+    if (addressConsent.lifecycle.has(email)) state = 'cancelled';
     result.set(r.id, state);
   }
   return result;

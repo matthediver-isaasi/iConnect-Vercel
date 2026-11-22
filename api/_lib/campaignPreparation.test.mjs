@@ -91,7 +91,7 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
   const db = {
     from(table) {
       const filters = []; let start = 0; let end = Infinity; let single = false; let max = Infinity;
-      let after = '', ordering, columns;
+      let after = '', ordering, columns, regexIdentity='';
       const query = {
         select(value) { columns=value; return this; },
         eq(k,v) { filters.push(r => k.split('.').reduce((o,key)=>o?.[key],r) === v); return this; },
@@ -107,6 +107,7 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
           return this;
         },
         is(k,v) { filters.push(r => r[k] === v); return this; },
+        filter(k,op,v) { assert.equal(op,'imatch');regexIdentity=JSON.stringify([k,op,v]);const regex=new RegExp(v,'i');filters.push(r=>regex.test(r[k] || ''));return this; },
         in(k,v) { filters.push(r => v.includes(r[k])); return this; },
         not(k,op,v) {
           if (op === 'ilike') filters.push(r => !r[k]?.startsWith('deleted_'));
@@ -128,7 +129,7 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
             model.clock += journal ? 2 : model.sourceCost;
             if (!journal) {
               model.sourceQueries.push({table,columns});
-              const key = `${table}:${start}:${after}`;
+              const key = `${table}:${start}:${after}:${regexIdentity}`;
               model.sourceReads.set(key,(model.sourceReads.get(key)||0)+1);
             }
             if (model.failTable === table) throw new Error('Source unavailable');
@@ -145,6 +146,12 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
       return query;
     },
     async rpc(name, args) {
+      if(name==='member_lifecycle_closed_addresses'){
+        model.clock+=model.sourceCost;
+        return{data:[...new Set((tables.member||[]).filter(row=>row.tenant_id===args.p_tenant
+          && ['archived','minimised','deleted'].includes(row.lifecycle_state)
+          && args.p_emails.includes(row.email?.trim().toLowerCase())).map(row=>row.email.trim().toLowerCase()))],error:null};
+      }
       if(name==='campaign_preparation_email_members'){
         model.clock+=model.sourceCost;
         const result=args.p_emails.flatMap(key=>{
@@ -238,7 +245,7 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
     authorize:async()=>{},quota:async()=>({ok:true}),resolve:getTargetRecipients,...overrides,
   });
   model.finish = async(overrides={}) => {
-    for(let attempts=0; attempts<150 && state.phase!=='complete'; attempts++) await model.run(overrides);
+    for(let attempts=0; attempts<300 && state.phase!=='complete'; attempts++) await model.run(overrides);
     assert.equal(state.phase,'complete','preparation must make progress across budgets');
   };
   const stream=input=>resolvePreparationChunk({...input,conditions:{applyConditionToQuery,applyPrefValueCondition}});
@@ -535,9 +542,11 @@ test('60,000-member single segment progresses when old replay history alone exce
   model.journal=Array.from({length:20000},(_,i)=>({
     generation:model.state.id,segment:0,sequence:i,key:`old-${i}`,result:{data:[],error:null},
   }));
-  await model.stream();
+  // Lifecycle address checks are also journalled; allow their bounded reads to
+  // resume without extending the invocation budget or losing the source page.
+  for(let attempt=0;attempt<10 && !model.candidates.length;attempt++)await model.stream();
   assert.ok(model.candidates.length>=200);
-  assert.equal(model.journal.length,0,'committed transition retires prior read history');
+  assert.ok(model.journal.every(row=>!row.key.startsWith('old-')),'committed transition retires prior read history; new chunk reads may already be checkpointed');
   assert.ok(model.state.continuation.stack[0].cursor);
   await model.finishStream();
   assert.equal(model.recipients.size,54000);

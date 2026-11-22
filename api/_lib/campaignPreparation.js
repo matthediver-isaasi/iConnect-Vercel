@@ -134,7 +134,7 @@ export function journalDatabase(db, state, owner, deadline, now = Date.now, metr
     return (...args) => build(table, [...calls, [method, args]]);
   } });
   return { from: table => build(table), rpc: (name, args) => {
-    if (!['campaign_preparation_email_members','campaign_preparation_attended_bookings'].includes(name)) {
+    if (!['campaign_preparation_email_members','campaign_preparation_attended_bookings','member_lifecycle_closed_addresses'].includes(name)) {
       throw new Error('Audience resolution attempted an unauthorized RPC');
     }
     return build({ rpc: name, args });

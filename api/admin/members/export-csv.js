@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { lifecycleVisibilityInstalled } from '../../_lib/memberLifecycleVisibility.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
 import {
@@ -242,6 +243,7 @@ export default async function handler(req, res) {
       ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;
     const hasNoDepartmentMatches = departmentMemberIds !== null && departmentMemberIds.length === 0;
 
+    const lifecycleVisible=await lifecycleVisibilityInstalled(supabase);
     const buildMemberQuery = (from, pageSize, withCount = false) => {
       let selectClause = `
           ${[...new Set(MEMBER_CSV_CORE_FIELDS.map(field => field.select).filter(Boolean))].join(', ')},
@@ -257,6 +259,7 @@ export default async function handler(req, res) {
         .select(selectClause, withCount ? { count: 'exact' } : undefined)
         .eq('tenant_id', tenantId)
         .not('email', 'like', 'deleted_%@deleted.local');
+      if(lifecycleVisible)q=q.not('lifecycle_state','in','(archived,minimised,deleted)');
 
       if (idList) {
         q = q.in('id', idList);

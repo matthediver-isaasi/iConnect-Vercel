@@ -13,6 +13,7 @@ function setup(options = {}) {
     };
     return chain;
   }, async rpc(name, args) {
+    if(name==='member_lifecycle_runtime_ready')return {data:false};
     writes.push({ name, args });
     if (name === 'member_lifecycle_review_page') return { data: { items: [], nextCursor: null } };
     if (name === 'member_lifecycle_record_decision') return { data: {

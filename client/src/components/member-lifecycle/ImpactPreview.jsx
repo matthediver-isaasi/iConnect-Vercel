@@ -16,6 +16,19 @@ export default function ImpactPreview({ config, preview, pending, dirty, onPrevi
           <p className="ml-muted mt-1 text-xs">Saved policy revision {config.revision}</p></div>
         {canConfigure && config.enabled && <Button variant="outline" onClick={onPause} disabled={!!pending || !config.executionReady}><Pause className="h-4 w-4" aria-hidden="true" />{pending === "pause" ? "Pausing…" : "Pause automation"}</Button>}
       </div>
+      {config.runtime && <section aria-label="Reported runtime state" className="rounded-lg border p-4">
+        <h3 className="mb-2 text-sm font-semibold">Reported runtime state</h3>
+        {config.runtime.lastError != null && config.runtime.lastError !== "" && <div className="mb-3">
+          <Notice tone="error" title="Runtime error reported"><EvidenceValue value={config.runtime.lastError} /><p className="mt-2 text-sm">A scheduled check or request does not confirm successful processing. Review the reported error and operation history before acting.</p></Notice>
+        </div>}
+        <dl className="ml-evidence">
+          {Object.hasOwn(config.runtime, "lastRunAt") && <div><dt>Last run (server timestamp)</dt><dd>{config.runtime.lastRunAt == null ? "No run reported" : <EvidenceValue value={config.runtime.lastRunAt} />}</dd></div>}
+          {Object.hasOwn(config.runtime, "nextRunAt") && <div><dt>Next scheduled check (server timestamp)</dt><dd><EvidenceValue value={config.runtime.nextRunAt} /></dd></div>}
+          {Object.hasOwn(config.runtime, "paused") && <div><dt>Runtime paused</dt><dd><EvidenceValue value={config.runtime.paused} /></dd></div>}
+          {Object.hasOwn(config.runtime, "remaining") && <div><dt>Remaining (server reported)</dt><dd><EvidenceValue value={config.runtime.remaining} /></dd></div>}
+        </dl>
+        <p className="ml-muted mt-2 text-xs">Runtime state is not confirmation that every member transition or cleanup completed. Check operation history and current evidence.</p>
+      </section>}
       {!config.executionReady && <Notice tone="warning" title="Execution is not ready">Approval is blocked even if the preview completes. Resolve the readiness issues shown above before enabling rules.</Notice>}
       {config.revision === 0 && <Notice title="Save the initial draft first">A saved policy revision is required for a versioned preview.</Notice>}
       {dirty && <Notice tone="warning">Save or discard unsaved configuration before generating or approving a preview.</Notice>}
@@ -37,7 +50,11 @@ export default function ImpactPreview({ config, preview, pending, dirty, onPrevi
         {canConfigure && <div className="space-y-3 border-t pt-4">
           <label className="ml-check"><input key={preview.previewId} type="checkbox" checked={acknowledged} disabled={!ready || !!pending} onChange={event => setAcknowledged(event.target.checked)} />
             <span>I have reviewed this revision’s complete impact preview and authorise the server to enable these rules. This does not authorise minimisation or deletion.</span></label>
-          <Button disabled={!ready || !acknowledged || !!pending || config.enabled} onClick={() => { setAcknowledged(false); onApprove(); }}>
+          <Button disabled={!ready || !acknowledged || !!pending || config.enabled} onClick={() => {
+            if (!ready || !acknowledged || pending || config.enabled) return;
+            setAcknowledged(false);
+            onApprove(true);
+          }}>
             {pending === "approve" ? "Requesting approval…" : config.enabled ? "Rules already enabled" : "Approve preview & enable rules"}
           </Button>
         </div>}

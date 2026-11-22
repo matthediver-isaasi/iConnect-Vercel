@@ -64,7 +64,7 @@ function database(seed, ranges) {
       return { data: structuredClone(rows), error: null };
     }
   }
-  return { from: (table) => new Query(table) };
+  return { from: (table) => new Query(table),rpc:async()=>({error:{code:'PGRST202'}}) };
 }
 
 test('member count pager probes beyond an exact 100,000-row edge boundary', async () => {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { lifecycleVisibilityInstalled } from './memberLifecycleVisibility.js';
 import { COUNTRIES, resolveCountryToIso2 } from '../../shared/countries.js';
 import {
   ORG_DIRECTORY_FILTER_SETTING,
@@ -735,17 +736,22 @@ async function visibleMemberCore(db, context, settingMap, organizationIds, { inc
   const counts = new Map(organizationIds.map((id) => [String(id), 0]));
   const names = new Map(organizationIds.map((id) => [String(id), []]));
   if (!organizationIds.length) return { counts, names };
+  const lifecycleVisible=await lifecycleVisibilityInstalled(db);
   for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
     const ids = organizationIds.slice(offset, offset + ID_CHUNK);
     const memberColumns = includeNames
       ? 'id, organization_id, first_name, last_name, email, role_id'
       : 'id, organization_id';
-    const rows = await paged(() => db.from('member')
+    const rows = await paged(() => {
+      let query=db.from('member')
       .select(memberColumns).eq('tenant_id', context.tenantId)
       .in('organization_id', ids)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .or('login_enabled.is.null,login_enabled.neq.false')
-      .not('email', 'ilike', 'deleted_%@deleted.local').order('id', { ascending: true }),
+      .not('email', 'ilike', 'deleted_%@deleted.local').order('id', { ascending: true });
+      if(lifecycleVisible)query=query.not('lifecycle_state','in','(archived,minimised,deleted)');
+      return query;
+    },
     'Directory member inventory exceeds the supported size');
     for (const member of rows) {
       const organizationId = String(member.organization_id);

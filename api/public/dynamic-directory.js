@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { lifecycleVisibilityInstalled } from '../_lib/memberLifecycleVisibility.js';
 import { fetchDirectoryVisitorFields, parseVisitorFilters, validateVisitorFilters } from '../_lib/directoryVisitorFilters.js';
 import { renderSecureDirectoryCarousel } from '../_lib/secureDirectoryCarousel.js';
 import { directoryEligibleIds, revalidateDirectoryInclusion, readDirectoryPages } from '../_lib/directoryExpression.js';
@@ -1106,11 +1107,13 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     memberIds = memberIds === null ? searched : memberIds.filter(id => searched.includes(id));
   }
 
+  const lifecycleVisible = await lifecycleVisibilityInstalled(supabase);
   const baseFilter = (q) => {
     let qq = q.eq('tenant_id', tenantId)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .or('login_enabled.is.null,login_enabled.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local');
+    if (lifecycleVisible) qq = qq.not('lifecycle_state', 'in', '(archived,minimised,deleted)');
     if (memberIds) qq = qq.in('id', memberIds);
     if (search) {
       const p = `%${search}%`;

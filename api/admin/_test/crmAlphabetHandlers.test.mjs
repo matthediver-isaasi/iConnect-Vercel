@@ -12,7 +12,7 @@ for (const [entity,handler,field] of [['member',handlePaginatedMembers,'first_na
     let call;
     const db={
       from(){throw new Error('Unexpected row enumeration or enrichment');},
-      async rpc(name,args){call={name,args};return {data:{total:1201,buckets:[{label:'A',count:1201,offset:0,id}]},error:null};},
+      async rpc(name,args){if(name==='member_lifecycle_operational_ready')return{error:{code:'PGRST202'}};call={name,args};return {data:{total:1201,buckets:[{label:'A',count:1201,offset:0,id}]},error:null};},
     };
     const req={method:'POST',body:{ids:[id]},query:{alphabet:'1',sortField:field,sortDir:'asc',tenantId:'attacker',search:'Ada',page:'99',limit:'10',fields:'unrelated'}};
     const res=makeResponse();
@@ -38,7 +38,7 @@ for (const [entity,handler,field] of [['member',handlePaginatedMembers,'first_na
     for (const [sortDir,status] of [['asc',503],['desc',400]]) {
       const res=makeResponse();
       await handler({method:'GET',query:{alphabet:'1',sortField:field,sortDir}},res,{
-        db:{rpc:async()=>({data:null,error:{message:'unavailable'}})},getContext:context,
+        db:{rpc:async(name)=>name==='member_lifecycle_operational_ready'?{error:{code:'PGRST202'}}:({data:null,error:{message:'unavailable'}})},getContext:context,
       });
       assert.equal(res.statusCode,status);
     }

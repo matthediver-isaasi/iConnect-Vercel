@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { lifecycleVisibilityInstalled } from '../../_lib/memberLifecycleVisibility.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { requireCrmListAccess } from '../../_lib/crmListAccess.js';
 import { organizationAlphabetRecorder, sendAlphabet } from '../../_lib/crmAlphabet.js';
@@ -106,13 +107,14 @@ export async function handlePaginatedOrganizations(req, res, {
       const counts = {};
       orgIds.forEach((id) => { counts[id] = 0; });
       if (orgIds.length === 0) return counts;
+      const lifecycleVisible=await lifecycleVisibilityInstalled(db);
       const BATCH = 100;
       for (let i = 0; i < orgIds.length; i += BATCH) {
         const batch = orgIds.slice(i, i + BATCH);
         let from = 0;
         const PAGE = 1000;
         while (true) {
-          const { data, error } = await db
+          let memberQuery=db
             .from('member')
             .select('organization_id')
             .eq('tenant_id', tenantId)
@@ -121,6 +123,8 @@ export async function handlePaginatedOrganizations(req, res, {
             // Unique ordering keeps ranged paging stable (no skipped/repeated rows).
             .order('id', { ascending: true })
             .range(from, from + PAGE - 1);
+          if(lifecycleVisible)memberQuery=memberQuery.not('lifecycle_state','in','(archived,minimised,deleted)');
+          const { data,error }=await memberQuery;
           if (error) {
             console.error('[OrgsPaginated] member count error:', error);
             const readError = new Error('Failed to count organisation members');

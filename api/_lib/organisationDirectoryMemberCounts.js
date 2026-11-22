@@ -1,3 +1,4 @@
+import { lifecycleVisibilityInstalled } from './memberLifecycleVisibility.js';
 const ID_CHUNK = 200;
 const PAGE_SIZE = 500;
 const MAX_PAGES = 200;
@@ -189,15 +190,19 @@ export async function resolveOrganisationDirectoryMemberCounts({
 
   const memberIds = [...memberContexts.keys()];
   if (!memberIds.length) return { recordCounts };
-  const visibleMembers = await chunkedRows(memberIds, (ids) =>
-    db.from('member')
+  const lifecycleVisible=await lifecycleVisibilityInstalled(db);
+  const visibleMembers = await chunkedRows(memberIds, (ids) => {
+    let query=db.from('member')
       .select('id, organization_id')
       .eq('tenant_id', context.tenantId)
       .in('id', ids)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .or('login_enabled.is.null,login_enabled.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local')
-      .order('id', { ascending: true }),
+      .order('id', { ascending: true });
+    if(lifecycleVisible)query=query.not('lifecycle_state','in','(archived,minimised,deleted)');
+    return query;
+  },
   'Organisation directory member inventory exceeds the supported size');
   for (const member of visibleMembers) {
     const organizationId = String(member.organization_id || '');

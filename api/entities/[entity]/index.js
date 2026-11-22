@@ -55,6 +55,7 @@ import {
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
+import { operationalMemberQuery } from '../../_lib/memberLifecycleVisibility.js';
 import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
 import { recordMemberGroupActivity, resolveActorEmail } from '../../_lib/memberGroupActivity.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
@@ -904,6 +905,12 @@ export default async function handler(req, res) {
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*', wantsCount ? { count: 'exact' } : undefined);
       if (audienceContext) query = scopeTicketAudienceQuery(query, entityNorm, audienceContext);
+      // Explicit by-ID references remain readable under their existing access
+      // checks for financial/historical displays; ordinary lists/counts/exports
+      // and pickers use the operational population.
+      if (entityNorm === 'member' && typeof tenantCtx.parsedFilter?.id !== 'string') {
+        ({ query } = await operationalMemberQuery(supabase, query));
+      }
       if (entityNorm === 'blogpost') {
         res.setHeader('Cache-Control', 'private, no-store');
         ({ query } = await applyArticleReadRelease(query, tenantCtx, hasAdminAccess));

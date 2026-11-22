@@ -36,11 +36,21 @@ function fixture({ delay = 0, broken = null } = {}) {
   return { campaign, entries, data, db, calls: () => calls };
 }
 
-test('100 recipients need ten bounded reads including category policy, not hundreds', async () => {
+test('100 recipients use bounded reads including address lifecycle checks', async () => {
   const f = fixture();
   const states = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
-  assert.equal(f.calls(), 10);
+  assert.equal(f.calls(), 15);
   assert.equal([...states.values()].filter(v => v === 'ready').length, 100);
+});
+test('archived shared addresses are suppressed even for external identities and consent bypass', async () => {
+  const f = fixture();
+  f.data.member[0].lifecycle_state = 'archived';
+  f.entries[1].recipient.member_id = null;
+  f.entries[1].recipient.email = f.entries[0].recipient.email;
+  f.data.campaign_preparation_recipient.forEach(row => { row.recipient.bypass_opt_out = true; });
+  const result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+  assert.equal(result.get('r0'), 'cancelled');
+  assert.equal(result.get('r1'), 'cancelled');
 });
 
 for (const reason of ['global','category']) for (const prepared of [true,false]) {

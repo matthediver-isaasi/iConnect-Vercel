@@ -133,7 +133,8 @@ function organizationDatabase({ onRead, member = false, configure } = {}) {
       return Promise.resolve({ data: rows, error: null, count }).then(resolve, reject);
     }
   }
-  return schemaCheckedDatabase({ from: table => new Query(table), calls });
+  return schemaCheckedDatabase({ from: table => new Query(table), calls,
+    rpc:async()=>({error:{code:'PGRST202'}}) });
 }
 
 async function organizationRequest(query = {}, options = {}) {

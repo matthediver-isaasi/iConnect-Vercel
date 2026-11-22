@@ -373,7 +373,19 @@ export async function resolvePreparationChunk({ db, state, extensions = {}, cond
     result.facts = [...(result.facts || []),...additions];
   }
   const next = result.done ? stack.slice(1) : [result.next || work, ...stack.slice(1)];
+  const lifecycle=new Set();
+  const addresses=[...new Set((result.candidates || []).map(row=>normalize(row.email)).filter(Boolean))];
+  for(let offset=0;offset<addresses.length;offset+=200){
+    const answer=await db.rpc('member_lifecycle_closed_addresses',{p_tenant:state.tenant_id,p_emails:addresses.slice(offset,offset+200)});
+    if(answer.error){
+      if(['PGRST202','42883'].includes(answer.error.code))break; // No installed archive runtime yet.
+      throw preparationError(answer.error);
+    }
+    if(!Array.isArray(answer.data))throw new Error('Lifecycle audience visibility unavailable');
+    answer.data.forEach(email=>lifecycle.add(email));
+  }
   return { facts: result.facts || [], candidates: (result.candidates || []).filter(r => r.email &&
+    !lifecycle.has(r.email.trim().toLowerCase()) &&
     !/^deleted_.*@deleted\.local$/i.test(r.email)).map(r => ({ ...r,
       bypass_opt_out: state.snapshot.deliver_to_inbox_when_opted_out !== true && work.bypass === true })),
   continuation: { stack: next }, done: next.length === 0 };

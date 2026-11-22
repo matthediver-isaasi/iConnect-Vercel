@@ -6,7 +6,11 @@ import { destinationTarget } from './apply-custom-object-relationship-deleted-me
 
 const migrations = ['20261122_member_lifecycle_preparation.sql', '20261122_member_lifecycle_login_evidence.sql',
   '20261122_member_lifecycle_review.sql', '20261122_member_lifecycle_access.sql',
-  '20261122_member_lifecycle_provenance.sql'];
+  '20261122_member_lifecycle_provenance.sql',
+  '20261122_member_lifecycle_source_fence.sql','20261122_member_lifecycle_runtime.sql',
+  '20261122_member_lifecycle_operations.sql','20261122_member_lifecycle_visibility.sql',
+  '20261122_member_lifecycle_privacy.sql','20261122_member_lifecycle_expiry_coordination.sql',
+  '20261122_member_lifecycle_notifications.sql','20261122_member_lifecycle_release.sql'];
 const parts = await Promise.all(migrations.map(name =>
   readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8')));
 // One explicit approval covers one atomic installation, not a partially

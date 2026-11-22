@@ -85,6 +85,7 @@ export function isActiveCommunicationMember(member) {
     member?.id &&
     member?.email &&
     !DELETED_MEMBER_EMAIL.test(member.email) &&
+    !['archived', 'minimised', 'deleted'].includes(member.lifecycle_state) &&
     member.login_enabled !== false
   );
 }

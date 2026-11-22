@@ -5,13 +5,19 @@ const literal = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // its address. This checks consent only; it never creates inbox membership.
 export async function campaignAddressConsent(db, tenantId, addresses, categoryId) {
   const emails = [...new Set(addresses.map(normalize).filter(Boolean))];
-  const global = new Set(), category = new Set();
+  const global = new Set(), category = new Set(), lifecycle = new Set();
   for (let start = 0; start < emails.length; start += 20) {
-    const { data: members, error } = await db.from('member')
-      .select('id,email,login_enabled,communications_opted_out_all')
+    const fetch = fields => db.from('member')
+      .select(fields)
       .eq('tenant_id', tenantId)
       .filter('email', 'imatch', `^\\s*(${emails.slice(start, start + 20).map(literal).join('|')})\\s*$`)
       .limit(201);
+    const columns='id,email,login_enabled,communications_opted_out_all';
+    let response=await fetch(`${columns},lifecycle_state`);
+    // Before the projection migration there cannot be an archived projection.
+    // Other query errors, including permission failures, remain fail-closed.
+    if(response.error?.code==='42703' && /lifecycle_state/.test(response.error.message || ''))response=await fetch(columns);
+    const { data:members,error }=response;
     if (error || !Array.isArray(members) || members.length >= 201) {
       throw new Error('Address-level member consent could not be verified');
     }
@@ -25,9 +31,10 @@ export async function campaignAddressConsent(db, tenantId, addresses, categoryId
     }
     for (const member of members) {
       const email = normalize(member.email);
+      if (['archived', 'minimised', 'deleted'].includes(member.lifecycle_state)) lifecycle.add(email);
       if (member.communications_opted_out_all === true) global.add(email);
       if (categoryId && (member.login_enabled === false || !subscribed.has(member.id))) category.add(email);
     }
   }
-  return { global, category };
+  return { global, category, lifecycle };
 }

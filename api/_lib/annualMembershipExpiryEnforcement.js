@@ -113,6 +113,11 @@ const TABLES = { member: 'member_membership_history', organisation: 'organisatio
 export function annualExpiryEffects(client, invalidateSessions, dispatchRoleEvents) {
   return { async perform(operation) {
     const p = operation.payload;
+    if (operation.type === 'owner.expiry_guarded_access') {
+      const result = await client.rpc('member_lifecycle_guarded_annual_expiry', { p_tenant_id: p.tenantId, p_action_id: p.actionId });
+      if (result.error && ['PGRST202','42883'].includes(result.error.code)) return { unavailable: true };
+      return result;
+    }
     if (operation.type === 'owner.expiry_role') {
       return client.rpc('apply_annual_expiry_role', { p_tenant_id: p.tenantId, p_action_id: p.actionId });
     }
@@ -271,6 +276,21 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
       if (!action) throw new Error('Prepared expiry journal was not found');
     }
     if (action.action_state !== 'pending') throw new Error('Unknown expiry journal state');
+    // Installed lifecycle coordination performs legacy role, login and session
+    // effects in one transaction against the same approval boundary. Simulated
+    // runs retain their recording effect path, never call the live capability.
+    if (!options.effects) {
+      const guarded = await mutate('owner.expiry_guarded_access', 'Coordinate expiry access', { tenantId, actionId: action.id });
+      if (!guarded.unavailable) {
+        if (guarded.data?.completed) {
+          enforced++;
+          if (results) results.processed=(results.processed || 0)+1;
+          return true;
+        }
+        if (guarded.data?.skipped) { skip(guarded.data.reason); return false; }
+        throw new Error('Expiry access coordination returned no confirmed outcome');
+      }
+    }
     // Field-level compare-and-set avoids overwriting unrelated manual changes
     // made after preparation, including when repairing a killed invocation.
     const changes = [];

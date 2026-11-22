@@ -17,8 +17,9 @@ export async function lifecycleRows(db, table, tenantId, filters = [], { pageSiz
   for (let offset = 0; ; offset += pageSize) {
     let query = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
     for (const [key, value, operator = 'eq'] of filters) {
-      if (!['eq', 'imatch'].includes(operator)) throw new Error('Unsupported lifecycle source filter');
-      query = operator === 'eq' ? query.eq(key, value) : query.filter(key, operator, value);
+      if (!['eq', 'imatch', 'in'].includes(operator)) throw new Error('Unsupported lifecycle source filter');
+      if (operator === 'in' && (!Array.isArray(value) || value.length > 100)) throw new Error('Invalid lifecycle reference batch');
+      query = operator === 'eq' ? query.eq(key, value) : operator === 'in' ? query.in(key, value) : query.filter(key, operator, value);
     }
     for (const column of keyColumns) query = query.order(column);
     const { data, error, count } = await query.range(offset, offset + pageSize - 1);
@@ -104,12 +105,31 @@ export async function loadMemberLifecycleEvidence(db, tenantId, member, policy, 
     // Organisation entitlement must not be inferred from missing individual history.
     if (member.organization_id) {
       const orgHistory = await read(db, 'organisation_membership_history', tenantId, [['organization_id', member.organization_id]]);
-      if (orgHistory.some(row => !retired.has(row.status))) evidence.blockers.push('organisation_entitlement_requires_review');
+      const applicable = orgHistory.filter(row => !retired.has(row.status));
+      for (const row of applicable) {
+        if (['pending','pending_payment_setup','scheduled'].includes(row.status)) {
+          evidence.membership.pendingRenewal = true; continue;
+        }
+        if (!row.term_start_date || !row.term_end_date) {
+          evidence.blockers.push('organisation_entitlement_requires_review'); continue;
+        }
+        const start = lifecycleDay(row.term_start_date), end = lifecycleDay(row.term_end_date);
+        const config = row.effective_commitment_snapshot?.config || row.renewal_policy_snapshot
+          || row.commitment_snapshot?.config || row.incentive_snapshot?.config;
+        if (start > today || end >= today) evidence.membership.active = true;
+        else if (!config || !Number.isInteger(config.renewal_grace_days) || config.renewal_grace_days < 0) {
+          evidence.blockers.push('organisation_grace_requires_review');
+        } else if (toDateString(addDays(new Date(`${end}T00:00:00Z`),config.renewal_grace_days)) >= today) {
+          evidence.membership.active = true;
+        }
+      }
     }
     const elections = await read(db, 'membership_successor_election', tenantId, [['member_id', member.id]]);
     if (elections.some(row => row.status !== 'released')) evidence.membership.pendingRenewal = true;
     evidence.membershipComplete = true;
-    if (evidence.membership.expiryChangesAccess) evidence.blockers.push('existing_expiry_access_policy_requires_coordination');
+    if (evidence.membership.expiryChangesAccess && deps.expiryCoordinated !== true) {
+      evidence.blockers.push('existing_expiry_access_policy_requires_coordination');
+    }
   } catch { evidence.unavailableSources.push('membership'); }
   try {
     // The shared disposal helper supports legacy consumers with optional
@@ -124,13 +144,14 @@ export async function loadMemberLifecycleEvidence(db, tenantId, member, policy, 
     if (!billing.success) evidence.blockers.push('unresolved_recurring_billing');
     const obligations = await (deps.obligations || loadLifecycleObligations)(db, tenantId, member, policy, now, read);
     evidence.obligationsComplete = obligations.complete === true;
+    evidence.financialReferences = obligations.references || {};
     evidence.blockers.push(...obligations.blockers);
     if (!evidence.obligationsComplete) evidence.unavailableSources.push('outstanding_obligations');
   } catch { evidence.unavailableSources.push('billing'); }
   // last_activity and credential last_login lack complete per-tenant successful
   // member-login provenance; existing CPD display fallbacks can use import time.
   // They cannot safely be presented as authoritative lifecycle evidence.
-  for (const type of policy.activities) {
+  for (const type of policy.eventOnlyRoleIds.includes(member.role_id) ? ['event_attendance'] : policy.activities) {
     evidence.activity[type] = { complete: false, lastOccurredAt: null };
     if (type === 'cpd_activity') {
       try {

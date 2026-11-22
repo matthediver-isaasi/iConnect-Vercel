@@ -1,3 +1,4 @@
+import { operationalMemberQuery } from './memberLifecycleVisibility.js';
 import {
   fetchOrgDisplaySettings,
   isVisibleInDirectory, enrichField, sortFieldsForDirectory,
@@ -15,8 +16,9 @@ export async function loadCarouselDetails(db, tenantId, directory, recordId, mem
   const columns = organization
     ? 'id,name,logo_url,website_url,phone,description'
     : 'id,first_name,last_name,profile_photo_url,job_title,role_id,linkedin_url,organization_id';
-  const { data: rows, error } = await db.from(table).select(columns)
-    .eq('tenant_id', tenantId).eq('id', recordId).limit(1);
+  let query=db.from(table).select(columns).eq('tenant_id', tenantId).eq('id', recordId).limit(1);
+  if(!organization)({query}=await operationalMemberQuery(db,query));
+  const { data: rows, error } = await query;
   if (error || !Array.isArray(rows)) throw new Error('Unable to read directory details');
   if (!rows.length) return null;
   const row = rows[0];

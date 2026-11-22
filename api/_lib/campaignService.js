@@ -2876,7 +2876,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     }
     const duplicatesRemoved = beforeDedup - uniqueRecipients.length;
 
-    const emailEligible = uniqueRecipients.length;
+    let emailEligible = uniqueRecipients.length;
     for (const r of inboxAudience) {
       const emailLower = r.email.toLowerCase();
       if (!seenEmails.has(emailLower)) {
@@ -2884,7 +2884,14 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
         uniqueRecipients.push({ ...r, inbox_only: true, bypass_opt_out: false });
       }
     }
+    const lifecycleSuppressed=(await campaignAddressConsent(supabase,tenantId,uniqueRecipients.map(row=>row.email),null)).lifecycle;
+    const lifecycleExcluded=uniqueRecipients.filter(row=>lifecycleSuppressed.has(row.email.trim().toLowerCase())).length;
+    for(let index=uniqueRecipients.length-1;index>=0;index--){
+      if(lifecycleSuppressed.has(uniqueRecipients[index].email.trim().toLowerCase()))uniqueRecipients.splice(index,1);
+    }
+    emailEligible=uniqueRecipients.filter(row=>!row.inbox_only).length;
     const stats = {
+      lifecycleExcluded,
       emailEligible,
       inboxOnly: uniqueRecipients.length - emailEligible,
       totalAudience,
@@ -3674,6 +3681,7 @@ async function resolveRecipientBooking(recipient, campaign, tenantId, db = supab
 }
 
 async function preparedRecipientStillConsents(db, recipient, campaign, tenantId) {
+  if((await campaignAddressConsent(db,tenantId,[recipient.email],null)).lifecycle.has(recipient.email.trim().toLowerCase()))return false;
   if (campaign.deliver_to_inbox_when_opted_out === true) {
     const decisions = await bulkRecipientEligibility(db, [{ recipient }], campaign, tenantId);
     return decisions.get(recipient.id) === 'ready';

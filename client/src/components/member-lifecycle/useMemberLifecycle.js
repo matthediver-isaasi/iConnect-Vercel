@@ -32,11 +32,13 @@ export function useMemberLifecycle() {
   const [config, setConfig] = useState({ ...idle(), loading: true });
   const [review, setReview] = useState(idle);
   const [detail, setDetail] = useState(idle);
+  const [operations, setOperations] = useState(idle);
+  const [cleanup, setCleanup] = useState(idle);
   const [preview, setPreview] = useState(null);
   const [pending, setPending] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const alive = useRef(true);
-  const serial = useRef({ config: 0, review: 0, detail: 0, preview: 0 });
+  const serial = useRef({ config: 0, review: 0, detail: 0, preview: 0, operations: 0, cleanup: 0 });
   const selected = useRef(null);
   const currentConfig = useRef(null);
   const lock = useRef(false);
@@ -99,12 +101,47 @@ export function useMemberLifecycle() {
     }
   }, []);
 
+  const loadOperations = useCallback(async () => {
+    if (currentConfig.current?.permissions.view !== true) return;
+    const ticket = ++serial.current.operations;
+    safe(() => setOperations({ data: null, loading: true, error: null }));
+    try {
+      const data = await lifecycleRequest("?section=operations");
+      if (!Array.isArray(data.items)) throw new Error("Incomplete operation history response. Runtime outcomes could not be verified.");
+      if (!alive.current || ticket !== serial.current.operations) return;
+      setOperations({ data, loading: false, error: null });
+    } catch (error) {
+      if (alive.current && ticket === serial.current.operations) setOperations(old => ({ ...old, loading: false, error: error.message }));
+    }
+  }, []);
+
+  const loadCleanup = useCallback(async () => {
+    const permissions = currentConfig.current?.permissions;
+    const ticket = ++serial.current.cleanup;
+    if (permissions?.view !== true || (permissions.minimise !== true && permissions.delete !== true)) {
+      safe(() => setCleanup(idle())); return;
+    }
+    safe(() => setCleanup({ data: null, loading: true, error: null }));
+    try {
+      const data = await lifecycleRequest("?section=cleanup");
+      if (!Array.isArray(data.items)) throw new Error("Incomplete cleanup review response. Storage removal has not been verified.");
+      if (!alive.current || ticket !== serial.current.cleanup) return;
+      setCleanup({ data, loading: false, error: null });
+    } catch (error) {
+      if (alive.current && ticket === serial.current.cleanup) setCleanup({ data: null, loading: false, error: error.message });
+    }
+  }, []);
+
   const reload = useCallback(async () => {
     ++serial.current.preview;
+    ++serial.current.operations;
+    ++serial.current.cleanup;
     safe(() => setPreview(null));
     const configTicket = serial.current.config + 1;
     const data = await loadConfig();
     if (!alive.current || configTicket !== serial.current.config) return null;
+    if (data?.permissions.view === true) await Promise.all([loadOperations(), loadCleanup()]);
+    else safe(() => { setOperations(idle()); setCleanup(idle()); });
     if (data?.permissions.view === true && (data.executionReady === true || data.reviewReady === true)) {
       await Promise.all([loadReview(), selected.current ? loadDetail() : Promise.resolve()]);
     } else {
@@ -114,16 +151,21 @@ export function useMemberLifecycle() {
       safe(() => { setReview(idle()); setDetail(idle()); });
     }
     return data;
-  }, [loadConfig, loadReview, loadDetail]);
+  }, [loadConfig, loadReview, loadDetail, loadOperations, loadCleanup]);
 
   // One mutation at a time; each result (including failures/ambiguous network
   // outcomes) is followed by authoritative reads. Nothing is updated optimistically.
   const mutate = useCallback(async (key, body, method = "POST", { keepPreview = false } = {}) => {
     if (lock.current) return null;
+    if (body?.action === "resolve_notice"
+      && (currentConfig.current?.permissions.view !== true || currentConfig.current?.permissions.review !== true)) {
+      safe(() => setFeedback({ tone: "error", message: "Notification recovery requires authorised review permission. Reload current permissions before continuing." }));
+      return null;
+    }
     const safeReview = ["retain", "release_hold", "extend", "exempt", "clear_exemption", "record_evidence"].includes(body?.action)
       && currentConfig.current?.reviewReady === true;
     if (method !== "PUT" && body?.action !== "preview" && !safeReview && currentConfig.current?.executionReady !== true) {
-      safe(() => setFeedback({ tone: "error", message: "Preparation only: record decisions and execution controls are unavailable until the server reports execution ready." }));
+      safe(() => setFeedback({ tone: "error", message: "Execution unavailable: this action requires the server to report execution ready. Non-destructive review decisions require review readiness." }));
       return null;
     }
     lock.current = true;
@@ -132,6 +174,8 @@ export function useMemberLifecycle() {
     ++serial.current.config;
     ++serial.current.review;
     ++serial.current.detail;
+    ++serial.current.operations;
+    ++serial.current.cleanup;
     safe(() => { setPending(key); setFeedback(null); });
     const previewTicket = ++serial.current.preview;
     if (!keepPreview) safe(() => setPreview(null));
@@ -140,6 +184,8 @@ export function useMemberLifecycle() {
     try { result = await lifecycleRequest("", body, method); }
     catch (error) { failure = error; }
     const authoritative = await loadConfig();
+    if (authoritative?.permissions.view === true) await Promise.all([loadOperations(), loadCleanup()]);
+    else safe(() => { setOperations(idle()); setCleanup(idle()); });
     if (reviewAllowed.current) await Promise.all([loadReview(), selected.current ? loadDetail() : Promise.resolve()]);
     if (alive.current) {
       setPending(null);
@@ -152,7 +198,7 @@ export function useMemberLifecycle() {
     }
     lock.current = false;
     return failure || !authoritative ? null : { result, authoritative, previewTicket };
-  }, [loadConfig, loadReview, loadDetail]);
+  }, [loadConfig, loadReview, loadDetail, loadOperations, loadCleanup]);
 
   const runPreview = useCallback(async (previous = null) => {
     const revision = currentConfig.current?.revision;
@@ -183,5 +229,5 @@ export function useMemberLifecycle() {
     };
   }, [reload]);
 
-  return { config, review, detail, preview, pending, feedback, reload, loadReview, loadDetail, mutate, runPreview };
+  return { config, review, detail, operations, cleanup, preview, pending, feedback, reload, loadReview, loadDetail, loadOperations, loadCleanup, mutate, runPreview };
 }

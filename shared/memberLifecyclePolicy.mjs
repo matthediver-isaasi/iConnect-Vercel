@@ -143,7 +143,9 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
 
   const knownStates = ['active', 'former', 'guest', null, undefined];
   if (!knownStates.includes(member.lifecycle_state)) return hold('unknown_lifecycle_state');
-  const guest = member.lifecycle_state === 'guest'
+  // Persisted progression is not entitlement-cycle authority. A subsequent
+  // renewal may change the role while the old lifecycle projection stays guest.
+  const guest = member.role_id === policy.guestRoleId
     || policy.guestRoleIds.includes(member.role_id) || policy.eventOnlyRoleIds.includes(member.role_id);
   // Historical role labels alone cannot establish membership provenance.
   if (historyKind === 'never' && !guest) return hold('guest_classification_required');
@@ -160,10 +162,6 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
     if (!target || target.is_active === false || target.is_tenant_admin === true) return hold('destination_role_unavailable');
     return result(action, reason, { targetRoleId, ...details });
   }
-  if (!guest && historyKind === 'former' && member.lifecycle_state !== 'former') {
-    return transition('former', 'membership_grace_elapsed', policy.formerRoleId, { eligibleOn: graceEnd });
-  }
-
   const activities = policy.eventOnlyRoleIds.includes(member.role_id) ? ['event_attendance'] : policy.activities;
   const occurrenceDays = [];
   for (const type of activities) {
@@ -177,7 +175,14 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
     } catch { return hold('invalid_activity_date', { source: type }); }
   }
   if (!occurrenceDays.length) return hold('last_activity_unknown');
+  if (!guest && historyKind === 'former' && member.lifecycle_state !== 'former') {
+    return transition('former', 'membership_grace_elapsed', policy.formerRoleId, { eligibleOn: graceEnd });
+  }
   const lastActivityOn = occurrenceDays.sort().at(-1);
+  if(historyKind==='former'){
+    const eligibleOn=lifecycleAnniversary(graceEnd,policy.formerRetentionYears);
+    if(today<eligibleOn)return result('none','former_retention_running',{eligibleOn,lastActivityOn});
+  }
   const activityExpiry = lifecycleAnniversary(lastActivityOn, policy.guestInactivityYears);
   if (!guest) {
     const eligibleOn = lifecycleAnniversary(graceEnd, policy.formerRetentionYears);

@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import PolicyEditor from "@/components/member-lifecycle/PolicyEditor";
 import ImpactPreview from "@/components/member-lifecycle/ImpactPreview";
 import MemberReviewDialog from "@/components/member-lifecycle/MemberReviewDialog";
+import OperationsHistory from "@/components/member-lifecycle/OperationsHistory";
+import CleanupReview from "@/components/member-lifecycle/CleanupReview";
 import { EvidenceValue, ErrorRetry, Loading, Notice, Panel, RecordTable } from "@/components/member-lifecycle/LifecycleUI";
 import { useMemberLifecycle } from "@/components/member-lifecycle/useMemberLifecycle";
 import "@/components/member-lifecycle/member-lifecycle.css";
@@ -20,10 +22,10 @@ export default function MemberLifecycle() {
   const select = memberId => { if (!reviewReady) return; setSelectedId(memberId); void lifecycle.loadDetail(memberId); };
   const close = () => { if (!pending) { setSelectedId(null); void lifecycle.loadDetail(null); } };
   const save = policy => lifecycle.mutate("save", { policy, expectedRevision: data.revision }, "PUT");
-  const approve = () => {
-    if (!data?.permissions.configure || data.executionReady !== true || dirty || preview?.complete !== true
+  const approve = confirmed => {
+    if (confirmed !== true || !data?.permissions.configure || data.executionReady !== true || dirty || preview?.complete !== true
       || preview.nextCursor || !preview.previewId || preview.revision !== data.revision) return;
-    void lifecycle.mutate("approve", { action: "approve", previewId: preview.previewId, expectedRevision: data.revision });
+    void lifecycle.mutate("approve", { action: "approve", confirmed: true, previewId: preview.previewId, expectedRevision: data.revision });
   };
 
   return <main className="member-lifecycle min-h-[100dvh] space-y-6" aria-label="Member lifecycle administration">
@@ -31,7 +33,7 @@ export default function MemberLifecycle() {
       <div><p className="ml-step mb-2">Membership administration</p><h1 className="flex items-center gap-3 text-3xl font-semibold"><Archive className="h-7 w-7 shrink-0" aria-hidden="true" />Member lifecycle</h1>
         <p className="ml-muted mt-2 max-w-2xl text-sm">Understand why a record is retained, held or ready for review. Every decision starts with evidence.</p></div>
       <div className="flex items-center gap-3">
-        {data?.permissions.view === true && <Badge variant="outline">{!data.executionReady ? "Preparation only" : data.enabled ? "Automation enabled" : "Automation paused"}</Badge>}
+        {data?.permissions.view === true && <Badge variant="outline">{!data.executionReady ? data.reviewReady === true ? "Review only · execution unavailable" : "Preparation only" : data.enabled ? "Automation enabled" : "Automation paused"}</Badge>}
         <Button variant="outline" disabled={!!pending || config.loading} onClick={() => { if (!dirty || window.confirm("Reload authoritative state? Unsaved policy changes remain until discarded or the revision changes.")) void lifecycle.reload(); }}><RefreshCw className="h-4 w-4" aria-hidden="true" />{config.loading ? "Reloading…" : "Reload"}</Button>
       </div>
     </header>
@@ -51,7 +53,7 @@ export default function MemberLifecycle() {
       </section>
       <div className="ml-grid">
         <PolicyEditor key={data.revision} config={data} pending={pending || (config.loading ? "reload" : null)} onSave={save} onDirty={value => setDirtyRevision(value ? data.revision : null)} />
-        <ImpactPreview config={data} preview={preview} pending={pending || (config.loading ? "reload" : null)} dirty={dirty} onPreview={lifecycle.runPreview} onApprove={approve} onPause={() => lifecycle.mutate("pause", { action: "pause" })} onSelect={select} />
+        <ImpactPreview config={data} preview={preview} pending={pending || (config.loading ? "reload" : null)} dirty={dirty} onPreview={lifecycle.runPreview} onApprove={approve} onPause={() => lifecycle.mutate("pause", { action: "pause", expectedRevision: data.revision })} onSelect={select} />
       </div>
       <Panel step="03 / Decide" title="Archive review" description="Inspect evidence, dates, obligations and audit history for each member. Retain creates a durable hold; extensions set a future review date.">
         {!reviewReady && <div className="ml-panel-body"><Notice tone="warning" title="Member review is unavailable">The server has not confirmed review readiness. No member decisions are available.</Notice></div>}
@@ -68,6 +70,10 @@ export default function MemberLifecycle() {
           </div>
         </>}
       </Panel>
+      <OperationsHistory resource={lifecycle.operations} pending={pending || config.loading} onLoad={lifecycle.loadOperations}
+        permissions={data.permissions} executionReady={data.executionReady} onAction={lifecycle.mutate} />
+      {(data.permissions.minimise === true || data.permissions.delete === true) && <CleanupReview resource={lifecycle.cleanup} executionReady={data.executionReady}
+        pending={pending || config.loading} onLoad={lifecycle.loadCleanup} onAction={lifecycle.mutate} />}
       {selectedId && reviewReady && <MemberReviewDialog key={selectedId} memberId={selectedId} resource={detail} permissions={data.permissions} executionReady={data.executionReady} reviewReady={reviewReady}
         pending={pending || (config.loading ? "reload" : null)} feedback={feedback} timezone={data.policy.timezone} onClose={close} onRetry={() => lifecycle.loadDetail(selectedId)} onAction={lifecycle.mutate} />}
     </>}

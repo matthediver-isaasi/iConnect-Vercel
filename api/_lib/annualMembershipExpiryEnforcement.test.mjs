@@ -35,6 +35,7 @@ function database(tables = {}, { cap = 1000, latency = 70, fail = () => false } 
   const state = { queries: [], elapsed: 0, tables, writes: [] };
   return Object.assign(state, {
     async rpc(name, args) {
+      if(name==='member_lifecycle_guarded_annual_expiry')return{error:{code:'PGRST202'}};
       assert.equal(name, 'apply_annual_expiry_role');
       const a = tables.membership_expiry_action?.find(a => a.id === args.p_action_id && a.tenant_id === args.p_tenant_id);
       const m = tables.member?.find(m => m.id === a?.member_id && m.tenant_id === args.p_tenant_id);
