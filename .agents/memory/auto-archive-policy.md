@@ -26,3 +26,9 @@ Archived former members become eligible for manual deletion review after a tenan
 **Why:** The owner explicitly selected review after configurable retention rather than indefinite retention or permanent ineligibility.
 
 **How to apply:** Review eligibility must never itself delete or minimise data. Preserve financial and other retention blockers. For BNMS, the owner selected one year after archiving before entry into deletion review; other tenants can configure their own period.
+
+BNMS qualifying retention activity includes recorded event attendance, earned CPD activity and member portal logins. Event-only CPD Guests retain the brief's attendance-only exception.
+
+**Why:** The owner explicitly selected all three activity types, including portal logins, when clarifying the retention policy.
+
+**How to apply:** Use actual activity dates rather than entry/import dates; administrator edits do not reset retention. Do not apply the earlier recommendation to exclude portal logins. This selection does not resolve missing-history handling or authorise archived-account logins.
