@@ -4,6 +4,8 @@ import { AlertTriangle, ArrowLeft, Download, Eye, FileSpreadsheet, Loader2, Lock
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import ReportViewerFilters from "@/components/reports/ReportViewerFilters";
+import { EMPTY_REPORT_QUERY } from "../../../shared/reportViewerQuery.mjs";
 
 const API = "/api/public/custom-object-report";
 const PAGE_SIZE = 50;
@@ -43,6 +45,16 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
   const [unavailable, setUnavailable] = useState(false);
   const [progress, setProgress] = useState("");
   const [internalRetryAvailable, setInternalRetryAvailable] = useState(false);
+  const [viewerQuery, setViewerQuery] = useState(EMPTY_REPORT_QUERY);
+  const [appliedQueryKey, setAppliedQueryKey] = useState(JSON.stringify(EMPTY_REPORT_QUERY));
+  const [reportColumns, setReportColumns] = useState([]);
+  const queryRef = useRef(EMPTY_REPORT_QUERY);
+  const queryEpoch = useRef(0);
+  const snapshotRef = useRef("");
+  const queryEdited = useRef(false);
+  const queryKey = JSON.stringify(viewerQuery);
+  const queryUpdating = queryKey !== appliedQueryKey;
+  const queryActive = Boolean(viewerQuery.search.trim() || viewerQuery.filters.length);
   const controller = useRef(null);
   const grantRef = useRef("");
   const reportRef = useRef(null);
@@ -57,6 +69,10 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
     controller.current = null;
     grantRef.current = "";
     reportRef.current = null;
+    queryEpoch.current += 1; snapshotRef.current = "";
+    queryEdited.current = false;
+    queryRef.current = EMPTY_REPORT_QUERY; setViewerQuery(EMPTY_REPORT_QUERY);
+    setAppliedQueryKey(JSON.stringify(EMPTY_REPORT_QUERY)); setReportColumns([]);
     setGrant(""); setReport(null); setPreview(null); setJobId(""); setPage(1);
     setProgress(""); setPending(false); setUnavailable(isUnavailable);
   }, []);
@@ -67,6 +83,10 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
     routeEpochRef.current += 1;
     internalRetryUsed.current = false;
     setInternalRetryAvailable(false);
+    queryEpoch.current += 1; snapshotRef.current = "";
+    queryEdited.current = false;
+    queryRef.current = EMPTY_REPORT_QUERY; setViewerQuery(EMPTY_REPORT_QUERY);
+    setAppliedQueryKey(JSON.stringify(EMPTY_REPORT_QUERY)); setReportColumns([]);
     controller.current?.abort();
     controller.current = null;
     grantRef.current = "";
@@ -180,28 +200,35 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [internalMode, requestIdentity]);
 
-  const fetchPage = async (targetPage, snapshotId) => {
+  const fetchPage = async (targetPage, snapshotId, criteria = queryRef.current) => {
     if (!grantRef.current) return;
+    const epoch = queryEpoch.current, routeEpoch = routeEpochRef.current;
+    const identity = requestIdentity;
+    const isCurrent = () => mountedRef.current && grantRef.current && queryEpoch.current === epoch
+      && routeTokenRef.current === identity && routeEpochRef.current === routeEpoch;
     const result = await runRequest(async (signal) => request({
       action: "preview", grant: grantRef.current, page: targetPage, pageSize: PAGE_SIZE,
+      viewer_query: criteria,
       ...(snapshotId ? { job_id: snapshotId, preview_action: "page" } : {}),
       ...(!snapshotId ? { preview_action: "start" } : {}),
     }, signal));
-    if (!result) return;
+    if (!result || !isCurrent()) return;
     let data = result;
     let id = result.sort_job?.id || snapshotId;
+    snapshotRef.current = id || "";
     setJobId(id || "");
     if (result.sort_job && result.sort_job.status !== "complete") {
       setProgress("Preparing a private report snapshot");
       let current = result;
       for (let attempts = 0; attempts < 80 && current?.sort_job?.status !== "complete"; attempts += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 300));
-        if (!grantRef.current) return;
+        if (!isCurrent()) return;
         const next = await runRequest((signal) => request({
           token, action: "preview", grant: grantRef.current, job_id: id,
           preview_action: "process", page: targetPage, pageSize: PAGE_SIZE,
+          viewer_query: criteria,
         }, signal));
-        if (!next) return;
+        if (!next || !isCurrent()) return;
         current = next;
       }
       if (current?.sort_job?.status !== "complete" || !Array.isArray(current.data)) {
@@ -210,9 +237,31 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
       data = current;
     }
     setProgress("");
-    if (!grantRef.current) return;
+    if (!isCurrent()) return;
+    setReportColumns(Array.isArray(data.columns) ? data.columns : []);
+    setAppliedQueryKey(JSON.stringify(criteria));
     setPreview(data); setPage(targetPage); setJobId(id || data.sort_job?.id || "");
   };
+
+  const changeQuery = next => {
+    if (JSON.stringify(next) === JSON.stringify(queryRef.current)) return;
+    queryEpoch.current += 1;
+    controller.current?.abort();
+    controller.current = null;
+    queryEdited.current = true;
+    queryRef.current = next;
+    setViewerQuery(next); setPage(1); setPending(true); setError("");
+  };
+  useEffect(() => {
+    if (!grant || !queryEdited.current) return undefined;
+    const timer = window.setTimeout(() => {
+      queryEdited.current = false;
+      fetchPage(1, snapshotRef.current, queryRef.current);
+    }, 350);
+    return () => window.clearTimeout(timer);
+    // Input changes cancel older requests immediately; only the final value is sent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, grant]);
 
   useEffect(() => {
     if (!grant) return undefined;
@@ -240,13 +289,15 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grant]);
 
-  const refresh = () => { setPreview(null); setJobId(""); fetchPage(1, ""); };
+  const refresh = () => { queryEpoch.current += 1; snapshotRef.current = ""; setPreview(null); setJobId(""); fetchPage(1, ""); };
   const changePage = (nextPage) => {
     if (jobId) fetchPage(nextPage, jobId);
   };
 
   const exportCsv = async () => {
-    if (!grantRef.current || reportRef.current?.allow_csv !== true || pending) return;
+    if (!grantRef.current || reportRef.current?.allow_csv !== true || pending || queryUpdating || !preview) return;
+    const exportQueryEpoch = queryEpoch.current;
+    const exportQuery = queryRef.current;
     await runRequest(async (signal) => {
     const exportToken = requestIdentity;
       const exportEpoch = routeEpochRef.current;
@@ -254,14 +305,14 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
       const parts = [];
       const assertExportCurrent = () => {
         if (signal.aborted || !mountedRef.current || routeTokenRef.current !== exportToken
-        || routeEpochRef.current !== exportEpoch || grantRef.current !== exportGrant) {
+        || routeEpochRef.current !== exportEpoch || grantRef.current !== exportGrant || queryEpoch.current !== exportQueryEpoch) {
           const aborted = new Error("The export was cancelled because access changed.");
           aborted.name = "AbortError";
           throw aborted;
         }
       };
       try {
-        let job = await request({ token: exportToken, action: "export", grant: exportGrant, export_action: "start" }, signal);
+        let job = await request({ token: exportToken, action: "export", grant: exportGrant, export_action: "start", viewer_query: exportQuery }, signal);
         assertExportCurrent();
         const id = job.id;
         if (!id) throw new Error("The CSV export could not be started.");
@@ -351,13 +402,14 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
               <p className="mt-1 text-sm text-slate-600">A read-only snapshot of the saved report.</p></div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={refresh} disabled={pending}><RefreshCw className="mr-2 h-4 w-4" />Refresh data</Button>
-              {report?.allow_csv === true && <Button type="button" onClick={exportCsv} disabled={pending} className="bg-teal-800 hover:bg-teal-900"><Download className="mr-2 h-4 w-4" />Download CSV</Button>}
+              {report?.allow_csv === true && <Button type="button" onClick={exportCsv} disabled={pending || queryUpdating || !preview} className="bg-teal-800 hover:bg-teal-900"><Download className="mr-2 h-4 w-4" />Download CSV</Button>}
             </div>
           </div>
+          {reportColumns.length > 0 && <ReportViewerFilters columns={reportColumns} query={viewerQuery} onChange={changeQuery} updating={pending && queryUpdating} />}
           {error && <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
           {progress && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-slate-600"><Loader2 className="h-4 w-4 animate-spin" />{progress}</p>}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {!preview ? <div className="p-10 text-center text-sm text-slate-500">Preparing report snapshot…</div> : <>
+          <div aria-busy={pending} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            {!preview ? <div className="p-10 text-center text-sm text-slate-500">{error ? "The report could not be loaded. Adjust the filters or refresh to try again." : "Preparing report snapshot…"}</div> : <>
               <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse text-left text-sm">
                   <thead className="bg-[#e8f1ee] text-xs uppercase tracking-wide text-slate-600"><tr>
@@ -367,15 +419,15 @@ export default function SharedCustomObjectReport({ internalMode = false }) {
                     {rows.map((row, index) => <tr key={row.id || index} className="hover:bg-teal-50/40">
                       {(Array.isArray(row.values) ? row.values : []).map((value, cellIndex) => <td key={cellIndex} className="max-w-[28rem] break-words px-4 py-3 align-top text-slate-700">{value == null || value === "" ? <span className="text-slate-400">—</span> : String(value)}</td>)}
                     </tr>)}
-                    {!rows.length && <tr><td colSpan={Math.max(columns.length, 1)} className="px-4 py-12 text-center text-slate-500">No rows in this report snapshot.</td></tr>}
+                    {!rows.length && <tr><td colSpan={Math.max(columns.length, 1)} className="px-4 py-12 text-center text-slate-500">{queryActive ? 'No rows match your search and filters.' : 'No rows in this report snapshot.'}</td></tr>}
                   </tbody>
                 </table>
               </div>
               <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <span>{Number(preview.total) || rows.length} rows · page {preview.page || page}</span>
+                <span>{Number(preview.total) || 0} {queryActive ? 'matching rows' : 'rows'} · page {preview.page || page}</span>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" disabled={pending || page <= 1} onClick={() => changePage(page - 1)}><ArrowLeft className="mr-1 h-4 w-4" />Previous</Button>
-                  <Button type="button" variant="outline" size="sm" disabled={pending || !preview.has_more} onClick={() => changePage(page + 1)}>Next</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={pending || queryUpdating || page <= 1} onClick={() => changePage(page - 1)}><ArrowLeft className="mr-1 h-4 w-4" />Previous</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={pending || queryUpdating || !preview.has_more} onClick={() => changePage(page + 1)}>Next</Button>
                 </div>
               </footer>
             </>}

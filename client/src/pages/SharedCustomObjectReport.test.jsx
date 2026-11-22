@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { matchesReportViewerQuery, normalizeReportViewerQuery } from "../../../shared/reportViewerQuery.mjs";
 
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", { url: "https://example.test/shared-reports/test-capability" });
 globalThis.window = dom.window;
@@ -76,6 +77,102 @@ const type = (element, value) => {
   element.dispatchEvent(new window.Event("change", { bubbles: true }));
 };
 const wait = (delay = 15) => new Promise((resolve) => setTimeout(resolve, delay));
+
+for (const internal of [false, true]) test(`${internal ? 'internal' : 'external'} viewer debounces search, filters by projected fields, and exports matching CSV`, async () => {
+  const requests = [];
+  const source = Array.from({ length: 55 }, (_, index) => ({ id: `r${index}`, values: [
+    `Department ${index}`, index >= 50 ? "Oxford" : "London",
+  ] }));
+  let exportQuery, exportedBlob;
+  const oldCreateUrl = URL.createObjectURL;
+  URL.createObjectURL = blob => { exportedBlob = blob; return "blob:fixture"; };
+  const fetchMock = async (_url, options) => {
+    const body = JSON.parse(options.body); requests.push(body);
+    if (body.action === "unlock") return jsonResponse({ access_grant: "grant-query", report: { name: "Locations", allow_csv: true } });
+    if (body.action === "preview") {
+      const criteria = normalizeReportViewerQuery(body.viewer_query, 2);
+      const data = source.filter(row => matchesReportViewerQuery(row.values, criteria));
+      const page = body.page || 1;
+      return jsonResponse({ sort_job: { id: "query-snapshot", status: "complete" },
+        columns: [{ label: "Name" }, { label: "City" }], data: data.slice((page - 1) * 50, page * 50),
+        total: data.length, page, pageSize: 50, has_more: page * 50 < data.length });
+    }
+    if (body.action === "export") {
+      if (body.export_action === "start") exportQuery = body.viewer_query;
+      if (body.export_action === "chunk") return jsonResponse({ csv_text: "Name,City\r\n" + source
+        .filter(row => matchesReportViewerQuery(row.values, exportQuery)).map(row => row.values.join(",")).join("\r\n") });
+      return jsonResponse({ id: "query-export", status: "complete", chunk_count: 1, filename: "locations.csv" });
+    }
+    return jsonResponse({ report: { name: "Locations", allow_csv: true } });
+  };
+  const fixture = await (internal ? mountInternal(fetchMock) : mount(fetchMock));
+  try {
+    if (!internal) {
+      assert.equal(fixture.container.querySelector('input[type="search"]'), null, "locked reports reveal no search fields");
+      await act(async () => click([...fixture.container.querySelectorAll("button")].find(button => button.textContent.includes("Open report"))));
+    }
+    await act(async () => wait());
+    const search = fixture.container.querySelector('input[type="search"]');
+    assert.ok(search);
+    const before = requests.filter(body => body.action === "preview").length;
+    await act(async () => type(search, "Oxf"));
+    await act(async () => type(search, "OXFORD"));
+    await act(async () => wait(420));
+    assert.equal(requests.filter(body => body.action === "preview").length, before + 1);
+    assert.match(fixture.container.textContent, /5 matching rows/);
+    assert.doesNotMatch(fixture.container.querySelector("tbody").textContent, /London/);
+    assert.equal(requests.at(-1).job_id, "query-snapshot", "search reuses the full server snapshot");
+
+    const details = fixture.container.querySelector("details"); details.open = true;
+    const matchType = fixture.container.querySelector('select[aria-label="Match type for Name"]');
+    await act(async () => { matchType.value = "equals"; matchType.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await act(async () => type(fixture.container.querySelector('input[aria-label="Filter Name"]'), "Department 54"));
+    await act(async () => wait(420));
+    assert.match(fixture.container.textContent, /1 matching rows/);
+    assert.match(fixture.container.querySelector("tbody").textContent, /Department 54/);
+    await act(async () => click([...fixture.container.querySelectorAll("button")].find(button => button.textContent.includes("Download CSV"))));
+    assert.deepEqual(exportQuery, { search: "OXFORD", filters: [{ column: 0, operator: "equals", value: "Department 54" }] });
+    const csv = await exportedBlob.text();
+    assert.match(csv, /Department 54,Oxford/);
+    assert.doesNotMatch(csv, /Department 53/);
+    await act(async () => type(search, "no-such-value"));
+    await act(async () => wait(420));
+    assert.match(fixture.container.textContent, /0 matching rows/);
+    assert.match(fixture.container.textContent, /No rows match/);
+    await act(async () => click([...fixture.container.querySelectorAll("button")].find(button => button.textContent.includes("Clear search and filters"))));
+    await act(async () => wait(420));
+    assert.match(fixture.container.textContent, /55 rows/);
+  } finally { URL.createObjectURL = oldCreateUrl; await fixture.cleanup(); }
+});
+
+test("a delayed search response cannot overwrite newer report criteria", async () => {
+  let resolveOld;
+  const fixture = await mount(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    if (body.action === "unlock") return jsonResponse({ access_grant: "grant-race", report: { name: "Search race", allow_csv: false } });
+    const response = label => jsonResponse({ sort_job: { id: "race-snapshot", status: "complete" },
+      columns: [{ label: "Name" }], data: [{ id: "row", values: [label] }], total: 1, page: 1, has_more: false });
+    if (body.action === "preview") {
+      if (body.viewer_query?.search === "old") return new Promise(resolve => { resolveOld = () => resolve(response("Old result")); });
+      return response(body.viewer_query?.search === "new" ? "New result" : "Initial result");
+    }
+    return jsonResponse({ report: { name: "Search race", allow_csv: false } });
+  });
+  try {
+    await act(async () => click([...fixture.container.querySelectorAll("button")].find(button => button.textContent.includes("Open report"))));
+    await act(async () => wait());
+    const input = fixture.container.querySelector('input[type="search"]');
+    await act(async () => type(input, "old"));
+    await act(async () => wait(420));
+    assert.equal(typeof resolveOld, "function");
+    await act(async () => type(input, "new"));
+    await act(async () => wait(420));
+    assert.match(fixture.container.querySelector("tbody").textContent, /New result/);
+    await act(async () => { resolveOld(); await wait(); });
+    assert.match(fixture.container.querySelector("tbody").textContent, /New result/);
+    assert.doesNotMatch(fixture.container.querySelector("tbody").textContent, /Old result/);
+  } finally { await fixture.cleanup(); }
+});
 
 test("guest password gate hides report name until unlock and paginates the bounded snapshot", async () => {
   const requests = [];

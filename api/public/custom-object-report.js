@@ -45,6 +45,7 @@ export function createPublicCustomReportHandler({ db = supabase,
         const result = await engine.preview({
           action: body.preview_action === 'start' ? undefined : body.preview_action,
           job_id: body.job_id, page: body.page, pageSize: body.pageSize,
+          viewer_query: body.viewer_query,
         });
         payload = { sort_job: jobView(result.sort_job) };
         if (Array.isArray(result.data)) Object.assign(payload, {
@@ -56,7 +57,7 @@ export function createPublicCustomReportHandler({ db = supabase,
         if (!share.allow_csv) throw new CustomObjectHttpError(403, 'CSV download is disabled');
         if (!['start', 'status', 'process', 'chunk'].includes(body.export_action || 'start')) throw new CustomObjectHttpError(404, reportShareUnavailable);
         const result = await engine.export({ action: body.export_action || 'start',
-          job_id: body.job_id, chunk_index: body.chunk_index });
+          job_id: body.job_id, chunk_index: body.chunk_index, viewer_query: body.viewer_query });
         payload = body.export_action === 'chunk'
           ? { csv_text: result.csv_text } : jobView(result);
       }

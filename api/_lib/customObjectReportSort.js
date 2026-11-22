@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { validateReportSort, reportDefinitionKey } from '../../shared/customObjectReportSort.mjs';
 import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
+import { normalizeReportViewerQuery, hasReportViewerQuery, matchesReportViewerQuery } from '../../shared/reportViewerQuery.mjs';
 
 // A sorted report is collected in bounded natural-cursor pages, then ordered
 // once in PostgreSQL. Preview and CSV read the same immutable ranked rows.
 export function createReportSortService({ db, tenantId, context, now, validate, execute, ErrorType,
   allowNaturalOrder = false, commitRpc = 'custom_object_report_sort_commit' }) {
   const fail = (status, message) => { throw new ErrorType(status, message); };
-  const checked = result => {
-    if (result.error) fail(['42P01', 'PGRST202', 'PGRST205'].includes(result.error.code) ? 503 : 500,
-      /42P01|PGRST202|PGRST205/.test(result.error.code || '')
-        ? 'Sorted reports require migration 20261120_custom_object_report_sort.sql.'
+  const checked = (result, viewerQuery = false) => {
+    if (result.error) fail(['42P01', '42703', 'PGRST202', 'PGRST204', 'PGRST205'].includes(result.error.code) ? 503 : 500,
+      /42P01|42703|PGRST202|PGRST204|PGRST205/.test(result.error.code || '')
+        ? viewerQuery ? 'Report search and filters require migration 20261122_custom_object_report_viewer_query.sql.'
+          : 'Sorted reports require migration 20261120_custom_object_report_sort.sql.'
         : result.error.message || 'Sorted report database operation failed');
     return result.data;
+  };
+  const viewerQuery = (input, definition) => {
+    try { return normalizeReportViewerQuery(input, definition?.columns?.length || 0); }
+    catch (error) { fail(400, error.message); }
   };
   function owned(query, objectId, mode) {
     query = query.eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('mode', mode);
@@ -39,6 +45,8 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
   async function start(objectId, mode, body) {
     const definition = body.definition;
     const validated = await validate(objectId, definition);
+    const query = viewerQuery(body.viewer_query, definition);
+    if (hasReportViewerQuery(query) && !context.reportGrantId) fail(400, 'Viewer filters require report-only access');
     const rules = validateReportSort(definition);
     if (!rules.length && !(allowNaturalOrder && context.reportGrantId)) fail(400, 'A sorted report needs at least one sort rule');
     const hop = validated.grain.hops.at(-1);
@@ -58,9 +66,10 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
       requested_by_member_id: context.tenantUserId ? null : context.memberId || null,
       requested_by_tenant_user_id: context.tenantUserId || null,
       ...(context.reportGrantId ? { requested_by_report_grant_id: context.reportGrantId } : {}),
+      ...(mode === 'export' && hasReportViewerQuery(query) ? { viewer_query: query } : {}),
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       created_at: now(), updated_at: now(),
-    }).select('*').single());
+    }).select('*').single(), hasReportViewerQuery(query));
   }
   async function process(objectId, mode, job) {
     if (['ready', 'failed'].includes(job.status)) return job;
@@ -79,10 +88,13 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
       });
       if (!result.bounded || !Array.isArray(result.data) || typeof result.has_more !== 'boolean') fail(503, 'Report source did not return a complete bounded page');
       if (result.has_more && (!result.next_cursor || result.next_cursor === job.cursor_value)) fail(503, 'Sorted report source cursor did not advance');
+      const query = viewerQuery(job.viewer_query, job.definition);
+      const matchingRows = hasReportViewerQuery(query)
+        ? result.data.filter(row => matchesReportViewerQuery(row.values, query)) : result.data;
       const updated = checked(await db.rpc(commitRpc, {
         p_tenant_id: tenantId, p_object_id: objectId, p_job_id: job.id,
         p_claim_token: claim, p_page: job.next_page,
-        p_rows: result.data.map(row => ({ id: row.id, values: row.values, sort_values: row.sort_values })),
+        p_rows: matchingRows.map(row => ({ id: row.id, values: row.values, sort_values: row.sort_values })),
         p_headers: result.columns.map(c => c.label),
         p_next_cursor: result.next_cursor, p_has_more: result.has_more,
       }));
@@ -114,6 +126,22 @@ export function createReportSortService({ db, tenantId, context, now, validate, 
       if (job.status !== 'ready') return { sort_job: publicJob(job) };
       const requestedPage = Math.max(1, Number.parseInt(body.page, 10) || 1);
       const size = Math.min(500, Math.max(1, Number.parseInt(body.pageSize, 10) || 50));
+      const query = viewerQuery(body.viewer_query, job.definition);
+      if (hasReportViewerQuery(query)) {
+        if (!context.reportGrantId) fail(400, 'Viewer filters require report-only access');
+        const filtered = checked(await db.rpc('custom_object_report_viewer_page', {
+          p_tenant_id: tenantId, p_job_id: job.id, p_query: query,
+          p_offset: (requestedPage - 1) * size, p_limit: size,
+        }), true);
+        const total = Number(filtered?.total), data = filtered?.data;
+        if (!Number.isSafeInteger(total) || total < 0 || !Array.isArray(data)
+          || data.length !== Math.min(size, Math.max(0, total - (requestedPage - 1) * size))) {
+          fail(503, 'Filtered report result is incomplete');
+        }
+        return { sort_job: publicJob(job), columns: job.headers.map(label => ({ label })),
+          data, total, page: requestedPage, pageSize: size, has_more: requestedPage * size < total,
+          page_count: Math.ceil(total / size), bounded: true };
+      }
       return { sort_job: publicJob(job), columns: job.headers.map(label => ({ label })),
         data: await page(objectId, job, (requestedPage - 1) * size, size), total: Number(job.processed),
         page: requestedPage, pageSize: size, has_more: requestedPage * size < Number(job.processed),

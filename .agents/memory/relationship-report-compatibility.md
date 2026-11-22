@@ -85,3 +85,14 @@ the portal menu; report View access must not require a separate builder grant.
 **How to apply:** Keep internal and external sharing independent. Treat navigation
 visibility as presentation only; direct reads, paging and exports need the same
 server-side report authorization.
+
+Viewer searches and field filters narrow the published report output only and
+must also constrain any permitted CSV download.
+
+**Why:** The owner requested search-as-you-type and field filters on both
+internal and external report views. Allowing criteria against hidden source
+fields would reveal information outside the report's approved projection.
+
+**How to apply:** Keep viewer criteria separate from saved report definitions
+and permissions. Search only displayed cells, preserve saved ordering, and
+count/page the complete matching result rather than filtering one visible page.

@@ -5614,12 +5614,14 @@ export function createCustomObjectService({
       preview: input => guarded(() => sortedReports.preview(reportAuthority.objectId, {
         definition: reportAuthority.definition, action: input.action, job_id: input.job_id,
         page: input.page, pageSize: input.pageSize,
+        viewer_query: input.viewer_query,
       })),
       export: input => guarded(async () => {
         if (!reportAuthority.allowCsv) throw new CustomObjectHttpError(403, 'CSV download is disabled');
         return sortedReports.export(reportAuthority.objectId, {
           definition: reportAuthority.definition, action: input.action, job_id: input.job_id,
           chunk_index: input.chunk_index, name: reportAuthority.name,
+          viewer_query: input.viewer_query,
         });
       }),
     });
