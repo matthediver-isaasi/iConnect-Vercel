@@ -50,3 +50,9 @@ After approved minimisation, keep the internal member ID, lifecycle dates and au
 **Why:** The owner explicitly accepted this retained-information baseline, having been informed that ordinary duplicate matching by the former email address would not be preserved.
 
 **How to apply:** Translate this baseline into an explicit field-by-field policy before destructive implementation. It applies to authorised minimisation, not ordinary archiving, and does not establish legal retention durations or authorise erasing protected related records.
+
+Lifecycle transitions must use dynamically configured existing tenant roles. Never hardcode role names or role IDs, including the BNMS examples “Former Member” and “CPD Guest”.
+
+**Why:** The owner selected configured existing destination roles and explicitly reiterated that every tenant will have its own roles and the feature must be dynamic.
+
+**How to apply:** Treat lifecycle states and tenant role mappings as separate concepts. Resolve configured role IDs within the record's tenant; do not select by a hardcoded name, create standard roles implicitly, or use a different tenant's role. Preserve purchased membership history and separate team-administrator access.
