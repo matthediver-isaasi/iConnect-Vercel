@@ -7,6 +7,7 @@ import { supabase as defaultSupabase } from './database.js';
  */
 export function isMemberSoftDeleted(member) {
   if (!member) return false;
+  if (member.lifecycle_state === 'deleted') return true;
   const email = member.email || '';
   return email.startsWith('deleted_') && email.endsWith('@deleted.local');
 }
@@ -243,6 +244,10 @@ export function computeEffectiveLoginStatus(member, extra = {}) {
     };
   }
 
+  if (['archived', 'minimised', 'deleted'].includes(member.lifecycle_state)) {
+    return { canLogin: false, reason: 'member_archived',
+      message: 'This member account is archived. Please contact your administrator.', duplicateActiveMembers };
+  }
   if (member.membership_cancelled === true) {
     return {
       canLogin: false,

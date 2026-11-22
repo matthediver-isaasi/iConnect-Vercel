@@ -53,7 +53,7 @@ export function useMemberLifecycle() {
         || !Array.isArray(data.readinessIssues)) throw new Error("Incomplete policy response. Configuration and execution are unavailable.");
       if (!alive.current || ticket !== serial.current.config) return null;
       currentConfig.current = data;
-      reviewAllowed.current = data.permissions.view === true && data.executionReady === true;
+      reviewAllowed.current = data.permissions.view === true && (data.executionReady === true || data.reviewReady === true);
       setConfig({ data, loading: false, error: null });
       return data;
     } catch (error) {
@@ -105,7 +105,7 @@ export function useMemberLifecycle() {
     const configTicket = serial.current.config + 1;
     const data = await loadConfig();
     if (!alive.current || configTicket !== serial.current.config) return null;
-    if (data?.permissions.view === true && data.executionReady === true) {
+    if (data?.permissions.view === true && (data.executionReady === true || data.reviewReady === true)) {
       await Promise.all([loadReview(), selected.current ? loadDetail() : Promise.resolve()]);
     } else {
       ++serial.current.review;
@@ -120,7 +120,9 @@ export function useMemberLifecycle() {
   // outcomes) is followed by authoritative reads. Nothing is updated optimistically.
   const mutate = useCallback(async (key, body, method = "POST", { keepPreview = false } = {}) => {
     if (lock.current) return null;
-    if (method !== "PUT" && body?.action !== "preview" && currentConfig.current?.executionReady !== true) {
+    const safeReview = ["retain", "release_hold", "extend", "exempt", "clear_exemption", "record_evidence"].includes(body?.action)
+      && currentConfig.current?.reviewReady === true;
+    if (method !== "PUT" && body?.action !== "preview" && !safeReview && currentConfig.current?.executionReady !== true) {
       safe(() => setFeedback({ tone: "error", message: "Preparation only: record decisions and execution controls are unavailable until the server reports execution ready." }));
       return null;
     }

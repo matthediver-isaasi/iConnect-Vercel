@@ -56,6 +56,7 @@ async function readMemberSessionAccessFence(sessionData) {
     access,
     memberGeneration,
     organizationGeneration,
+    lifecycleGeneration: generation(access.lifecycleGeneration),
     gateGeneration: 0,
     tenantId: access.tenantId || sessionData?.tenantId || null,
   };
@@ -63,7 +64,8 @@ async function readMemberSessionAccessFence(sessionData) {
 
 export function isMemberSessionFenceRevoked(sessionData, fence) {
   return generation(fence?.memberGeneration) > generation(sessionData?.memberLoginGeneration)
-    || generation(fence?.organizationGeneration) > generation(sessionData?.organizationLoginGeneration);
+    || generation(fence?.organizationGeneration) > generation(sessionData?.organizationLoginGeneration)
+    || generation(fence?.lifecycleGeneration) > generation(sessionData?.memberLifecycleGeneration);
 }
 
 async function applyMemberSessionAccessFence(sessionData) {
@@ -78,6 +80,7 @@ async function applyMemberSessionAccessFence(sessionData) {
       // Persist provenance with the actual session rather than trusting client
       // state. These values are compared on every request.
       memberLoginGeneration: fence.memberGeneration,
+      memberLifecycleGeneration: fence.lifecycleGeneration,
       organizationLoginGeneration: fence.organizationGeneration,
       organisationLoginGateGeneration: fence.gateGeneration,
       memberLoginAccessTenantId: fence.tenantId,
@@ -502,6 +505,7 @@ export async function updateSession(sessionId, sessionData) {
         ...sessionData,
         memberId: existingSess.memberId,
         memberLoginGeneration: existingSess.memberLoginGeneration,
+        memberLifecycleGeneration: existingSess.memberLifecycleGeneration,
         organizationLoginGeneration: existingSess.organizationLoginGeneration,
         memberLoginAccessTenantId: existingSess.memberLoginAccessTenantId,
       };

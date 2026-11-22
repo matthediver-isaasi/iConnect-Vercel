@@ -27,11 +27,12 @@ test('preparatory storage preserves member data, denies execution and fences pol
     const sql = (query, params) => client.query(query, params);
     await sql(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
       CREATE TABLE role(id uuid PRIMARY KEY,tenant_id uuid,excluded_features text[],is_active boolean DEFAULT true,is_tenant_admin boolean DEFAULT false);
-      CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,email text);
+      CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,email text,organization_id uuid);
+      CREATE TABLE organization(id uuid PRIMARY KEY,tenant_id uuid);
       CREATE TABLE role_access_item(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),item_type text,item_key text UNIQUE,label text,parent_id uuid,display_order integer,is_active boolean);
       INSERT INTO role_access_item(item_type,item_key,label) VALUES('module','crm','CRM');`);
     await sql("INSERT INTO role(id,tenant_id,excluded_features) VALUES($1,$2,ARRAY['existing.permission'])", [role, tenant]);
-    await sql("INSERT INTO member VALUES($1,$2,'fixture@example.invalid')", [member, tenant]);
+    await sql("INSERT INTO member(id,tenant_id,email) VALUES($1,$2,'fixture@example.invalid')", [member, tenant]);
     const migration = await readFile(new URL('20261122_member_lifecycle_preparation.sql', import.meta.url), 'utf8');
     await sql(migration);
     assert.equal((await sql('SELECT cardinality(excluded_features) n FROM role WHERE id=$1', [role])).rows[0].n, 7);
@@ -75,6 +76,58 @@ test('preparatory storage preserves member data, denies execution and fences pol
     assert.equal((await sql('SELECT email FROM member WHERE id=$1', [member])).rows[0].email, 'fixture@example.invalid');
     assert.equal((await sql('SELECT count(*)::int n FROM member_lifecycle_policy_audit')).rows[0].n, 2);
     assert.equal((await sql("SELECT count(*)::int n FROM pg_class WHERE relname LIKE 'member_lifecycle_%' AND relkind='r' AND NOT relrowsecurity")).rows[0].n, 0);
+    const reviewMigration = await readFile(new URL('20261122_member_lifecycle_review.sql', import.meta.url), 'utf8');
+    await sql(reviewMigration);
+    await sql(reviewMigration);
+    await sql('SET ROLE service_role');
+    const decision = async (revision, action, reviewAfter = null, targetTenant = tenant) => (
+      await sql('SELECT member_lifecycle_record_decision($1,$2,$3,$4,$5,$6,$7) result',
+        [targetTenant, member, revision, action, 'Documented decision', 'member:reviewer', reviewAfter])
+    ).rows[0].result;
+    assert.equal((await decision(0, 'retain')).hold, true);
+    await assert.rejects(decision(0, 'release_hold'), error => error.code === 'PT409');
+    assert.equal((await decision(1, 'exempt')).exempt, true);
+    assert.equal((await decision(2, 'release_hold')).exempt, true);
+    assert.equal((await decision(3, 'extend', '2100-01-01')).review_after, '2100-01-01');
+    await assert.rejects(decision(4, 'extend', '2099-01-01'), /shorten/);
+    await assert.rejects(decision(4, 'extend', '2000-01-01'), /future/);
+    await assert.rejects(decision(4, 'clear_exemption', null, foreign), /unavailable/);
+    assert.equal((await decision(4, 'clear_exemption')).exempt, false);
+    const reviewPage = (await sql('SELECT member_lifecycle_review_page($1,NULL) page', [tenant])).rows[0].page;
+    assert.equal(reviewPage.items[0].memberId, member);
+    assert.equal(reviewPage.items[0].revision, 5);
+    assert.equal((await sql('SELECT count(*)::int n FROM member_lifecycle_record_audit')).rows[0].n, 5);
+    await assert.rejects(sql('UPDATE member_lifecycle_record SET hold=false'), /permission denied/);
+    await assert.rejects(sql('DELETE FROM member_lifecycle_record_audit'), /permission denied/);
+    await assert.rejects(decision(5, 'archive'), /Invalid/);
+    await sql('RESET ROLE');
+    assert.equal((await sql('SELECT email FROM member WHERE id=$1', [member])).rows[0].email, 'fixture@example.invalid');
+    const accessMigration = await readFile(new URL('20261122_member_lifecycle_access.sql', import.meta.url), 'utf8');
+    await sql(accessMigration);
+    await sql(accessMigration);
+    await assert.rejects(sql("UPDATE member SET lifecycle_state='archived' WHERE id=$1", [member]), /server managed/);
+    await sql("UPDATE member_lifecycle_record SET state='archived' WHERE member_id=$1", [member]);
+    let access = (await sql('SELECT lifecycle_state,lifecycle_generation,email FROM member WHERE id=$1', [member])).rows[0];
+    assert.equal(access.lifecycle_state, 'archived');
+    assert.equal(access.lifecycle_generation, '1');
+    assert.equal(access.email, 'fixture@example.invalid');
+    await sql("UPDATE member_lifecycle_record SET state='active' WHERE member_id=$1", [member]);
+    access = (await sql('SELECT lifecycle_state,lifecycle_generation FROM member WHERE id=$1', [member])).rows[0];
+    assert.deepEqual(access, { lifecycle_state: 'active', lifecycle_generation: '1' });
+    await assert.rejects(sql("UPDATE member SET lifecycle_generation=0 WHERE id=$1", [member]), /server managed/);
+    const provenanceMigration = await readFile(new URL('20261122_member_lifecycle_provenance.sql', import.meta.url), 'utf8');
+    await sql(provenanceMigration);
+    await sql(provenanceMigration);
+    await sql('SET ROLE service_role');
+    const proof = { historyKind: 'never', reference: 'Reviewed external register',
+      fingerprint: 'a'.repeat(64), actor: 'spoof', reviewedAt: '2000-01-01' };
+    const saveEvidence = revision => sql('SELECT member_lifecycle_record_evidence($1,$2,$3,$4,$5,$6) evidence',
+      [tenant, member, revision, 'membership', JSON.stringify(proof), 'member:reviewer']);
+    const recorded = (await saveEvidence(5)).rows[0].evidence;
+    assert.equal(recorded.revision, 6);
+    assert.equal(recorded.history_review.actor, 'member:reviewer');
+    assert.notEqual(recorded.history_review.reviewedAt.slice(0,10), '2000-01-01');
+    await assert.rejects(saveEvidence(5), error => error.code === 'PT409');
   } finally {
     await client?.end();
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);

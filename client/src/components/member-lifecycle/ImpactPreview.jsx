@@ -30,7 +30,7 @@ export default function ImpactPreview({ config, preview, pending, dirty, onPrevi
         </div>
         {!current && <Notice tone="error">This preview belongs to a different policy revision. Generate a fresh preview.</Notice>}
         {preview.items.length > 0
-          ? <RecordTable items={preview.items} preview roles={config.roles} onSelect={onSelect} disabled={!!pending || !config.executionReady} />
+          ? <RecordTable items={preview.items} preview roles={config.roles} onSelect={onSelect} disabled={!!pending || (!config.executionReady && !config.reviewReady)} />
           : <Notice title="No proposal rows on the loaded pages">This does not establish that evaluation is complete. Check preview completion and counts before approval.</Notice>}
         {preview.nextCursor && <Button variant="outline" disabled={!!pending || dirty || !current} onClick={() => onPreview(preview)}>{pending === "preview_more" ? "Loading next preview page…" : "Load next preview page"}</Button>}
         {!complete && !preview.nextCursor && <Notice tone="warning">The server reports an incomplete preview without a continuation cursor. Generate a fresh preview or ask an administrator to investigate. Approval stays blocked.</Notice>}

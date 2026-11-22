@@ -12,7 +12,15 @@ function setup(options = {}) {
       async maybeSingle() { return { data: { policy: DEFAULT_LIFECYCLE_POLICY, revision: 1, enabled: false } }; },
     };
     return chain;
-  }, async rpc(name, args) { writes.push({ name, args }); return { data: {} }; } };
+  }, async rpc(name, args) {
+    writes.push({ name, args });
+    if (name === 'member_lifecycle_review_page') return { data: { items: [], nextCursor: null } };
+    if (name === 'member_lifecycle_record_decision') return { data: {
+      member_id: args.p_member_id, tenant_id: args.p_tenant_id, revision: args.p_revision + 1,
+      state: 'active', hold: args.p_action === 'retain', exempt: args.p_action === 'exempt',
+    } };
+    return { data: {} };
+  } };
   const handler = createMemberLifecycleHandler({
     db, getContext: async () => ({ isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role' }),
     isAdmin: async () => true, featureAccess: async () => true,
@@ -79,8 +87,8 @@ test('invalid policy and revision are rejected without writes', async () => {
     assert.equal(harness.writes.length, 0);
   }
 });
-test('all execution, approval and destructive actions fail explicitly without writes', async () => {
-  for (const action of ['approve', 'pause', 'retain', 'release_hold', 'extend', 'exempt', 'clear_exemption',
+test('execution, approval and destructive actions fail explicitly without writes', async () => {
+  for (const action of ['approve', 'pause',
     'archive', 'restore', 'minimise_preview', 'minimise', 'delete_preview', 'delete']) {
     const harness = setup();
     const response = await harness.request('POST', { action });
@@ -89,10 +97,26 @@ test('all execution, approval and destructive actions fail explicitly without wr
     assert.equal(harness.writes.length, 0);
   }
 });
-test('missing migration and review availability are explicit, not empty-success responses', async () => {
+test('missing migration is explicit and installed review supports empty pages', async () => {
   const harness = setup({ db: { from() { throw new Error('private database detail'); } } });
   const response = await harness.request();
   assert.equal(response.code, 503);
   assert.doesNotMatch(response.body.error, /private database detail/);
-  assert.equal((await setup().request('GET', {}, { section: 'review' })).code, 409);
+  const review = await setup().request('GET', {}, { section: 'review' });
+  assert.equal(review.code, 200);
+  assert.deepEqual(review.body, { items: [], nextCursor: null });
+});
+test('non-destructive decisions use scoped server identity and dedicated review permission', async () => {
+  const memberId = '33333333-3333-4333-8333-333333333333';
+  const harness = setup();
+  const response = await harness.request('POST', { action: 'retain', memberId, expectedRevision: 0,
+    reason: 'Documented retention review', tenantId: 'foreign', actor: 'spoof' });
+  assert.equal(response.code, 200);
+  assert.equal(response.body.hold, true);
+  assert.equal(harness.writes[0].args.p_tenant_id, 'tenant');
+  assert.equal(harness.writes[0].args.p_actor, 'member:member');
+  const denied = setup({ featureAccess: async (_role, key) => !key.endsWith('.review') });
+  assert.equal((await denied.request('POST', { action: 'retain', memberId, expectedRevision: 0, reason: 'review' })).code, 403);
+  assert.equal(denied.writes.length, 0);
+  assert.equal((await harness.request('POST', { action: 'retain', memberId, reason: 'review' })).code, 400);
 });

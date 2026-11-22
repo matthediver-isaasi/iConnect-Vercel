@@ -87,9 +87,9 @@ test('CPD reader scopes by effective ownership and reports missing dates explici
     [['effective_member_id', 'member']]);
   assert.deepEqual(evidence.activity.cpd_activity.reasons, ['cpd_occurrence_date_missing']);
   assert.ok(evidence.unavailableSources.includes('cpd_activity'));
-  assert.equal(evidence.obligationsComplete, false);
+  assert.equal(evidence.obligationsComplete, true);
 });
-test('preparatory adapter explicitly reports incomplete activities and obligations', async () => {
+test('adapter completes successful obligation reads without inventing login coverage', async () => {
   const evidence = await loadMemberLifecycleEvidence({}, 'tenant', { id: 'member', tenant_id: 'tenant' },
     DEFAULT_LIFECYCLE_POLICY, new Date('2026-11-22'), {
       readRows: async (_db, table) => table === 'member_membership_history' ? [history()] : [],
@@ -97,7 +97,7 @@ test('preparatory adapter explicitly reports incomplete activities and obligatio
       billing: async () => ({ success: true, failures: [] }),
     });
   assert.equal(evidence.membershipComplete, true);
-  assert.equal(evidence.obligationsComplete, false);
+  assert.equal(evidence.obligationsComplete, true);
   assert.equal(evidence.activity.portal_login.complete, false);
-  assert.ok(evidence.unavailableSources.includes('outstanding_obligations'));
+  assert.ok(evidence.blockers.includes('financial_identity_unavailable'));
 });

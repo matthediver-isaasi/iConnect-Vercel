@@ -3,9 +3,11 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { DEFAULT_LIFECYCLE_POLICY, LIFECYCLE_CAPABILITIES, validateLifecyclePolicy,
   evaluateMemberLifecycle } from '../../shared/memberLifecyclePolicy.mjs';
 import { lifecycleRows, loadMemberLifecycleEvidence } from '../_lib/memberLifecycleEvidence.js';
+import { LIFECYCLE_REVIEW_ACTIONS, lifecycleUuid, lifecycleReviewDetail,
+  loadLifecycleMember, recordLifecycleDecision } from '../_lib/memberLifecycleReview.js';
 
 export const LIFECYCLE_READINESS_ISSUES = Object.freeze([
-  'Preparation only: lifecycle execution and manual record changes are not available yet.',
+  'Automatic transitions and disposal are not ready. Non-destructive review decisions are available.',
   'Existing membership-expiry role/login changes need a shared execution boundary.',
   'Complete attendance, CPD and genuine tenant-scoped login evidence must be connected and verified.',
   'Outstanding obligations, legal holds and field-level minimisation require complete verification.',
@@ -14,6 +16,7 @@ export const LIFECYCLE_READINESS_ISSUES = Object.freeze([
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const mutationCapability = {
+  record_evidence: 'review',
   preview: 'configure', approve: 'configure', pause: 'configure',
   retain: 'review', release_hold: 'review', extend: 'review', exempt: 'review', clear_exemption: 'review',
   archive: 'archive', restore: 'archive', minimise_preview: 'minimise', minimise: 'minimise',
@@ -55,17 +58,69 @@ export function createMemberLifecycleHandler({
         const saved = await readPolicy();
         const roles = (await readRows(db, 'role', tenantId)).filter(role => role.is_active !== false && !role.is_tenant_admin)
           .map(role => ({ id: role.id, name: role.name || role.id }));
-        return { ...saved, roles, permissions, executionReady: false, readinessIssues: LIFECYCLE_READINESS_ISSUES };
+        return { ...saved, roles, permissions, reviewReady: true, executionReady: false, readinessIssues: LIFECYCLE_READINESS_ISSUES };
       };
       if (req.method === 'GET') {
+        if (req.query?.section === 'review') {
+          const cursor = req.query.cursor || null;
+          if (cursor && !lifecycleUuid(cursor)) fail('Invalid review cursor');
+          const { data, error } = await db.rpc('member_lifecycle_review_page', { p_tenant_id: tenantId, p_cursor: cursor });
+          if (error) throw error;
+          if (!data || !Array.isArray(data.items)) throw new Error('Review unavailable');
+          return res.json(data);
+        }
+        if (req.query?.section === 'detail') {
+          const saved = await readPolicy();
+          return res.json(await lifecycleReviewDetail(db, tenantId, req.query.memberId,
+            validateLifecyclePolicy(saved.policy), { readRows, loadEvidence }));
+        }
         if (req.query?.section && req.query.section !== 'settings') {
-          fail('Archive Review records are unavailable until lifecycle execution is implemented. No member records have been changed.', 409);
+          fail('Unknown lifecycle section');
         }
         return res.json(await settings());
       }
       const action = req.method === 'PUT' ? 'configure' : mutationCapability[req.body?.action];
       if (!action) fail('Unknown lifecycle action');
       if (!permissions[action]) fail('You do not have permission for this lifecycle action', 403);
+      if (req.method === 'POST' && req.body?.action === 'record_evidence') {
+        const body = req.body;
+        if (!lifecycleUuid(body.memberId) || !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0
+          || !['membership', 'portal_login'].includes(body.source)
+          || typeof body.reference !== 'string' || !body.reference.trim() || body.reference.trim().length > 2000) {
+          fail('A member, current revision and documented evidence reference are required');
+        }
+        const saved = await readPolicy();
+        const detail = await lifecycleReviewDetail(db, tenantId, body.memberId, saved.policy, { readRows, loadEvidence });
+        if (detail.revision !== body.expectedRevision) fail('Member review changed; reload', 409);
+        let evidence;
+        if (body.source === 'membership') {
+          if (detail.evidence.membershipRows !== 0 || !detail.evidence.membershipFingerprint) {
+            fail('Existing or unavailable membership history must be resolved at its source, not overridden', 409);
+          }
+          if (!['former', 'never'].includes(body.historyKind)
+            || (body.historyKind === 'former' && !/^\d{4}-\d{2}-\d{2}$/.test(body.graceEndDate || ''))) {
+            fail('Select verified history and provide the grace end date for former members');
+          }
+          evidence = { historyKind: body.historyKind,
+            graceEndDate: body.historyKind === 'former' ? body.graceEndDate : null,
+            fingerprint: detail.evidence.membershipFingerprint };
+        } else {
+          if (detail.evidence.activity?.portal_login?.source !== 'member_lifecycle_login_evidence') {
+            fail('Login capture must be available before historical coverage can be reviewed', 409);
+          }
+          if (body.lastOccurredAt && !/^\d{4}-\d{2}-\d{2}$/.test(body.lastOccurredAt)) fail('Invalid login occurrence date');
+          evidence = { lastOccurredAt: body.lastOccurredAt || null };
+        }
+        const { data, error } = await db.rpc('member_lifecycle_record_evidence', {
+          p_tenant_id: tenantId, p_member_id: body.memberId, p_revision: body.expectedRevision,
+          p_source: body.source, p_evidence: { ...evidence, reference: body.reference.trim() }, p_actor: actor,
+        });
+        if (error) throw error;
+        return res.json({ memberId: body.memberId, revision: data.revision });
+      }
+      if (req.method === 'POST' && LIFECYCLE_REVIEW_ACTIONS.has(req.body?.action)) {
+        return res.json(await recordLifecycleDecision(db, tenantId, actor, req.body));
+      }
       if (req.method === 'PUT') {
         const policy = validateLifecyclePolicy(req.body?.policy);
         const revision = req.body?.expectedRevision;
@@ -102,8 +157,9 @@ export function createMemberLifecycleHandler({
       const roles = await readRows(db, 'role', tenantId);
       const items = [];
       for (const member of members.slice(0, 10)) {
-        const evidence = await loadEvidence(db, tenantId, member, policy);
-        const proposal = evaluateMemberLifecycle({ tenantId, member, evidence, policy, roles });
+        const loaded = await loadLifecycleMember(db, tenantId, member.id);
+        const evidence = await loadEvidence(db, tenantId, loaded.member, policy);
+        const proposal = evaluateMemberLifecycle({ tenantId, member: loaded.member, evidence, policy, roles });
         // No names/contact data in durable preview items or response.
         items.push({ memberId: member.id, ...proposal, unavailableSources: evidence.unavailableSources || [] });
       }

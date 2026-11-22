@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { lifecycleDay } from "../../../../shared/memberLifecyclePolicy.mjs";
 import { EvidenceValue, ErrorRetry, Loading, Notice, words } from "./LifecycleUI";
+import HistoryEvidenceForm from "./HistoryEvidenceForm";
 
 const actions = [
   { id: "retain", label: "Retain with durable hold", permission: "review", description: "Keep this record unchanged by automation until an authorised reviewer explicitly releases the hold." },
@@ -19,7 +20,7 @@ const actions = [
   { id: "delete", label: "Review permanent deletion", permission: "delete", description: "One authorised administrator can confirm deletion. Financial, legal, evidence and referential-integrity blockers still apply. This does not promise complete erasure of external-provider or backup data." },
 ];
 
-export default function MemberReviewDialog({ memberId, resource, permissions, executionReady, pending, feedback, timezone, onClose, onRetry, onAction }) {
+export default function MemberReviewDialog({ memberId, resource, permissions, executionReady, reviewReady, pending, feedback, timezone, onClose, onRetry, onAction }) {
   const [action, setAction] = useState("");
   const [reason, setReason] = useState("");
   const [reviewAfter, setReviewAfter] = useState("");
@@ -32,11 +33,12 @@ export default function MemberReviewDialog({ memberId, resource, permissions, ex
   const word = action.toUpperCase();
   const blocked = !data || !Array.isArray(data.blockers) || data.blockers.length > 0;
   const allowed = actions.filter(item => permissions[item.permission] === true
+    && (executionReady === true || (reviewReady === true && item.permission === "review"))
     && (data?.state !== "deleted")
     && (item.id !== "archive" || !["archived", "minimised"].includes(data?.state)));
   const impactValid = !!impact && impact.memberId === memberId && impact.action === action
     && impact.revision === data?.revision && Array.isArray(impact.blockers) && impact.blockers.length === 0;
-  const disabled = executionReady !== true || !!pending || resource.loading || !!resource.error || !data;
+  const disabled = (executionReady !== true && reviewReady !== true) || !!pending || resource.loading || !!resource.error || !data;
   const today = (() => { try { return lifecycleDay(new Date(), timezone); } catch { return null; } })();
 
   const choose = (value) => { setAction(value); setImpact(null); setConfirmation(""); setError(null); };
@@ -89,7 +91,7 @@ export default function MemberReviewDialog({ memberId, resource, permissions, ex
         <DialogDescription>Review server-owned evidence before recording a decision. No automatic disposal.</DialogDescription></DialogHeader>
       <p className="ml-code rounded-md bg-slate-50 p-3">Member ID: {memberId}</p>
       {feedback && <Notice tone={feedback.tone}>{feedback.message}</Notice>}
-      {executionReady !== true && <Notice tone="warning" title="Preparation only">Member decisions are unavailable until the server reports execution ready.</Notice>}
+      {executionReady !== true && <Notice tone="warning" title="Automatic transitions and disposal blocked">Only non-destructive review decisions are available.</Notice>}
       {resource.loading && <Loading label="Refreshing member evidence…" />}
       {resource.error && <ErrorRetry message={resource.error} onRetry={onRetry} disabled={!!pending} />}
       {data && <>
@@ -133,6 +135,7 @@ export default function MemberReviewDialog({ memberId, resource, permissions, ex
         </>}
       </form>}
       {data && allowed.length === 0 && <Notice>Read-only evidence. You have no authorised decisions for this record.</Notice>}
+      {data && data.state !== "deleted" && permissions.review === true && <HistoryEvidenceForm data={data} disabled={disabled} onAction={onAction} />}
       <div className="flex justify-end border-t pt-4"><Button type="button" variant="outline" onClick={onClose} disabled={!!pending}>Close review</Button></div>
     </DialogContent>
   </Dialog>;

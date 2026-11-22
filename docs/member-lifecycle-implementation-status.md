@@ -3,7 +3,7 @@
 ## Not complete or release-ready
 
 The accepted Auto Archive task is **still in progress**. The current implementation
-is a preparatory configuration and read-only preview slice. It must not be
+includes configuration, previews, non-destructive review decisions and access safeguards. It must not be
 described as working automatic archiving or as completed member lifecycle
 management. Do not enable processing, apply the migration, seed a live tenant's
 settings or deploy as a completed feature without further work and approval.
@@ -26,7 +26,7 @@ No live database, tenant configuration, member data or provider was changed.
   paginated preview records.
 - Database CHECK constraint prevents enabling this preparatory policy. There is
   deliberately no activation or member mutation function.
-- All unsupported runtime/manual-action endpoints fail explicitly with 409.
+- Unsupported archive/restore, approval and disposal endpoints fail explicitly with 409.
 - Initial read-only membership adapter protects current/future/pending entitlements,
   rejects missing dates and exposes existing expiry access-policy conflicts.
 - Read-only CPD evidence uses effective ownership after merges, original occurrence
@@ -37,18 +37,30 @@ No live database, tenant configuration, member data or provider was changed.
   projection, masquerade and team logins do not opt in. A prepared service-only
   trigger records minimal forward evidence atomically with finalization and
   retains it after session expiry. This migration has not been applied.
+- Scoped review queues and member evidence/audit endpoints with retain/release,
+  dated retention extensions and exemptions, optimistic revisions and immutable
+  decision history. Extensions cannot shorten an existing review date.
+- Explicit administrator provenance for absent historical membership and
+  historical login coverage. Existing membership rows cannot be overridden;
+  failed source reads and known obligations still block transitions.
+- Attendance evidence from current QR check-ins/reversals and matched provider
+  outcomes with actual participant interval timestamps. Purchaser IDs alone
+  cannot establish attendee identity.
+- Outstanding obligation checks for recorded invoices, membership settlements,
+  booking work, future events, form payments/refunds and unspent member credits.
+- Prepared lifecycle access projection and independent session generation.
+  Archived portal sessions are blocked, separate team access is preserved,
+  and restoring a record cannot resurrect pre-archive member sessions.
 
 ## Remaining implementation
 
-1. Connect authoritative attendance across simple/complex events and providers,
-   CPD occurrence dates and reversals, and genuine tenant-specific member-login
-   evidence. Credential `last_login` and member `last_activity` do not establish
-   complete historical evidence. Forward login capture is implemented but does
-   not certify historical coverage or authorize inactivity decisions.
-2. Establish durable history provenance for verified never-members, imported
-   former members and administrator resolution of evidence holds.
-3. Complete outstanding-obligation and retention-policy checks beyond recurring
-   billing: future bookings, unpaid orders/invoices, refunds and legal holds.
+1. Verify cross-source coverage and historical provenance against representative
+   fixtures, including complex-event legacy layouts and organisation entitlement.
+   Credential `last_login` and member `last_activity` remain non-authoritative.
+2. Complete installed-schema and source-generation guarantees for evidence
+   reads; read-only results are not transactionally locked execution authority.
+3. Finish field-level privacy/retention policy and disposal planning. Existing
+   non-destructive retention holds do not authorize erasure.
 4. Add lifecycle state, holds, extensions, exemptions, review/audit and operation
    storage with atomic execution and shared concurrency boundaries against
    renewals, payments, new activity and role changes. Preview reads alone cannot
@@ -57,12 +69,11 @@ No live database, tenant configuration, member data or provider was changed.
    Both already mutate roles/access; do not independently run competing policies.
 6. Implement version-bound complete-preview approval, daily fair/resumable
    processing, pause fences and deduplicated authorised-reviewer notifications.
-7. Enforce archive state throughout member authentication, existing sessions,
-   operational lists/counts/exports, directory/search and campaign preparation
-   and send-time eligibility, preserving separate team-administrator access and
-   historical reporting.
-8. Implement actual review/detail endpoints and retain/release, extend,
-   exempt/clear, archive/restore, impact previews and confirmed minimisation/
+7. Finish archive visibility across operational lists/counts/exports,
+   directory/search and campaign preparation/send-time eligibility. The member
+   authentication/session projection is implemented, with separate team access
+   preserved; operational surfaces still require integration.
+8. Implement archive/restore, field-level impact previews and confirmed minimisation/
    deletion with scoped retention plans and recoverable partial outcomes.
    Do not call the existing wholesale anonymisation helper for archive.
 9. Verify renewal/activity/hold races, failures/retries, historical preservation,
@@ -71,10 +82,10 @@ No live database, tenant configuration, member data or provider was changed.
 
 ## Known preparation limitations
 
-The current evidence adapter deliberately reports attendance, login and outstanding-
-obligation coverage as incomplete; previews therefore hold records rather than
-present unsupported archive eligibility. Future manual-action UI tests use
-fixtures and do not prove backend execution exists.
+The evidence adapter reports failed, ambiguous and missing-date sources explicitly.
+Historical login coverage requires an authorised documented review rather than
+assuming complete past capture. Tests of future archive/disposal UI use fixtures
+and do not prove backend execution exists.
 CPD evidence now reads the complete effective ledger, but awards without reliable
 occurrence dates still hold for review. These multi-request reads are preview-only,
 not transactional authority to execute a lifecycle transition.
@@ -89,6 +100,8 @@ Preview rows currently scan directly tenant-owned member records. Legacy
 organisation-derived tenant ownership must be resolved before complete population
 coverage can be claimed. A complete paginated preparation preview is not a
 transactionally frozen population snapshot and cannot be approved for execution.
+Review detail and decisions resolve both direct and organisation-derived tenant
+ownership; this does not yet correct the preview population scan.
 
 The UI is not automatically inserted into tenant menus. The page and RBAC
 hierarchy are registered, but existing live roles and navigation are untouched.

@@ -15,8 +15,9 @@ export default function MemberLifecycle() {
   const [selectedId, setSelectedId] = useState(null);
   const [dirtyRevision, setDirtyRevision] = useState(null);
   const data = config.data;
+  const reviewReady = data?.reviewReady === true || data?.executionReady === true;
   const dirty = !!data && dirtyRevision === data.revision;
-  const select = memberId => { if (data?.executionReady !== true) return; setSelectedId(memberId); void lifecycle.loadDetail(memberId); };
+  const select = memberId => { if (!reviewReady) return; setSelectedId(memberId); void lifecycle.loadDetail(memberId); };
   const close = () => { if (!pending) { setSelectedId(null); void lifecycle.loadDetail(null); } };
   const save = policy => lifecycle.mutate("save", { policy, expectedRevision: data.revision }, "PUT");
   const approve = () => {
@@ -53,10 +54,11 @@ export default function MemberLifecycle() {
         <ImpactPreview config={data} preview={preview} pending={pending || (config.loading ? "reload" : null)} dirty={dirty} onPreview={lifecycle.runPreview} onApprove={approve} onPause={() => lifecycle.mutate("pause", { action: "pause" })} onSelect={select} />
       </div>
       <Panel step="03 / Decide" title="Archive review" description="Inspect evidence, dates, obligations and audit history for each member. Retain creates a durable hold; extensions set a future review date.">
-        {!data.executionReady && <div className="ml-panel-body"><Notice tone="warning" title="Preparation only — member review is unavailable">This release supports policy preparation and read-only impact previews only. Review queues, member evidence and all record decisions are unavailable. No review or detail request is made while execution is not ready. This work does not enable lifecycle processing.</Notice></div>}
-        {data.executionReady && review.loading && !review.data && <Loading />}
-        {data.executionReady && review.error && <ErrorRetry message={review.error} onRetry={() => lifecycle.loadReview()} disabled={!!pending || review.loading} />}
-        {data.executionReady && review.data && <>
+        {!reviewReady && <div className="ml-panel-body"><Notice tone="warning" title="Member review is unavailable">The server has not confirmed review readiness. No member decisions are available.</Notice></div>}
+        {reviewReady && !data.executionReady && <div className="ml-panel-body"><Notice>Non-destructive decisions are available: retain, extend and exempt. Automatic transitions and disposal remain blocked.</Notice></div>}
+        {reviewReady && review.loading && !review.data && <Loading />}
+        {reviewReady && review.error && <ErrorRetry message={review.error} onRetry={() => lifecycle.loadReview()} disabled={!!pending || review.loading} />}
+        {reviewReady && review.data && <>
           {review.data.items.length > 0
             ? <RecordTable items={review.data.items} onSelect={select} disabled={!!pending || review.loading || config.loading} />
             : <div className="ml-empty"><h3 className="font-semibold">No records on this review page</h3><p className="ml-muted mx-auto mt-2 max-w-xl text-sm">The server returned no review items for this page. This is not an impact preview or evidence that all member records are eligible, retained or reviewed.</p></div>}
@@ -66,7 +68,7 @@ export default function MemberLifecycle() {
           </div>
         </>}
       </Panel>
-      {selectedId && data.executionReady && <MemberReviewDialog key={selectedId} memberId={selectedId} resource={detail} permissions={data.permissions} executionReady={data.executionReady}
+      {selectedId && reviewReady && <MemberReviewDialog key={selectedId} memberId={selectedId} resource={detail} permissions={data.permissions} executionReady={data.executionReady} reviewReady={reviewReady}
         pending={pending || (config.loading ? "reload" : null)} feedback={feedback} timezone={data.policy.timezone} onClose={close} onRetry={() => lifecycle.loadDetail(selectedId)} onAction={lifecycle.mutate} />}
     </>}
   </main>;

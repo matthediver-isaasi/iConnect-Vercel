@@ -248,9 +248,10 @@ export async function evaluateMemberOrganisationLoginAccess({
   if (!member && memberId) {
     let { data, error } = await supabase
       .from('member')
-      .select(checkMembershipCancellation
-        ? 'id, tenant_id, organization_id, membership_cancelled'
-        : 'id, tenant_id, organization_id')
+      // Internal-only lookup. Selecting the row is schema-compatible before
+      // lifecycle installation and cannot silently omit an installed archive
+      // flag. No member profile is returned in the access decision.
+      .select(checkMembershipCancellation ? '*' : 'id, tenant_id, organization_id')
       .eq('id', memberId)
       .maybeSingle();
     if (checkMembershipCancellation && ['42703', 'PGRST204'].includes(error?.code)) {
@@ -271,6 +272,11 @@ export async function evaluateMemberOrganisationLoginAccess({
   }
   if (!member) {
     return { blocked: true, causes: ['member_unresolved'], message: DEFAULT_GATE_BLOCKED_MESSAGE };
+  }
+  if (checkMembershipCancellation && ['archived', 'minimised', 'deleted'].includes(member.lifecycle_state)) {
+    return { blocked: true, causes: ['member_archived'],
+      message: 'This member account is archived. Please contact your administrator.',
+      tenantId: member.tenant_id || tenantId || null };
   }
   if (checkMembershipCancellation && member.membership_cancelled === true) {
     return {
@@ -303,6 +309,7 @@ export async function evaluateMemberOrganisationLoginAccess({
       manualBlocked: false,
       gateBlocked: false,
       tenantId: null,
+      lifecycleGeneration: checkMembershipCancellation ? Number(member.lifecycle_generation || 0) : 0,
     };
   }
   const result = await evaluateEffectiveOrganisationLoginAccess({
@@ -315,6 +322,7 @@ export async function evaluateMemberOrganisationLoginAccess({
     tenantId: effectiveTenantId,
     organizationId: member.organization_id || null,
     organizationGeneration: Number(result.organizationGeneration || 0),
+    lifecycleGeneration: checkMembershipCancellation ? Number(member.lifecycle_generation || 0) : 0,
   };
 }
 
