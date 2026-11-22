@@ -308,6 +308,7 @@ import TeamSettings from "./TeamSettings";
 const PreferenceSettings = lazy(() => import("./PreferenceSettings"));
 
 const CustomFieldsAdmin = lazy(() => import("./CustomFieldsAdmin"));
+const MemberLifecycle = lazy(() => import("./MemberLifecycle"));
 const CustomObjectsAdmin = lazy(() => import("./CustomObjectsAdmin"));
 const CustomObjectDetail = lazy(() => import("./CustomObjectsAdmin").then(module => ({ default: module.CustomObjectDetail })));
 const CustomObjectRecordDetail = lazy(() => import("./CustomObjectRecords").then(module => ({ default: module.CustomObjectRecordDetail })));
@@ -818,6 +819,7 @@ const PAGES = {
     PreferenceSettings: PreferenceSettings,
     
     CustomFieldsAdmin: CustomFieldsAdmin,
+    MemberLifecycle: MemberLifecycle,
     CustomObjectsAdmin: CustomObjectsAdmin,
     
     ZoomWebinarProvisioning: ZoomWebinarProvisioning,
@@ -1409,6 +1411,7 @@ function PagesContent() {
                 <Route path="/PreferenceSettings" element={<PreferenceSettings />} />
                 
                 <Route path="/CustomFieldsAdmin" element={<CustomFieldsAdmin />} />
+                <Route path="/MemberLifecycle" element={<MemberLifecycle />} />
                 <Route path="/CustomObjectsAdmin" element={<CustomObjectsAdmin />} />
                 <Route path="/CustomObjectsAdmin/:objectId" element={<CustomObjectDetail />} />
                 <Route path="/CustomObjectsAdmin/:objectId/records" element={<CustomObjectRecordList />} />

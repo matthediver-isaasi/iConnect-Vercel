@@ -887,6 +887,18 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "crm.members.password_reset", label: "Generate Password Reset Link" },
           { id: "crm.members.masquerade", label: "Masquerade as Member" }
         ]
+      },
+      {
+        id: "crm.member-lifecycle",
+        label: "Member Lifecycle / Auto Archive",
+        features: [
+          { id: "crm.member-lifecycle.view", label: "View Archive Review" },
+          { id: "crm.member-lifecycle.configure", label: "Configure Automation" },
+          { id: "crm.member-lifecycle.review", label: "Manage Review Decisions" },
+          { id: "crm.member-lifecycle.archive", label: "Archive and Restore" },
+          { id: "crm.member-lifecycle.minimise", label: "Minimise Personal Data" },
+          { id: "crm.member-lifecycle.delete", label: "Permanently Delete" }
+        ]
       }
     ]
   },
@@ -1382,6 +1394,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MembershipSettings": "commerce.membership-settings",
   "page_TrainingFundManagement": "commerce.training-fund-management",
   "page_MembersList": "crm.members",
+  "page_MemberLifecycle": "crm.member-lifecycle",
+  "page_admin_MemberLifecycle": "crm.member-lifecycle",
   "page_OrganisationsList": "crm.organisations",
   "page_BorderRadiusSettings": "site-builder.border-radius",
   "page_TeamSettings": "system.team-settings",
