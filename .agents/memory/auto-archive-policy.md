@@ -32,3 +32,9 @@ BNMS qualifying retention activity includes recorded event attendance, earned CP
 **Why:** The owner explicitly selected all three activity types, including portal logins, when clarifying the retention policy.
 
 **How to apply:** Use actual activity dates rather than entry/import dates; administrator edits do not reset retention. Do not apply the earlier recommendation to exclude portal logins. This selection does not resolve missing-history handling or authorise archived-account logins.
+
+Uncertain historical membership or missing reliable activity dates must hold the record for administrator review rather than trigger an assumed lifecycle transition.
+
+**Why:** The owner explicitly selected “Hold for review” for uncertain history.
+
+**How to apply:** Leave the record unchanged by automatic lifecycle processing while uncertainty remains. Do not infer “never a member” from missing membership rows or infer inactivity from missing dates. This is an evidence-review hold, not approval for deletion.
