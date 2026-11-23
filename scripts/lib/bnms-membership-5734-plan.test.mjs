@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPlan, MEMBER, TENANT, ORIGINAL, TARGET, INVOICE, CONFIG, RELATED } from './bnms-membership-5734-plan.mjs';
 
-function fixture() {
+export function fixture() {
   const contact = { ContactID: 'b4a06c94-80d4-4745-807d-642656f268f5', AccountNumber: '56480412', EmailAddress: 'fixture@example.invalid' };
   const payment = { PaymentID: '523f9830-d836-462b-bb6c-e1da7ec1747a', Invoice: { InvoiceID: INVOICE },
     Status: 'AUTHORISED', Amount: 156, Date: '/Date(1788652800000+0000)/' };

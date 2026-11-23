@@ -26,6 +26,29 @@ const { setActiveTenantId } = await import("../api/base44Client.js");
 // Optional private receipt: verifies real repaired rows without committing member data.
 const repairReceipt = 'generated-artifacts/bnms-invoice-date-repair/priced-verify.json';
 const singleRepairReceipt = 'generated-artifacts/bnms-membership-5734/verification.json';
+const olderRepairReceipt = 'generated-artifacts/bnms-membership-5737/handlers-after.json';
+test('recovered older annual term renders alongside unchanged current term with both invoice links',
+  { skip: !existsSync(olderRepairReceipt) }, async () => {
+    const { payload } = JSON.parse(readFileSync(olderRepairReceipt, 'utf8'));
+    await mounted({ dataOverrides: payload }, (container, calls) => {
+      for (const [id, start, end, invoice] of [
+        ['36d03663-c9e3-5cad-a630-53f0a4776f9f', '6 October 2025', '5 October 2026', '300004583'],
+        ['586d4e57-598b-4dd2-ab9f-120f0be539a3', '6 October 2026', '5 October 2027', '300005516'],
+      ]) {
+        const row = container.querySelector(`[data-testid="row-member-history-${id}"]`);
+        assert.ok(row);
+        assert.ok(row.textContent.includes(start));
+        assert.ok(row.textContent.includes(end));
+        assert.match(row.textContent, /2026-2027 Overseas full member/);
+        assert.match(row.textContent, /£156\.00/);
+        assert.match(row.textContent, /12 months/);
+        assert.match(row.textContent, /Paid/);
+        assert.doesNotMatch(row.textContent, /Structure unknown|Uncommitted/);
+        assert.equal(row.querySelector(`[data-testid="button-view-invoice-${id}"]`).title, `View invoice ${invoice}`);
+      }
+      assert.deepEqual(calls, []);
+    });
+  });
 test('approved single-member invoice term renders actual API evidence without replacing the older history',
   { skip: !existsSync(singleRepairReceipt) }, async () => {
     const { payload } = JSON.parse(readFileSync(singleRepairReceipt, 'utf8'));
