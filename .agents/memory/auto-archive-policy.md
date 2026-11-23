@@ -63,8 +63,8 @@ Lifecycle evidence versions alone are not enough to authorise a destructive writ
 
 **How to apply:** Preserve the shared concurrency boundary when improving throughput. Busy sources must cause a retry, not an unlocked fallback. Do not claim historical login coverage merely because the schema is installed; all serving login producers must be deployed and historical gaps reviewed.
 
-The latest purchased membership cycle governs former-member retention, even if an older lifecycle state still says guest.
+The latest purchased membership cycle governs former-member retention, even if an older lifecycle state still says former, guest, archived or minimised.
 
 **Why:** Renewing a previously downgraded guest must not let an old inactivity clock bypass the new term's grace and retention period. Similarly, a confirmed past booking or a queued invoice is not settlement evidence.
 
-**How to apply:** Reconcile classification against current roles and latest entitlement dates before inactivity rules. Require payment/refund evidence for chargeable booking history; hold when that evidence is absent rather than treating an old event as financially complete.
+**How to apply:** Reconcile classification against current roles and latest entitlement dates before inactivity rules. A restored paid role must be reconsidered after expiry even when state already says former. Old archive dates cannot shorten latest-term retention or authorize disposal previews. Require payment/refund evidence for chargeable booking history; hold when that evidence is absent rather than treating an old event as financially complete.

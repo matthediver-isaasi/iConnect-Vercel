@@ -129,12 +129,22 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
   if (!['former', 'never'].includes(evidence.membership.historyKind)) return hold('membership_history_unknown');
 
   const historyKind = evidence.membership.historyKind;
+  let graceEnd;
+  if (historyKind === 'former') {
+    try {
+      graceEnd = lifecycleDay(evidence.membership.graceEndDate, policy.timezone);
+      if (today <= graceEnd) return result('none', 'within_membership_grace');
+    } catch { return hold('membership_grace_unknown'); }
+  }
   if (member.lifecycle_state === 'archived' || member.lifecycle_state === 'minimised') {
     if (historyKind !== 'former') return hold('archived_guest_retention_requires_review');
     try {
       const archivedOn = lifecycleDay(member.lifecycle_archived_at, policy.timezone);
       if (archivedOn > today) return hold('invalid_archive_date');
-      const eligibleOn = lifecycleAnniversary(archivedOn, policy.archiveReviewYears);
+      const archiveEligibleOn = lifecycleAnniversary(archivedOn, policy.archiveReviewYears);
+      const formerEligibleOn = lifecycleAnniversary(graceEnd, policy.formerRetentionYears);
+      const eligibleOn = [archiveEligibleOn, formerEligibleOn].sort().at(-1);
+      if (today < formerEligibleOn) return result('none', 'former_retention_running', { eligibleOn });
       return today >= eligibleOn
         ? result('deletion_review', 'archive_retention_elapsed', { eligibleOn })
         : result('none', 'archive_retention_running', { eligibleOn });
@@ -149,13 +159,6 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
     || policy.guestRoleIds.includes(member.role_id) || policy.eventOnlyRoleIds.includes(member.role_id);
   // Historical role labels alone cannot establish membership provenance.
   if (historyKind === 'never' && !guest) return hold('guest_classification_required');
-  let graceEnd;
-  if (historyKind === 'former') {
-    try {
-      graceEnd = lifecycleDay(evidence.membership.graceEndDate, policy.timezone);
-      if (today <= graceEnd) return result('none', 'within_membership_grace');
-    } catch { return hold('membership_grace_unknown'); }
-  }
   function transition(action, reason, targetRoleId, details = {}) {
     if (!Array.isArray(roles) || !targetRoleId) return hold('destination_role_unavailable');
     const target = roles.find(role => role.id === targetRoleId && role.tenant_id === tenantId);
@@ -175,7 +178,8 @@ export function evaluateMemberLifecycle({ policy: input, tenantId, member, evide
     } catch { return hold('invalid_activity_date', { source: type }); }
   }
   if (!occurrenceDays.length) return hold('last_activity_unknown');
-  if (!guest && historyKind === 'former' && member.lifecycle_state !== 'former') {
+  if (!guest && historyKind === 'former'
+    && (member.lifecycle_state !== 'former' || member.role_id !== policy.formerRoleId)) {
     return transition('former', 'membership_grace_elapsed', policy.formerRoleId, { eligibleOn: graceEnd });
   }
   const lastActivityOn = occurrenceDays.sort().at(-1);

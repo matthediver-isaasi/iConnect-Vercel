@@ -55,6 +55,7 @@
 - [Admin membership waivers](admin-membership-waiver-policy.md) — No charge applies only to the purchased period; preserve normal future pricing and explicit historical evidence.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Auto Archive policy](auto-archive-policy.md) — tenant-configurable lifecycle rules must reuse existing RBAC; permanent deletion remains manual and administrator-approved.
+- [Merge migration boundary](merge-migration-boundary.md) — routine merge setup must not replay historical live migrations; installation and approval remain separate.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.

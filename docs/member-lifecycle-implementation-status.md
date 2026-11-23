@@ -47,7 +47,10 @@ it does not approve a preview or enable any tenant.
   failed evidence reads, unknown dates, exemptions and holds protect records.
   Confirmed past bookings still require charge/settlement evidence; queued
   invoices are not treated as paid. Missing legacy financial evidence holds for
-  review. A renewed former guest receives the latest term's retention boundary.
+  review. Renewed members receive the latest term's retention boundary even if
+  their old lifecycle state says former, guest, archived or minimised. Restored
+  paid roles are reconciled after expiry; old archive dates cannot authorise
+  early disposal.
 - Qualifying activity uses actual attendance, effective earned CPD and genuine
   member logins. Imports, admin edits, refresh, masquerade and team sessions are
   not substituted for member activity. Event-only roles use attendance alone.

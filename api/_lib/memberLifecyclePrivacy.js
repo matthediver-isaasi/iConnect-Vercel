@@ -10,6 +10,12 @@ export async function previewLifecyclePrivacy(db, { tenantId, actor, saved, body
   const detail = await (deps.detail || lifecycleStableDetail)(db,tenantId,body.memberId,saved.policy,deps);
   if (detail.revision!==body.expectedRevision) fail('Member changed; reload');
   if (detail.blockers.length) fail('Resolve evidence, financial and retention blockers first');
+  // Minimisation is separately reviewed after archive; it need not wait for
+  // archive-to-deletion retention, but cannot bypass a renewed membership term.
+  if (detail.proposal.action !== 'deletion_review'
+    && !(action === 'minimise' && detail.proposal.reason === 'archive_retention_running')) {
+    fail('The record has not reached disposal review eligibility');
+  }
   if (action==='minimise' && detail.state!=='archived') fail('Only an intact archived member can be minimised');
   if (action==='delete' && detail.proposal.action!=='deletion_review') fail('The record is not eligible for deletion review');
   const {data:fields,error} = await db.rpc('member_lifecycle_privacy_fields',{p_tenant_id:tenantId,p_member_id:body.memberId});

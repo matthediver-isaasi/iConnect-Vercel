@@ -19,6 +19,37 @@ function fixture() {
   };
 }
 const evaluate = configure => { const input = fixture(); configure?.(input); return evaluateMemberLifecycle(input); };
+test('renewal restoring a paid role is reconciled after expiry despite an old former state', () => {
+  const input = fixture();
+  input.member.role_id = '33333333-3333-4333-8333-333333333333';
+  input.evidence.membership.active = true;
+  assert.equal(evaluateMemberLifecycle(input).reason, 'membership_protected');
+  input.evidence.membership.active = false;
+  input.evidence.membership.graceEndDate = '2025-11-22';
+  const proposal = evaluateMemberLifecycle(input);
+  assert.equal(proposal.action, 'former');
+  assert.equal(proposal.targetRoleId, formerRole);
+  input.member.role_id = formerRole;
+  assert.equal(evaluateMemberLifecycle(input).reason, 'former_retention_running');
+});
+test('old archive dates cannot bypass a renewed term retention boundary', () => {
+  for (const state of ['archived', 'minimised']) {
+    const input = fixture();
+    input.member.lifecycle_state = state;
+    input.member.lifecycle_archived_at = '2020-01-01';
+    input.evidence.membership.graceEndDate = '2025-11-22';
+    input.evidence.membership.active = true;
+    assert.equal(evaluateMemberLifecycle(input).reason, 'membership_protected');
+    input.evidence.membership.active = false;
+    assert.deepEqual(evaluateMemberLifecycle(input), {
+      action: 'none', reason: 'former_retention_running', eligibleOn: '2030-11-22',
+    });
+    input.now = '2030-11-22';
+    assert.equal(evaluateMemberLifecycle(input).action, 'deletion_review');
+    delete input.evidence.membership.graceEndDate;
+    assert.equal(evaluateMemberLifecycle(input).reason, 'membership_grace_unknown');
+  }
+});
 test('renewed former guests receive the latest term retention window even with old activity',()=>{
   for(const role_id of [formerRole,guestRole]){
     const result=evaluate(input=>{
