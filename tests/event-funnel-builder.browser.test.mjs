@@ -113,3 +113,35 @@ test('node layout remains separate from routing when dragged', async () => {
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+test('auto layout preserves routing, saves positions and allows subsequent manual dragging', async () => {
+  const { page, errors } = await open();
+  try {
+    await page.getByTestId('funnel-auto-layout').click();
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    const saved = await page.evaluate(() => window.saved[0]);
+    assert.equal(saved.graph.nodes[0].accept, 'branch');
+    assert.equal(saved.graph.nodes.some(node => 'position' in node), false);
+    assert.equal(Object.keys(saved.layout.positions).length, saved.graph.nodes.length);
+    assert.ok(saved.layout.positions.source.y < saved.layout.positions.branch.y);
+    // The fitted graph remains manually draggable after automatic arrangement.
+    const source = page.getByTestId('funnel-node-source');
+    await page.waitForTimeout(300); // fitView animation
+    const box = await source.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 30);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 80, box.y + 65, { steps: 8 });
+    await page.mouse.up();
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 2);
+    const moved = await page.evaluate(() => window.saved[1]);
+    assert.deepEqual(moved.graph, saved.graph);
+    assert.notDeepEqual(moved.layout.positions.source, saved.layout.positions.source);
+    page.on('dialog', dialog => dialog.accept());
+    await page.getByTestId('funnel-new').click();
+    await page.getByTestId('funnel-definition-choice').selectOption('fixture');
+    await page.getByTestId('funnel-node-source').waitFor();
+    assert.equal(await page.getByTestId('funnel-save').isDisabled(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

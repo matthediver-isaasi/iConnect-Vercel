@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType } from '@xyflow/react';
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
 import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue } from './eventFunnelBuilderModel.mjs';
 import '@xyflow/react/dist/style.css';
 import './EventFunnelBuilder.css';
+import { autoLayoutFunnel } from './eventFunnelLayout.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const typeNames = { source: 'Source event', event: 'Further event', addon: 'Event add-on', condition: 'Condition', checkout: 'Checkout' };
@@ -178,6 +179,13 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
   const requestGeneration = useRef(0);
   const operationLock = useRef(false);
   const flowRef = useRef(null);
+  const fitAfterLayout = useRef(false);
+  useEffect(() => {
+    if (!fitAfterLayout.current) return;
+    fitAfterLayout.current = false;
+    const frame = requestAnimationFrame(() => flowRef.current?.fitView({ padding: .25, duration: 200 }));
+    return () => cancelAnimationFrame(frame);
+  }, [draft?.layout]);
   const locked = busy || !!operation;
   const blocked = locked || !!unavailable;
   const availableDefinitions = [...localDefinitions, ...definitions.filter(item => !localDefinitions.some(local => local.id === item.id))];
@@ -306,6 +314,18 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
     finally { setOperation(null); operationLock.current = false; }
   }
 
+  function arrange() {
+    if (locked || !draft || !graphNodes.length) return;
+    try {
+      const positions = autoLayoutFunnel(graph, flowRef.current?.getNodes() || []);
+      fitAfterLayout.current = true;
+      setDraft(current => ({ ...current, layout: { ...current.layout, positions } }));
+      setMessage({ kind: 'success', text: 'Layout arranged. You can still drag steps to adjust them. Save the draft to keep this layout.' });
+    } catch {
+      setMessage({ kind: 'error', text: 'Could not arrange this funnel. Your existing layout and edits are unchanged.' });
+    }
+  }
+
   const connections = graphConnections(graph);
   const flowNodes = graphNodes.map((node, index) => ({
     id: node.id, type: 'funnel', selected: selectedId === node.id,
@@ -356,6 +376,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
        {problems.length > 0 ? <div className="efb-notice" data-testid="funnel-validation" role="status"><strong>Finish these details before saving or publishing</strong><ul style={{ paddingLeft: 18, marginTop: 5 }}>{problems.map(problem => <li key={problem}>{problem}</li>)}</ul></div> : <div className="efb-notice efb-success" data-testid="funnel-validation"><span className="efb-row"><CheckCircle2 size={15} />Funnel steps and event selections look good. We’ll check them again when you save or publish.</span></div>}
        <div className="efb-toolbar"><span className="efb-muted">Add after selected step</span>
         {['event', 'addon', 'condition'].map(type => <Button type="button" variant="outline" size="sm" key={type} disabled={locked || graphNodes.length >= 100} data-testid={`funnel-add-${type}`} onClick={() => addNode(type)}><Plus />{typeNames[type]}</Button>)}
+        <Button type="button" variant="outline" size="sm" data-testid="funnel-auto-layout" disabled={locked || !graphNodes.length} onClick={arrange} title="Arrange steps from top to bottom without changing the funnel">Auto layout</Button>
          <span className="efb-muted">Drag steps to arrange; connect their labelled choices. Paths can rejoin.</span>
       </div>
       <div className="efb-grid">
