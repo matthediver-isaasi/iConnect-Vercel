@@ -128,10 +128,23 @@ migrations inspect or replace existing routines. Missing dependencies or changed
 function definitions must stop application, not be patched around blindly.
 
 **Version collision warning:** Prefixes such as `202701230001` and
-`202701230003` are also used by unrelated files. Before using migration-history
-tooling, assign collision-free versions to this unapplied batch, update its test
-references and manifest, and rehearse that exact revised chain. Do not rename
-already-applied historical migrations or run a generic database push.
+`202701230003` are also used by unrelated files. Do not push the source
+directory or rename already-applied historical migrations.
+
+The offline packager now assigns deployment versions `20270123120001` through
+`20270123120045`, preserving the original dependency order and every SQL byte:
+
+```sh
+node scripts/package-event-funnel-migrations.mjs /tmp/funnel-release
+```
+
+The destination must not already exist. Its `manifest.json` records source
+names, deployment names, versions and SHA-256 hashes. This resolves source-name
+collisions in the generated package only. Before application, check those
+deployment versions against actual target migration history, rehearse this
+exact package against the full baseline, and retain its receipt. The original
+readiness report intentionally remains blocked on source collisions; packaging
+is not activation approval or evidence that recovery has been verified.
 
 | Reference | Purpose |
 |---|---|

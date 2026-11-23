@@ -20,6 +20,22 @@ export async function inspectManifest(directory = new URL('../supabase/migration
   return entries;
 }
 
+// Keep source names stable for existing fixtures and references. A deployment
+// package uses distinct 14-digit versions; never push the source directory.
+export function deploymentManifest(entries) {
+  const versions = new Set();
+  return entries.map(entry => {
+    const match = /^20270123(\d{4})_(event_funnel_.+)\.sql$/.exec(entry.file);
+    if (!match || Number(match[1]) < 1 || Number(match[1]) > 45) {
+      throw new Error(`Unreviewed funnel migration source: ${entry.file}`);
+    }
+    const deploymentVersion = `2027012312${match[1]}`;
+    if (versions.has(deploymentVersion)) throw new Error('Duplicate funnel deployment version');
+    versions.add(deploymentVersion);
+    return { ...entry, deploymentVersion, deploymentFile: `${deploymentVersion}_${match[2]}.sql` };
+  });
+}
+
 export function evaluateRecoveryEvidence(entries, evidence = {}) {
   const blockers = [];
   const requireEvidence = (ok, label) => { if (!ok) blockers.push(label); };
