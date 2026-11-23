@@ -29,7 +29,7 @@ test('pre-rollout cancellation-column compatibility does not swallow database fa
  const client={from(){
   let columns;const q={select(value){columns=value;return q},eq(){return q},
    async maybeSingle(){reads++;
-    if(columns.includes('membership_cancelled'))return {error:{code,message:'fixture'}};
+    if(columns === '*' || columns.includes('membership_cancelled'))return {error:{code,message:'fixture'}};
     return {data:{id:'member',tenant_id:null,organization_id:null}};
    }};
   return q;

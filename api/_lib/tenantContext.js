@@ -239,7 +239,7 @@ export function getEntityTenantScope(entity) {
  * @param {Request} req - Express/Vercel request object
  * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean, tenantFromHost: object|null}>}
  */
-export async function getTenantContext(req, { reuseSessionWithinPass = false } = {}) {
+export async function getTenantContext(req, { reuseSessionWithinPass = true } = {}) {
   // Try hostname-based tenant resolution for public access
   let tenantFromHost = null;
   try {
@@ -295,7 +295,7 @@ export async function getTenantContext(req, { reuseSessionWithinPass = false } =
 
   // Check for tenant_user session first (admin dashboard users)
   console.log('[TenantContext] About to call getSessionTenantUser');
-  // Carousel authority invokes this function afresh for each pass. Reuse only
+  // Every caller invokes this function afresh for each pass. Reuse only
   // the session already checked in THIS invocation, never across passes or requests.
   const tenantUser = reuseSessionWithinPass && rawSession !== undefined
     ? await getSessionTenantUser(req, rawSession)

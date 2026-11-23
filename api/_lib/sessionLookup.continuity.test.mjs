@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { boundedSessionLookup, sessionDatabase } from './sessionAvailability.js';
 
 // Load the actual helpers with an isolated database, without creating users,
 // sessions, provider requests, or changing the real database.
@@ -13,6 +14,8 @@ let paused = false;
 let revoked = false;
 let expired = false;
 let deletes = 0;
+let delayTable = null;
+const reads = [];
 const db = {
   from(table) {
     let deleting = false;
@@ -22,6 +25,8 @@ const db = {
       then(resolve, reject) { return this.maybeSingle().then(resolve, reject); },
       single() { return this.maybeSingle(); },
       async maybeSingle() {
+        reads.push(table);
+        if (table === delayTable) await new Promise(resolve => setTimeout(resolve, 50));
         if (deleting) { deletes++; return { data: null }; }
         if (failure === table) return { data: null, error: { message: 'fixture outage' } };
         if (table === 'session') return { data: absent ? null : {
@@ -36,7 +41,7 @@ const db = {
     return query;
   },
 };
-globalThis.__sessionContinuityDb = db;
+globalThis.__sessionContinuityDb = sessionDatabase(db);
 let source = await fs.readFile(new URL('./session.js', import.meta.url), 'utf8');
 source = source.replace("import { supabase } from './database.js';", 'const supabase = globalThis.__sessionContinuityDb;');
 source = source.replace(/from '([^']+)'/g, (_, path) => {
@@ -82,4 +87,21 @@ test('confirmed absence, expiry, disabled login, pause and revocation still reje
   revoked = true;
   assert.equal(await getSessionMember(req), null);
   assert.equal(deletes, 4);
+  revoked = false;
+});
+
+test('timed-out actual session helper does not continue into fences or delete a late absent session', async () => {
+  for (const table of ['session', 'member']) {
+    const beforeDeletes = deletes;
+    reads.length = 0;
+    delayTable = table;
+    await assert.rejects(boundedSessionLookup(() => getSessionMember(req), 10),
+      { code: 'SESSION_UNAVAILABLE' });
+    await new Promise(resolve => setTimeout(resolve, 70));
+    assert.equal(deletes, beforeDeletes);
+    assert.equal(reads.includes('member_login_session_revocation'), false);
+    if (table === 'session') assert.deepEqual(reads, ['session']);
+    delayTable = null;
+  }
+  assert.equal((await getSessionMember(req)).id, 'member-fixture');
 });

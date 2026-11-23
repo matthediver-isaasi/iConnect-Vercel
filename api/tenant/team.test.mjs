@@ -8,8 +8,13 @@ const sessionDependencies = `
   const SESSION_NOT_PROVIDED = Symbol('session-not-provided');
   ${SessionUnavailableError.toString()}
   ${sessionUnavailable.toString()}
-  ${boundedSessionLookup.toString()}
 `;
+// Inject the real closure-bearing helper rather than stringifying its body.
+function sessionFunction(...parameters) {
+  const body = parameters.pop();
+  const factory = new Function(...parameters, 'boundedSessionLookup', body);
+  return (...args) => factory(...args, boundedSessionLookup);
+}
 
 const source = fs.readFileSync(new URL('./team.js', import.meta.url), 'utf8')
   .replace(/^import .*;\n/gm, '')
@@ -282,7 +287,7 @@ test('linked team removal and inactivation revoke legacy admin fallback for fres
       await login({ method: 'POST', body: { email: portalIdentity.email, password: 'password', tenantId: 't1' }, headers: {} }, res);
       return res;
     };
-    const getTenantUser = new Function('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
+    const getTenantUser = sessionFunction('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
       `${sessionDependencies}${sessionFn}; return getSessionTenantUser;`)(db.sb,
       async () => ({ id: 'existing-admin-session', data: { identityId: 'i1', tenantUserId: 'legacy1', tenantId: 't1', userType: 'tenant_user' } }),
       async () => true, async () => null);
@@ -322,7 +327,7 @@ test('legacy revocation write failure leaves unified membership suspended, never
     const result = await request(db, 'DELETE', { membership_id: 'm1' });
     assert.equal(result.code, 500);
     assert.equal(db.tables.tenant_membership[0].status, 'inactive');
-    const getTenantUser = new Function('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
+    const getTenantUser = sessionFunction('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
       `${sessionDependencies}${fn}; return getSessionTenantUser;`)(db.sb,
       async () => ({ id: 'existing-admin-session', data: { identityId: 'i1', tenantUserId: 'legacy1', tenantId: 't1', userType: 'tenant_user' } }),
       async () => true, async () => null);
@@ -331,7 +336,7 @@ test('legacy revocation write failure leaves unified membership suspended, never
     } else {
       assert.equal(await getTenantUser({ headers: {} }), null, 'suspended membership fences active legacy session');
     }
-    const emailOnlySession = new Function('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
+    const emailOnlySession = sessionFunction('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
       `${sessionDependencies}${fn}; return getSessionTenantUser;`)(db.sb,
       async () => ({ id: 'old-email-only-session', data: { identityId: 'legacyEmail', tenantUserId: 'legacyEmail', tenantId: 't1', userType: 'tenant_user' } }),
       async () => true, async () => null);
@@ -342,7 +347,7 @@ test('legacy revocation write failure leaves unified membership suspended, never
     }
     const promoteSource = sessionSource.slice(sessionSource.indexOf('async function tryPromoteMemberToTenantUser'),
       sessionSource.indexOf('const SESSION_NOT_PROVIDED'));
-    const promote = new Function('supabase', 'updateSession', `${sessionDependencies}${promoteSource}; return tryPromoteMemberToTenantUser;`)(
+    const promote = sessionFunction('supabase', 'updateSession', `${sessionDependencies}${promoteSource}; return tryPromoteMemberToTenantUser;`)(
       db.sb, async () => { throw new Error('must not promote suspended team access'); });
     const attempt = () => promote({ id: 'portal-session', data: { identityId: 'i1', tenantId: 't1', memberId: 'portal1', userType: 'member' } }, {});
     if (failure === 'tenant_user:read') {
@@ -447,7 +452,7 @@ test('portal member resolver retains member linkage after promotion, and session
   const memberFn = sessionSource.slice(sessionSource.indexOf('export async function getSessionMember'),
     sessionSource.indexOf('export async function getSessionTenantUser'))
     .replace('export async function getSessionMember', 'async function getSessionMember');
-  const getMember = new Function('supabase', 'getSession',
+  const getMember = sessionFunction('supabase', 'getSession',
     `${sessionDependencies}${memberFn}; return getSessionMember;`)(db.sb, async () => null);
   const portalSessionMember = await getMember({ headers: {} },
     { id: 'portal-session', data: { memberId: 'portal1', identityId: 'i1', tenantId: 't1', userType: 'member' } });
@@ -455,7 +460,7 @@ test('portal member resolver retains member linkage after promotion, and session
   const fn = sessionSource.slice(sessionSource.indexOf('export async function getSessionTenantUser'),
     sessionSource.indexOf('/**\n * Invalidate all sessions', sessionSource.indexOf('export async function getSessionTenantUser')))
     .replace('export async function getSessionTenantUser', 'async function getSessionTenantUser');
-  const getTenantUser = new Function('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
+  const getTenantUser = sessionFunction('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
     `${sessionDependencies}${fn}; return getSessionTenantUser;`)(db.sb,
     async () => ({ id: 'session1', data: { identityId: 'i1', tenantUserId: 'i1', tenantId: 't1', userType: 'tenant_user' } }),
     async () => true, async () => null);
@@ -487,7 +492,7 @@ test('admin login accepts promoted roles with tenant-specific or shared hash, pr
       const sessionFn = sessionSource.slice(sessionSource.indexOf('export async function getSessionTenantUser'),
         sessionSource.indexOf('/**\n * Invalidate all sessions', sessionSource.indexOf('export async function getSessionTenantUser')))
         .replace('export async function getSessionTenantUser', 'async function getSessionTenantUser');
-      const getTenantUser = new Function('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
+      const getTenantUser = sessionFunction('supabase', 'getSession', 'updateSession', 'tryPromoteMemberToTenantUser',
         `${sessionDependencies}${sessionFn}; return getSessionTenantUser;`)(db.sb, async () => ({ id: 'session1', data: sessions[0] }), async () => true, async () => null);
       assert.equal((await getTenantUser({ headers: {} })).role, role);
     }

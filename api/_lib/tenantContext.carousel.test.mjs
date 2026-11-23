@@ -48,10 +48,16 @@ for (const admin of [false, true]) {
   });
 }
 
-test('other endpoints retain the historical session lookup behavior', async () => {
-  const f = fixture();
-  assert.equal((await f.resolve({ headers: {} })).isAuthenticated, true);
-  assert.equal(f.reads, 3);
+test('ordinary endpoints share verification within a pass but recheck the same request on the next pass', async () => {
+  for (const admin of [false, true]) {
+    const f = fixture({ admin });
+    const req = { headers: {} };
+    assert.equal((await f.resolve(req)).isAuthenticated, true);
+    assert.equal(f.reads, 1);
+    f.revoke();
+    assert.equal((await f.resolve(req)).isAuthenticated, false);
+    assert.equal(f.reads, 2);
+  }
 });
 
 test('a fresh session outage on a later pass fails closed', async () => {

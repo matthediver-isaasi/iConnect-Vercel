@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { sessionDatabase } from './sessionAvailability.js';
 
 // Establish the actual function runtime in hosting logs, not just the
 // configured major or build-container version. No credentials are logged.
@@ -41,5 +42,5 @@ export const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 export const databaseUrl = process.env.DATABASE_URL;
 
 export const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
+  ? sessionDatabase(createClient(supabaseUrl, supabaseServiceKey))
   : null;

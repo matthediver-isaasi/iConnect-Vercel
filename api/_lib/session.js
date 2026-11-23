@@ -22,7 +22,7 @@ function generation(value) {
  * a fence remain valid only while the corresponding generation is zero.
  */
 async function getMemberSessionAccessFence(sessionData) {
-  return boundedSessionLookup(() => readMemberSessionAccessFence(sessionData));
+  return boundedSessionLookup(() => readMemberSessionAccessFence(sessionData), 5000, 'member_access_fence');
 }
 
 async function readMemberSessionAccessFence(sessionData) {
@@ -137,7 +137,7 @@ export function isolateMasqueradeSession(data) {
 }
 
 export async function getSession(req) {
-  return boundedSessionLookup(() => readSession(req));
+  return boundedSessionLookup(() => readSession(req), 5000, 'session_lookup');
 }
 
 async function readSession(req) {
@@ -823,7 +823,7 @@ async function tryPromoteMemberToTenantUser(session, req) {
 const SESSION_NOT_PROVIDED = Symbol('session-not-provided');
 
 export async function getSessionMember(req, existingSession = SESSION_NOT_PROVIDED) {
-  return boundedSessionLookup(() => readSessionMember(req, existingSession));
+  return boundedSessionLookup(() => readSessionMember(req, existingSession), 5000, 'member_lookup');
 }
 
 async function readSessionMember(req, existingSession) {
@@ -914,7 +914,7 @@ async function readSessionMember(req, existingSession) {
 }
 
 export async function getSessionTenantUser(req, existingSession = SESSION_NOT_PROVIDED) {
-  return boundedSessionLookup(() => readSessionTenantUser(req, existingSession));
+  return boundedSessionLookup(() => readSessionTenantUser(req, existingSession), 5000, 'team_lookup');
 }
 
 async function readSessionTenantUser(req, existingSession) {

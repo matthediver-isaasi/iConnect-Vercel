@@ -151,6 +151,12 @@ Transient failures must preserve established view state, and failed mutations mu
 
 **How to apply:** Reject failed work without clearing identity on an infrastructure error. Only confirmed session-specific rejection clears authority; a feature denial does not. Always distinguish fixture verification from a confirmed production cause.
 
+Server session reuse is limited to one authorisation pass; deadlines must cancel work rather than merely stop waiting.
+
+**Why:** Deployed timeout stacks showed verification deadlines expiring across unrelated endpoints. Repeated checks and abandoned queries amplify load, but these findings alone do not prove the original source of latency.
+
+**How to apply:** Revalidate on each later pass, including repeated passes on the same request object. Share nested deadlines and propagate cancellation through database reads; prevent subsequent queries or promotion writes after expiry. Cancellation cannot guarantee rollback of a write already dispatched. Keep timeouts fail-closed without deleting sessions, and log only safe stage/timing metadata.
+
 Recovery request gates must not turn confirmed guests into permanently blocked viewers.
 
 **Why:** Public job and booking flows share the functions transport with member
