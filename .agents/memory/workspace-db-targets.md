@@ -7,7 +7,7 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 Vercel capacity3 Preview is intended to use the same live database as Production.
 
-**Why:** On 2026-11-23 the owner explicitly chose live database use after being warned that Preview actions can affect real bookings and member records.
+**Why:** On 2026-11-23 the owner explicitly chose live database use after being warned that Preview actions can affect real bookings and member records. They clarified this supports continued code changes and minor database updates during the Supabase cooldown; it is not a decision that future client acceptance testing must use live data. They are considering a separate iconnect-staging workflow, not yet authorising a configuration change.
 
 **How to apply:** Align the Preview database URL and matching service credential with the approved live target; preserve Production settings. Preview is not an isolated test environment. This decision does not authorise test writes, messages or payments.
 
