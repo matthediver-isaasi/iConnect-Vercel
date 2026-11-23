@@ -670,6 +670,8 @@ export const LEGACY_TO_NEW_MAPPING = {
   "page_admin_MemberDirectorySettings": "membership.member-directory-settings",
   "page_admin_DiscountCodeManagement": "events.discount-codes",
   "page_admin_EventSettings": "events.event-settings",
+  "page_admin_EventFunnels": "events.browse-events.create",
+  "page_EventFunnels": "events.browse-events.create",
   "page_admin_TicketSalesAnalytics": "events.ticket-analytics",
   "page_admin_PendingPurchaseOrdersReport": "events.pending-purchase-orders",
   "page_admin_AwardManagement": "membership.awards",

@@ -1,5 +1,7 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { funnelSimpleTickets } from '../../../../shared/eventFunnelCatalog.mjs';
+import { isFutureFunnelEvent, sortFunnelCatalog } from '../../../../shared/eventFunnelAuthoring.mjs';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
@@ -17,9 +19,9 @@ async function request(body) {
   if (!response.ok) throw new Error(result.error || 'Event funnels could not be loaded.');
   return result;
 }
-export default function EventFunnelSettings() {
+export default function EventFunnelSettings({ standalone = false }) {
   const { memberInfo, isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(standalone);
   const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
   const allowed = isAccessReady && isAdmin && !isFeatureExcluded('events.browse-events.create');
@@ -37,20 +39,24 @@ export default function EventFunnelSettings() {
       ]);
       if (![simple, complex, tickets].every(Array.isArray)) throw new Error('The event catalog could not be loaded completely.');
       const tenant = state.data.tenantId;
-      return [
+      return sortFunnelCatalog([
         ...simple.filter(event => event.tenant_id === tenant && !event.is_complex).map(event => ({
           id: event.id, kind: 'simple', title: event.title, status: event.event_state || event.status,
+          start_date: event.start_date, end_date: event.end_date, selectable: isFutureFunnelEvent(event),
           tickets: funnelSimpleTickets(event).map(ticket => ({ id: String(ticket.id), name: ticket.name })),
         })),
         ...complex.filter(event => event.tenant_id === tenant).map(event => ({
           id: event.id, kind: 'complex', title: event.title, status: event.status,
+          start_date: event.start_date, end_date: event.end_date, selectable: isFutureFunnelEvent(event),
           tickets: tickets.filter(ticket => ticket.complex_event_id === event.id && ticket.tenant_id === tenant)
             .map(ticket => ({ id: String(ticket.id), name: ticket.name })),
         })),
-      ];
+      ]);
     },
   });
-  if (!allowed) return null;
+  if (!isAccessReady) return <p role="status">Checking access…</p>;
+  if (!allowed) return <p role="alert">You do not have permission to manage event funnels.</p>;
+  if (!standalone) return <Link to="/EventFunnels">Open event funnels</Link>;
   const error = state.error || catalog.error;
   return <Card className="mb-8" data-testid="event-funnel-settings">
     <CardHeader><CardTitle className="flex items-center gap-2"><GitBranch className="h-5 w-5" />Event ticket sales funnels</CardTitle></CardHeader>

@@ -417,6 +417,12 @@ const adminNavigationItems = [
     featureId: "page_EventSettings"
   },
   {
+    title: "Event Funnels",
+    url: createPageUrl("EventFunnels"),
+    icon: Ticket,
+    featureId: "events.browse-events.create"
+  },
+  {
     title: "Sponsor Management",
     url: createPageUrl("SponsorManagement"),
     icon: Handshake,
@@ -1681,6 +1687,8 @@ useEffect(() => {
   
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
+  adminPages.push("EventFunnels");
+
   // Pages that should use the bare layout (no new header/footer)
   adminPages.push("NMCMembershipReport");
   adminPages.push("Awards");
@@ -1805,6 +1813,7 @@ useEffect(() => {
     'MemberDirectorySettings': 'page_admin_MemberDirectorySettings',
     'DiscountCodeManagement': 'page_admin_DiscountCodeManagement',
     'EventSettings': 'page_admin_EventSettings',
+    'EventFunnels': 'events.browse-events.create',
     'CancellationRequests': 'page_admin_CancellationRequests',
     'TicketSalesAnalytics': 'page_admin_TicketSalesAnalytics',
     'PendingPurchaseOrdersReport': 'page_admin_PendingPurchaseOrdersReport',

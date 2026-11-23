@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createFunnelDraft, draftFingerprint, graphConnections, graphIssues, nodeTitle, earlierPurchaseNodes,
+import { createFunnelDraft, draftFingerprint, graphConnections, graphIssues, nodeTitle, earlierPurchaseNodes, selectableEvents, describeFunnelIssue,
   purchaseVisibilityPatch, purchaseVisibilityIssues } from './eventFunnelBuilderModel.mjs';
 
 const catalog = [{ id: 'conference', kind: 'simple', title: 'Annual conference', tickets: [{ id: 'admission', name: 'Admission' }] }];
@@ -26,16 +26,18 @@ test('new drafts have independent IDs, revision zero and layout separate from gr
 test('catalog validation reports missing references without modifying the saved graph', () => {
   const draft = validDraft(), before = JSON.stringify(draft);
   assert.deepEqual(graphIssues(draft.graph, catalog, 'association'), []);
-  assert.ok(graphIssues(draft.graph, [], 'association').some(issue => issue.includes('reference is preserved')));
+  assert.ok(graphIssues(draft.graph, [], 'association').some(issue => issue.includes('selection is preserved')));
   assert.equal(JSON.stringify(draft), before);
-  assert.match(nodeTitle(draft.graph.nodes[0], []), /Missing event: conference/);
+  assert.equal(nodeTitle(draft.graph.nodes[0], []), 'Previously selected event unavailable');
+  assert.ok(graphIssues(draft.graph, [], 'association').every(issue => !issue.includes('conference')));
 });
 
 test('ticket references remain visible and cross-tenant drafts cannot save', () => {
   const draft = validDraft();
   draft.graph.nodes[0].ticketIds.push('removed-parking');
-  assert.ok(graphIssues(draft.graph, catalog, 'association').some(issue => issue.includes('removed-parking')));
-  assert.ok(graphIssues(draft.graph, catalog, 'other').some(issue => issue.includes('different tenant')));
+  assert.ok(graphIssues(draft.graph, catalog, 'association').some(issue => issue.includes('selection is preserved')));
+  assert.ok(graphIssues(draft.graph, catalog, 'association').every(issue => !issue.includes('removed-parking')));
+  assert.ok(graphIssues(draft.graph, catalog, 'other').some(issue => issue.includes('current organization')));
 });
 
 test('view connections reflect authoritative domain destinations and preserve missing targets', () => {
@@ -43,7 +45,7 @@ test('view connections reflect authoritative domain destinations and preserve mi
   draft.graph.nodes.push({ id: 'branch', type: 'condition', rules: [{ priority: 7, match: 'any', tests: [], to: 'missing-offer' }], fallback: draft.graph.nodes[1].id });
   const before = JSON.stringify(draft.graph);
   const connections = graphConnections(draft.graph);
-  assert.ok(connections.some(edge => edge.sourceHandle === 'rule-0' && edge.target === 'missing-offer' && edge.label.includes('7')));
+  assert.ok(connections.some(edge => edge.sourceHandle === 'rule-0' && edge.target === 'missing-offer' && edge.label.includes('Rule 1')));
   assert.ok(connections.some(edge => edge.sourceHandle === 'fallback'));
   assert.equal(JSON.stringify(draft.graph), before);
 });
@@ -81,4 +83,23 @@ test('same-checkout prerequisites follow connection order, not array order', () 
   assert.ok(purchaseVisibilityIssues({ ...nodes[1], requires: [] }, nodes).some(issue => issue.includes('earlier purchase')));
   assert.ok(purchaseVisibilityIssues({ ...nodes[1], requires: ['later'] }, nodes).length > 0);
   assert.ok(purchaseVisibilityIssues({ ...nodes[0], unlisted: 'yes' }, nodes).length > 0);
+});
+
+test('event choices are alphabetical, omit unavailable events, and retain existing event titles', () => {
+  const events = [
+    { id: 'old', kind: 'simple', title: 'Alumni dinner', selectable: false },
+    { id: 'z', kind: 'simple', title: 'Workshop' },
+    { id: 'a', kind: 'simple', title: 'Annual meeting' },
+  ];
+  assert.deepEqual(selectableEvents(events).map(event => event.title), ['Annual meeting', 'Workshop']);
+  assert.equal(nodeTitle({ type: 'source', event: { id: 'old', kind: 'simple' } }, events), 'Alumni dinner');
+});
+
+test('validation display replaces internal node and catalog references with human labels', () => {
+  const graph = { nodes: [{ id: 'opaque-node-key', type: 'source', event: { id: 'conference-key', kind: 'simple' } }] };
+  const eventCatalog = [{ id: 'conference-key', kind: 'simple', title: 'Annual conference' }];
+  const readable = describeFunnelIssue('opaque-node-key points to conference-key', graph, eventCatalog);
+  assert.equal(readable, 'Annual conference points to Annual conference');
+  assert.ok(!readable.includes('opaque-node-key'));
+  assert.ok(!readable.includes('conference-key'));
 });

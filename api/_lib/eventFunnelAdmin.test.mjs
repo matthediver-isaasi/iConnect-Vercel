@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEventFunnelAdminHandler, validateFunnelLayout } from './eventFunnelAdmin.js';
+import { createEventFunnelAdminHandler, validateFunnelLayout, validateFunnelReferences } from './eventFunnelAdmin.js';
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
 const eventId = '00000000-0000-4000-8000-000000000002';
@@ -28,7 +28,7 @@ function harness(overrides = {}) {
       for (const method of ['select', 'eq', 'order', 'limit']) chain[method] = (...args) => {
         calls.push([method, ...args]); return chain;
       };
-      chain.maybeSingle = async () => ({ data: { id: eventId, pricing_config: { ticket_classes: [{ id: 'standard' }] } } });
+      chain.maybeSingle = async () => ({ data: { id: eventId, start_date: '2099-01-01T12:00:00Z', pricing_config: { ticket_classes: [{ id: 'standard' }] } } });
       chain.then = resolve => resolve({ data: [] });
       return chain;
     },
@@ -45,6 +45,13 @@ function harness(overrides = {}) {
   return { invoke, calls, db };
 }
 const save = () => ({ action: 'save', id, name: 'Admissions', expectedRevision: 0, graph: graph(), layout: { positions: {} } });
+test('past, undated and completed future events fail before saving', async () => {
+  for (const event of [{start_date:'2000-01-01'}, {}, {start_date:'2099-01-01',status:'completed'}]) {
+    const query = {select(){return this;},eq(){return this;},async maybeSingle(){return {data:{id:eventId,...event}};}};
+    await assert.rejects(validateFunnelReferences({from:()=>query},tenantId,graph()),
+      /Choose a future event/);
+  }
+});
 test('saves tenant-scoped graphs with compare-and-swap revision and separate layout', async () => {
   const h = harness(), res = await h.invoke(save());
   assert.equal(res.code, 200);

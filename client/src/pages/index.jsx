@@ -87,6 +87,7 @@ import MyTickets from "./MyTickets";
 import WaitingList from "./WaitingList";
 
 const EventSettings = lazy(() => import("./EventSettings"));
+const EventFunnels = lazy(() => import("./EventFunnels"));
 
 import Bookings from "./Bookings";
 
@@ -600,6 +601,7 @@ const PAGES = {
     waitingList: WaitingList,
     
     EventSettings: EventSettings,
+    EventFunnels: EventFunnels,
     
     Bookings: Bookings,
     
@@ -1161,6 +1163,7 @@ function PagesContent() {
                 <Route path="/MyBookings" element={<MyBookings />} />
                 
                 <Route path="/EventSettings" element={<EventSettings />} />
+                <Route path="/EventFunnels" element={<EventFunnels />} />
                 
                 <Route path="/Bookings" element={<Bookings />} />
                 

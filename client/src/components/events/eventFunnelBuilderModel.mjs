@@ -5,9 +5,51 @@ export const eventKey = event => event ? JSON.stringify([event.kind, event.id]) 
 export const eventReference = (event, tenantId) => event
   ? { id: event.id, kind: event.kind, tenantId } : null;
 export const findEvent = (catalog, reference) => catalog.find(event => eventKey(event) === eventKey(reference));
-export const nodeTitle = (node, catalog) => !node ? 'Missing node'
-  : isPurchase(node) ? (findEvent(catalog, node.event)?.title || `Missing event: ${node.event?.id || 'choose an event'}`)
-    : node.type === 'condition' ? 'Selection condition' : node.type === 'checkout' ? 'Checkout' : `Unknown type: ${node.type}`;
+export const selectableEvents = catalog => catalog
+  .filter(event => event.selectable !== false)
+  .slice()
+  .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' }));
+export const nodeTitle = (node, catalog) => !node ? 'Unavailable destination'
+  : isPurchase(node) ? (findEvent(catalog, node.event)?.title || 'Previously selected event unavailable')
+    : node.type === 'condition' ? 'Selection condition' : node.type === 'checkout' ? 'Checkout' : 'Unsupported funnel step';
+
+export function describeFunnelIssue(issue, graph, catalog = []) {
+  let message = String(issue || 'Review this funnel step.');
+  const nodes = graph?.nodes || [];
+  for (const node of graph?.nodes || []) {
+    if (node.id) message = message.replaceAll(node.id, nodeTitle(node, catalog));
+    for (const requiredId of node.requires || []) {
+      if (!nodes.some(other => other.id === requiredId)) message = message.replaceAll(requiredId, 'an unavailable earlier offer');
+    }
+    for (const rule of node.rules || []) {
+      for (const test of rule.tests || []) {
+        if (test.event?.id && !findEvent(catalog, test.event)) message = message.replaceAll(test.event.id, 'an unavailable event');
+        if (test.ticketId && !findEvent(catalog, test.event)?.tickets?.some(ticket => ticket.id === test.ticketId)) {
+          message = message.replaceAll(test.ticketId, 'an unavailable ticket');
+        }
+      }
+    }
+    for (const ref of [node.accept, node.skip, node.fallback, ...(node.rules || []).map(rule => rule.to)]) {
+      if (ref && !nodes.some(other => other.id === ref)) message = message.replaceAll(ref, 'an unavailable destination');
+    }
+    for (const ticketId of node.ticketIds || []) {
+      const event = findEvent(catalog, node.event);
+      if (!event?.tickets?.some(ticket => ticket.id === ticketId)) message = message.replaceAll(ticketId, 'an unavailable ticket');
+    }
+    if (node.event?.id && !findEvent(catalog, node.event)) message = message.replaceAll(node.event.id, 'an unavailable event');
+  }
+  for (const event of catalog) {
+    if (event.id) message = message.replaceAll(event.id, event.title || 'event');
+    for (const ticket of event.tickets || []) {
+      if (ticket.id) message = message.replaceAll(ticket.id, ticket.name || 'ticket');
+    }
+  }
+  return message
+    .replace(/\b(?:event|ticket) \((?:not selected|missing)\)/gi, 'Choose an event or ticket')
+    .replace(/Unknown type: [^.;]+/g, 'Unsupported funnel step')
+    .replace(/node [\w-]+/gi, 'funnel step')
+    .replace(/\b[a-f0-9]{8}-[a-f0-9-]{20,}\b/gi, 'a saved funnel step');
+}
 
 export function createFunnelDraft(tenantId) {
   const source = crypto.randomUUID(), checkout = crypto.randomUUID();
@@ -54,15 +96,15 @@ export function purchaseVisibilityPatch(node, property, checked) {
 export function purchaseVisibilityIssues(node, nodes) {
   const issues = [];
   if (node.unlisted !== undefined && (node.type !== 'event' || typeof node.unlisted !== 'boolean')) {
-    issues.push(`${node.id}: unlisted must be a boolean on an optional event only.`);
+    issues.push('The unlisted setting is only available for optional events.');
   }
   if (node.funnelOnly !== undefined && (!['event', 'addon'].includes(node.type) || typeof node.funnelOnly !== 'boolean')) {
-    issues.push(`${node.id}: funnelOnly must be a boolean on an optional event or add-on only.`);
+    issues.push('The checkout-only setting is only available for optional events and add-ons.');
   }
   if (node.funnelOnly === true) {
     const earlier = new Set(earlierPurchaseNodes(nodes, node.id).map(other => other.id));
     if (!node.requires?.length || !node.requires.every(id => earlier.has(id))) {
-      issues.push(`${node.id}: checkout-only offers require at least one connected earlier purchase in this same checkout.`);
+      issues.push('Checkout-only offers need at least one connected earlier purchase in this checkout.');
     }
   }
   return issues;
@@ -70,17 +112,20 @@ export function purchaseVisibilityIssues(node, nodes) {
 
 export function graphIssues(graph, catalog, tenantId) {
   const issues = [];
-  try { validateFunnelGraph(graph); } catch (error) { issues.push(error.message); }
-  if (graph?.tenantId !== tenantId) issues.push('This definition belongs to a different tenant.');
+  try { validateFunnelGraph(graph); } catch (error) { issues.push(describeFunnelIssue(error.message, graph, catalog)); }
+  if (graph?.tenantId !== tenantId) issues.push('This funnel is not available to the current organization.');
   for (const node of graph?.nodes || []) {
     issues.push(...purchaseVisibilityIssues(node, graph.nodes));
     const references = isPurchase(node) ? [{ event: node.event, tickets: node.ticketIds || [] }]
       : (node.rules || []).flatMap(rule => (rule.tests || []).map(test => ({ event: test.event, tickets: test.ticketId ? [test.ticketId] : [] })));
     for (const reference of references) {
       const event = findEvent(catalog, reference.event);
-      if (!event) issues.push(`${node.id}: event ${reference.event?.id || '(not selected)'} is missing from the catalog. The reference is preserved.`);
-      else for (const id of reference.tickets) if (!(event.tickets || []).some(ticket => ticket.id === id)) {
-        issues.push(`${event.title}: ticket ${id} is missing from the catalog. The reference is preserved.`);
+      if (!event) issues.push(`${nodeTitle(node, catalog)}: a previously selected event is no longer available in the event list. Its saved selection is preserved.`);
+      else {
+        if (event.selectable === false) issues.push(`${event.title}: choose a future event that has not been completed or cancelled. Its saved selection is preserved.`);
+        for (const id of reference.tickets) if (!(event.tickets || []).some(ticket => ticket.id === id)) {
+          issues.push(`${event.title}: a previously selected ticket is no longer available. Its saved selection is preserved.`);
+        }
       }
     }
   }
@@ -91,7 +136,7 @@ export function graphIssues(graph, catalog, tenantId) {
 export function graphConnections(graph) {
   return (graph?.nodes || []).flatMap(node => {
     const routes = node.type === 'checkout' ? [] : node.type === 'condition'
-      ? [...(node.rules || []).map((rule, index) => [`rule-${index}`, rule.to, `Priority ${rule.priority} · ${rule.match}`]), ['fallback', node.fallback, 'Fallback']]
+      ? [...(node.rules || []).map((rule, index) => [`rule-${index}`, rule.to, `Rule ${index + 1} · ${rule.match === 'any' ? 'any answer matches' : 'all answers match'}`]), ['fallback', node.fallback, 'If no rule matches']]
       : node.type === 'source' ? [['accept', node.accept, 'Continue']]
         : [['accept', node.accept, 'Accept'], ['skip', node.skip, 'Skip']];
     return routes.map(([handle, target, label]) => ({ source: node.id, target, sourceHandle: handle, label }));

@@ -1,5 +1,6 @@
 import { validateFunnelGraph, evaluateFunnelRoute, FunnelGraphError } from '../../shared/eventFunnelGraph.mjs';
 import { funnelSimpleTickets } from '../../shared/eventFunnelCatalog.mjs';
+import { isFutureFunnelEvent } from '../../shared/eventFunnelAuthoring.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -29,13 +30,20 @@ export async function validateFunnelReferences(db, tenantId, graph) {
   validateFunnelGraph(graph);
   if (graph.tenantId !== tenantId) fail('Invalid tenant scope.', 403);
   const references = new Map();
-  for (const node of graph.nodes.filter(node => node.event)) {
+  const selections = graph.nodes.flatMap(node => [
+    ...(node.event ? [node] : []),
+    ...(node.rules || []).flatMap(rule => (rule.tests || []).map(test => ({
+      event: test.event, ticketIds: test.ticketId ? [test.ticketId] : [],
+    }))),
+  ]);
+  for (const node of selections) {
     if (!UUID.test(node.event.id)) fail('Invalid event reference.');
     const reference = `${node.event.kind}:${node.event.id}`;
     if (!references.has(reference)) {
       const event = check(await db.from(node.event.kind === 'simple' ? 'event' : 'complex_event')
         .select('*').eq('tenant_id', tenantId).eq('id', node.event.id).maybeSingle());
       if (!event) fail('An event is no longer available.', 404);
+      if (!isFutureFunnelEvent(event)) fail('Choose a future event that has not been completed or cancelled.');
       const tickets = node.event.kind === 'simple' ? funnelSimpleTickets(event)
         : check(await db.from('complex_event_ticket_class').select('id,name')
           .eq('tenant_id', tenantId).eq('complex_event_id', node.event.id));

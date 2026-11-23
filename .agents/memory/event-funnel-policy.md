@@ -7,6 +7,16 @@ Event funnels orchestrate draft selections and one checkout; registrations remai
 owned by their individual events. A previously purchased source outside this
 journey does not satisfy a funnel-only prerequisite.
 
+Authoring must offer only future events, not completed events; internal record
+identifiers are not user-facing labels.
+
+**Why:** The owner explicitly excludes completed events from funnel building and
+wants meaningful event names and natural-language labels rather than IDs.
+
+**How to apply:** Preserve saved reference identities internally, but do not
+silently remove them when an event becomes unavailable. Explain the selection
+problem and require replacement before a new save or preview.
+
 **Why:** The owner explicitly requires same-checkout prerequisites first and
 excludes retrospective eligibility, new tax/credit policies, and historical
 capacity reinterpretation.
