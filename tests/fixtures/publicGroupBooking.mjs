@@ -2,6 +2,8 @@ import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { createLegacySimpleHarness } from './ticketReleaseLegacyHandlers.mjs';
+import { assertEventCodeOfConduct } from '../../api/_lib/eventCodeOfConduct.js';
+import { hasRegistrationAssociation } from '../../api/_lib/eventRegistrationAssociations.js';
 
 const slot = '__publicGroupBooking';
 let complexHandler;
@@ -15,7 +17,7 @@ async function loadComplexHandler() {
       mocks.set(specifier, `export default function(...args) { return globalThis.${slot}.dependency(${JSON.stringify(names.trim())}, args); }`);
       continue;
     }
-    mocks.set(specifier, names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)
+    mocks.set(specifier, (mocks.get(specifier) || '') + '\n' + names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)
       .map(name => `export function ${name}(...args) { return globalThis.${slot}.dependency(${JSON.stringify(name)}, args); }`).join('\n'));
   }
   const result = await build({
@@ -68,6 +70,10 @@ export async function groupBooking({ complex = false, flag = true, identity = 'g
   });
   const originalDependency = harness.dependency;
   harness.dependency = (name, args) => {
+    if (name === 'assertEventCodeOfConduct') return assertEventCodeOfConduct(...args);
+    if (name === 'hasRegistrationAssociation') return hasRegistrationAssociation(...args);
+    if (name === 'scheduleEventFollowUps') return undefined;
+    if (name === 'createsGuestAccounts') return false;
     if (name === 'runBookingCreditAttempt') return args[0].work();
     if (name === 'optionalEventRegistrationConsent' || name === 'recoverEventRegistrationConsent') return null;
     if (name === 'needsPublicTicketMemberCreation') return false;

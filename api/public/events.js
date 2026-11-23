@@ -1,5 +1,7 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import { projectSimpleEventCapacity } from '../_lib/simpleEventCapacity.js';
+import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
+import { scopeEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
@@ -42,7 +44,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: rawEvents, error } = await supabase
+    let eventsQuery = supabase
       .from('event')
       .select(`
         id,
@@ -91,6 +93,8 @@ export default async function handler(req, res) {
       // old bespoke RSVP group events are never leaked to anonymous visitors.
       .or('member_group_id.is.null,group_event_public.is.true')
       .order('start_date', { ascending: true });
+    ({query:eventsQuery}=await scopeEventFunnelDiscovery({db:supabase,query:eventsQuery}));
+    const {data:rawEvents,error}=await eventsQuery;
 
     if (error) {
       console.error('[Public Events] Query error:', error);
@@ -128,7 +132,8 @@ export default async function handler(req, res) {
     }
 
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
-    const capacityEvents = await projectSimpleEventCapacity(supabase, rawEvents || []);
+    const capacityEvents = await projectPublicShoppingAvailability(supabase, tenant.id, 'simple',
+      await projectSimpleEventCapacity(supabase, rawEvents || []));
     const events = capacityEvents.map(rawEvent => {
       // Immediate events: suppress schedule fields and training agenda
       const event = suppressImmediateSchedule(rawEvent);
@@ -188,6 +193,7 @@ export default async function handler(req, res) {
         image_focal_point: event.image_focal_point,
         status: event.status,
         available_seats: event.available_seats,
+        ...(event.shopping_held ? { shopping_held: event.shopping_held } : {}),
         capacity_mode: event.capacity_mode,
         total_capacity: event.total_capacity,
         is_unlimited_registration: event.is_unlimited_registration,

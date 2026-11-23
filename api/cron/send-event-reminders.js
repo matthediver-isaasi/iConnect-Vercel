@@ -8,6 +8,7 @@ import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '.
 import { trainingReminderEvent, validateTrainingReminder } from '../_lib/trainingReminderTargets.js';
 import { validateFollowUpDelivery } from '../_lib/eventFollowUps.js';
 import { renderFollowUp } from '../_lib/eventFollowUpRendering.js';
+import {loadScheduledReminderBooking,reminderRecipientStillEligible} from '../_lib/scheduledReminderBooking.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -118,44 +119,7 @@ export default async function handler(req, res) {
           continue;
         }
 
-        let booking = null;
-        const { data: standardBooking, error: bookingError } = await supabase
-          .from('booking')
-          .select(`
-            id,
-            attendee_email,
-            attendee_first_name,
-            attendee_last_name,
-            event_id,
-            status,
-            ticket_class_id,
-            ticket_class_name
-          `)
-          .eq('id', scheduledEmail.booking_id)
-          .single();
-
-        if (!bookingError && standardBooking) {
-          booking = standardBooking;
-        } else {
-          const { data: complexBooking, error: complexBookingError } = await supabase
-            .from('complex_event_booking')
-            .select(`
-              id,
-              attendee_email,
-              attendee_first_name,
-              attendee_last_name,
-              event_id,
-              status,
-              ticket_class_id,
-              ticket_class_name
-            `)
-            .eq('id', scheduledEmail.booking_id)
-            .single();
-
-          if (!complexBookingError && complexBooking) {
-            booking = complexBooking;
-          }
-        }
+        const booking = await loadScheduledReminderBooking(supabase,eventEmail,scheduledEmail.booking_id);
 
         if (!booking) {
           console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in booking or complex_event_booking`);
@@ -178,6 +142,7 @@ export default async function handler(req, res) {
           const { data: complexEvent, error: complexError } = await supabase
             .from('complex_event')
             .select('id, title, start_date, location, status, timezone, tenant_id')
+            .eq('tenant_id', eventEmail.tenant_id)
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -199,6 +164,7 @@ export default async function handler(req, res) {
           const { data: regularEvent, error: eventError } = await supabase
             .from('event')
             .select('id, title, start_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
+            .eq('tenant_id', eventEmail.tenant_id)
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -310,6 +276,12 @@ export default async function handler(req, res) {
           labelKey: 'events',
         });
 
+        const latestBooking = await loadScheduledReminderBooking(supabase,eventEmail,scheduledEmail.booking_id);
+        if (!reminderRecipientStillEligible(booking,latestBooking,scheduledEmail.attendee_email)) {
+          await markAsCancelled(scheduledEmail.id,'Booking or recipient changed during reminder preparation');
+          skipped.push({id:scheduledEmail.id,reason:'Booking or recipient changed during reminder preparation'});
+          continue;
+        }
         const emailResult = await sendEmail({
           to: scheduledEmail.attendee_email,
           subject: subject,

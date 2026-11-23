@@ -128,7 +128,7 @@ function renderTable(policy, attendance = false, unavailable = false, legacy = f
     { isGroup: true, booker: { first_name: 'Present' }, attendees: [{ ...attendee('booker-attendee'), is_booker: true }, attendee('booker-guest')] },
   ].map(group => ({ ...group, groupPayment, attendeeCount: group.attendees.length }));
   const context = {
-    React, paymentPolicy: policy, showAttendanceColumn: attendance,
+    React, paymentPolicy: policy, showAttendanceColumn: attendance, canReprocessCpd: false,
     paginatedGroups: groups, filteredGroups: groups, totalAttendees: 7, organizations: {},
     filteredSummary: { totalTicketPrice: 700, totalFooterDiscount: 20, totalAfterDiscount: 380, totalVoucher: 44, totalTrainingFund: 56, totalPricePaid: 490, hasUnavailableVoucher: unavailable, hasUnavailableFund: unavailable },
     ...tooltips, ...financialComponents, registrationOrganisationName, registrationMemberHighlight,
@@ -153,7 +153,8 @@ function assertTable(policy, attendance = false, unavailable = false) {
   const fund = !!policy?.allowTrainingFundPayment;
   assert.equal(headers.includes('Voucher'), voucher);
   assert.equal(headers.includes('Fund'), fund);
-  assert.equal(headers.length, 21 + Number(voucher) + Number(fund) + Number(attendance));
+  assert.equal(table.querySelectorAll('thead th[data-pinned="selection"]').length,1);
+  assert.equal(headers.length, 22 + Number(voucher) + Number(fund) + Number(attendance));
   // Expand rowSpan/colSpan into a logical grid to check every delegate row,
   // including the extra non-attending booker row, against the header positions.
   for (const section of ['tbody', 'tfoot']) {

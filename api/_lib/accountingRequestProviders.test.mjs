@@ -15,6 +15,21 @@ test('Xero source URL preserves exact PO reference and remains mandatory recover
   assert.throws(() => validateAccountingRequestResult(row, 'invoice', { ...record, Reference: 'OTHER' }));
 });
 
+test('only attributed funnel invoice readbacks capture original QuickBooks tax evidence',()=>{
+  const f=fixture();f.row.source_type='event_funnel';
+  const envelope=structuredClone(f.env);
+  envelope.expected.funnelTaxLines=[{index:0,amountMinor:1234,grossMinor:1234,taxMinor:0,taxCodeId:'none',taxRateId:null}];
+  f.row.snapshot.invoice.envelope=envelope;
+  f.record.GlobalTaxCalculation='TaxInclusive';
+  f.record.Line=[{Id:'line',DetailType:'SalesItemLineDetail',Amount:12.34,
+    SalesItemLineDetail:{ItemRef:{value:'item'},TaxCodeRef:{value:'none'},Qty:1,UnitPrice:12.34}}];
+  const result=validateAccountingRequestResult(f.row,'invoice',f.record);
+  assert.equal(result.issuedInvoice.CustomerRef.value,'customer');
+  assert.equal(result.issuedInvoice.taxAllocations[0].grossMinor,1234);
+  f.row.source_type='booking';
+  assert.equal(validateAccountingRequestResult(f.row,'invoice',f.record).issuedInvoice,undefined);
+});
+
 test('cleaned legacy reference only accepted for its persisted successful invoice ID', () => {
   const f = fixture('xero'), record = { ...f.record, Reference: 'PO 42' };
   assert.throws(() => validateAccountingRequestResult(f.row, 'invoice', record));

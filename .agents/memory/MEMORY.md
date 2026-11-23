@@ -167,3 +167,6 @@
 - [Simple-event total policy](simple-event-total-capacity-policy.md) — mutable historical counters do not establish intended maxima; require explicit confirmation before live conversion.
 - [Subscriber count authority](subscriber-count-authority.md) — input readiness is not consent eligibility; separate cached rendering, database evidence and campaign recipients.
 - [GFI Heads briefing policy](gfi-heads-briefing-policy.md) — one-time correction only; no future role-driven enrollment or count-semantic changes.
+- [Event funnel purchase policy](event-funnel-policy.md) — same-checkout prerequisites, event-owned registrations, fixed expiry and separate live-operation approval.
+- [QuickBooks tax evidence](quickbooks-tax-evidence.md) — returned percentages may not explain overridden tax; preserve issued amounts and original rate references.
+- [PostgreSQL test adapters](postgres-test-adapters.md) — preserve production JSON result types, or a committed claim can look empty to the worker.

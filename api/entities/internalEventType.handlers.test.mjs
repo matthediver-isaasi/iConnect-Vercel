@@ -51,7 +51,13 @@ async function loadHandler(relativePath) {
           if (args.path.endsWith('/database.js')) {
             return {
               loader: 'js',
-              contents: `export const supabase = { from: (...args) => globalThis.${fixtureSlot}.db.from(...args) };`,
+              contents: `export const supabase = {
+                from: (...args) => globalThis.${fixtureSlot}.db.from(...args),
+                rpc: async name => {
+                  if(name==='event_funnel_discovery_ready') return {error:{code:'PGRST202'}};
+                  throw new Error('Unexpected fixture RPC: '+name);
+                }
+              };`,
             };
           }
           if (args.path.endsWith('/tenantContext.js')) {

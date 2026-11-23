@@ -159,7 +159,9 @@ async function loadHarness() {
     'checkinService.js': 'export const buildQrImageUrl = () => ""; export const ensureBookingToken = async () => ""; export const ensureComplexSessionTokens = async () => [];',
   };
   const output = await build({ stdin: { contents: 'export { default as cron } from "./api/cron/send-event-reminders.js"; export {default as preview} from "./api/event-emails/[eventId]/preview.js"; export {default as save} from "./api/event-emails/[eventId].js";', resolveDir: process.cwd() },
-    bundle: true, write: false, platform: 'node', format: 'esm', plugins: [{ name: 'isolated-followup', setup(b) {
+    bundle: true, write: false, platform: 'node', format: 'esm',
+    banner:{js:`import {createRequire as fixtureRequire} from 'node:module'; const require=fixtureRequire(${JSON.stringify(import.meta.url)});`},
+    plugins: [{ name: 'isolated-followup', setup(b) {
       b.onResolve({ filter: /\.js$/ }, args => { const name = args.path.split('/').at(-1); if (stubs[name]) return { path: name, namespace: 'stub' }; });
       b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js' }));
     } }] });

@@ -1,3 +1,5 @@
+import { loadEventShoppingHolds } from './eventFunnelAvailability.js';
+
 export async function getEventCommercialCapacity(db, tenantId, eventKind, eventId) {
   if (!db || !tenantId || !eventId || !['simple', 'complex'].includes(eventKind)) return new Map();
   const { data, error } = await db
@@ -23,6 +25,14 @@ export async function getEventCommercialCapacity(db, tenantId, eventKind, eventI
     current.unused = Math.max(0, current.remaining - current.named - current.reserved);
     byTicket.set(key, current);
   }
+  const shopping = await loadEventShoppingHolds(db, tenantId, eventKind, [eventId]);
+  for (const [ticket, places] of shopping.get(eventId)?.tickets || []) {
+    const current = byTicket.get(ticket) || {
+      allocated: 0, named: 0, reserved: 0, released: 0, cancelled: 0, remaining: 0, unused: 0,
+    };
+    current.shoppingHeld = places;
+    byTicket.set(ticket, current);
+  }
   return byTicket;
 }
 
@@ -36,7 +46,7 @@ export function mergeTicketCommercialCapacity(ticket, confirmedCount, commercial
   const totals = commercial || {
     allocated: 0, named: 0, reserved: 0, released: 0, cancelled: 0, remaining: 0, unused: 0,
   };
-  const used = confirmedCount + totals.unused;
+  const used = confirmedCount + totals.unused + (totals.shoppingHeld || 0);
   const trueAvailable = max === null || !Number.isFinite(max) ? null : Math.max(0, max - used);
   return {
     ...(exposeBreakdown ? {

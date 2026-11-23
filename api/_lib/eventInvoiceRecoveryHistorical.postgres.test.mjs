@@ -167,11 +167,12 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
       CREATE TABLE xero_token(id text,app_tenant_id uuid,tenant_id text,access_token text);
       INSERT INTO xero_token VALUES('auto-connection','${tenant}','org','must-not-leak');
       INSERT INTO organization VALUES('${tenant}','${tenant}','Original buyer',NULL);
+      INSERT INTO member VALUES('${tenant}','${tenant}','Original','Booker','booker@example.test');
       INSERT INTO event VALUES('${tenant}','${tenant}','Original event','201',
         '{"ticket_classes":[{"id":"ticket","name":"Early bird","price":300,"early_bird_price":200,"currency":"GBP","vat_rate_key":"NONE","vat_rate_percentage":0}]}');
       INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
-        event_id,organization_id,ticket_class_id)
-      VALUES('${tenant}','auto-history','account',200,200,'${tenant}','${tenant}','ticket');
+        event_id,organization_id,member_id,ticket_class_id)
+      VALUES('${tenant}','auto-history','account',200,200,'${tenant}','${tenant}','${tenant}','ticket');
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','auto-history',NULL,false);`);
     const automaticMigration = readFileSync(new URL('../../supabase/migrations/202611300003_event_invoice_automatic_reconstruction.sql', import.meta.url), 'utf8');
     sql(automaticMigration); sql(automaticMigration);
@@ -187,6 +188,9 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
       event_invoice_recovery_automatic_commit(${json(i)},${s ? json(s) : 'NULL'},${reason ? `'${reason}'` : 'NULL'});`));
     let collected = collect();
     assert.doesNotMatch(JSON.stringify(collected),/must-not-leak|access_token/);
+    const missingBooker=structuredClone(collected);
+    missingBooker.bookings.forEach(booking=>{booking.member_id=null;});
+    assert.throws(()=>reconstructHistoricalEventInvoice(missingBooker),/historical_booker_missing/);
     const reconstructed = reconstructHistoricalEventInvoice(collected);
     assert.equal(reconstructed.amount,200);
     sql(`UPDATE event SET title='Changed event' WHERE id='${tenant}';`);
@@ -205,8 +209,8 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
       '{"id":"ticket","name":"Early bird","price":300,"early_bird_price":200,"currency":"GBP",
       "vat_rate_key":"OUTPUT2","vat_rate_percentage":20,"invoice_line_amount_type":"Inclusive"}') WHERE id='${tenant}';
       INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
-        event_id,organization_id,ticket_class_id)
-      VALUES('${tenant}','inclusive-history','account',200,200,'${tenant}','${tenant}','ticket');
+        event_id,organization_id,member_id,ticket_class_id)
+      VALUES('${tenant}','inclusive-history','account',200,200,'${tenant}','${tenant}','${tenant}','ticket');
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','inclusive-history',NULL,false);`);
     const inclusiveId = candidate('inclusive-history').operationId;
     const inclusiveInput = JSON.parse(sql(`SET ROLE service_role; SELECT event_invoice_recovery_automatic_candidates(1,'${inclusiveId}');`))[0];
@@ -227,8 +231,8 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
     for (const table of ['booking','complex_event_booking']) sql(`CREATE TRIGGER survey_invitation_revision
       BEFORE UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION public.bump_survey_invitation_revision();`);
     sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
-      event_id,organization_id,ticket_class_id)
-      VALUES('${tenant}','survey-stale','account',200,200,'${tenant}','${tenant}','ticket');
+      event_id,organization_id,member_id,ticket_class_id)
+      VALUES('${tenant}','survey-stale','account',200,200,'${tenant}','${tenant}','${tenant}','ticket');
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-stale',NULL,false);`);
     const surveyCandidate = candidate('survey-stale');
     const surveyId = surveyCandidate.operationId;
@@ -275,8 +279,8 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
     // New explicit approvals do not issue a no-op mirror write at all; actual
     // survey revisions still increment on real booking updates.
     sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
-      event_id,organization_id,ticket_class_id)
-      VALUES('${tenant}','survey-fixed','account',200,200,'${tenant}','${tenant}','ticket');
+      event_id,organization_id,member_id,ticket_class_id)
+      VALUES('${tenant}','survey-fixed','account',200,200,'${tenant}','${tenant}','${tenant}','ticket');
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-fixed',NULL,false);`);
     const fixedCandidate = candidate('survey-fixed');
     const revBefore = sql(`SELECT survey_invitation_revision FROM booking WHERE booking_group_reference='survey-fixed';`);
@@ -288,8 +292,8 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
       'approval no longer invalidates survey invitations via a no-op booking UPDATE');
     assert.equal(hydrate(fixedCandidate.operationId),'1');
     sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
-      event_id,organization_id,ticket_class_id)
-      VALUES('${tenant}','survey-auto','account',200,200,'${tenant}','${tenant}','ticket');
+      event_id,organization_id,member_id,ticket_class_id)
+      VALUES('${tenant}','survey-auto','account',200,200,'${tenant}','${tenant}','${tenant}','ticket');
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-auto',NULL,false);`);
     const surveyAutoId = candidate('survey-auto').operationId;
     const surveyAutoInput = JSON.parse(sql(`SELECT event_invoice_recovery_automatic_candidates(1,'${surveyAutoId}');`))[0];

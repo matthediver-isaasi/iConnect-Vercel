@@ -1,6 +1,24 @@
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
+import { loadFunnelSessionScope } from './eventFunnelSessionScope.js';
+const defaultCheckinDatabase = supabase;
+
+// A partial or failed list is not evidence that a confirmed attendee has no
+// sessions. Strict callers must obtain the complete bounded result.
+async function readCompleteCheckinRows(query) {
+  const rows=[],seen=new Set();
+  for(let offset=0;offset<10000;offset+=500) {
+    const result=await query.range(offset,offset+499);
+    if(result.error || !Array.isArray(result.data)) throw new Error('Check-in scope could not be loaded completely');
+    for(const row of result.data) {
+      if(!row.id || seen.has(row.id)) throw new Error('Check-in scope changed during loading');
+      seen.add(row.id);rows.push(row);
+    }
+    if(result.data.length<500) return rows;
+  }
+  throw new Error('Check-in scope exceeds the safe batch limit');
+}
 
 /**
  * Event QR check-in service.
@@ -56,7 +74,10 @@ export function getActorLabel(context) {
  * Returns the token, or null if the booking is ineligible (online or not
  * confirmed).
  */
-export async function ensureBookingToken(bookingId, tenantId = null) {
+export async function ensureBookingToken(bookingId, tenantId = null, options = {}) {
+  const supabase = options.db || defaultCheckinDatabase;
+  const strict = options.strict === true;
+  if (strict && (!supabase || !bookingId || !tenantId)) throw new Error('Check-in identity unavailable');
   if (!supabase || !bookingId) return null;
 
   let query = supabase
@@ -66,36 +87,45 @@ export async function ensureBookingToken(bookingId, tenantId = null) {
   if (tenantId) query = query.eq('tenant_id', tenantId);
 
   const { data: booking, error } = await query.maybeSingle();
-  if (error || !booking) return null;
-  if (booking.status !== 'confirmed') return null;
+  if (error || !booking || booking.status !== 'confirmed') {
+    if (strict) throw new Error('Confirmed registration unavailable');
+    return null;
+  }
 
-  const { data: event } = await supabase
+  let eventQuery = supabase
     .from('event')
     .select('id, is_online')
-    .eq('id', booking.event_id)
-    .maybeSingle();
+    .eq('id', booking.event_id);
+  if (strict) eventQuery = eventQuery.eq('tenant_id', tenantId);
+  const { data: event, error: eventError } = await eventQuery.maybeSingle();
+  if (strict && (eventError || !event)) throw new Error('Check-in event unavailable');
   if (!event || event.is_online) return null;
 
   if (booking.check_in_token) return booking.check_in_token;
 
   const token = generateCheckinToken();
-  const { data: updated, error: updErr } = await supabase
+  let update = supabase
     .from('booking')
     .update({ check_in_token: token })
     .eq('id', booking.id)
-    .is('check_in_token', null)
+    .is('check_in_token', null);
+  if (strict) update = update.eq('tenant_id', tenantId).eq('status', 'confirmed');
+  const { data: updated, error: updErr } = await update
     .select('check_in_token')
     .maybeSingle();
   // On error OR a 0-row update (lost a race — another request set it first),
   // re-read the now-persisted token rather than returning our unpersisted one.
   if (updErr || !updated) {
-    const { data: fresh } = await supabase
+    let reread = supabase
       .from('booking')
       .select('check_in_token')
-      .eq('id', booking.id)
-      .maybeSingle();
+      .eq('id', booking.id);
+    if (strict) reread = reread.eq('tenant_id', tenantId).eq('status', 'confirmed');
+    const { data: fresh, error: readError } = await reread.maybeSingle();
+    if (strict && (readError || !fresh?.check_in_token)) throw new Error('Check-in token could not be verified');
     return fresh?.check_in_token || null;
   }
+  if (strict && !updated.check_in_token) throw new Error('Check-in token could not be verified');
   return updated.check_in_token;
 }
 
@@ -104,17 +134,24 @@ export async function ensureBookingToken(bookingId, tenantId = null) {
  * registered for (via their ticket class's linked tracks), each with a
  * track name and the session details. Online sessions are excluded.
  */
-export async function getComplexRegisteredSessions(complexEventId, ticketClassId, tenantId = null) {
+export async function getComplexRegisteredSessions(complexEventId, ticketClassId, tenantId = null, options = {}) {
+  const supabase = options.db || defaultCheckinDatabase;
+  const strict = options.strict === true;
+  if (strict && (!supabase || !complexEventId || !tenantId)) throw new Error('Session check-in identity unavailable');
+  if (strict) return (await loadFunnelSessionScope({db:supabase,tenantId,eventId:complexEventId,ticketClassId}))
+    .filter(session=>!session.is_online);
   if (!supabase || !complexEventId) return [];
 
   let allTracks = false;
   let linkedTrackIds = [];
   if (ticketClassId) {
-    const { data: tc } = await supabase
+    let ticketQuery = supabase
       .from('complex_event_ticket_class')
       .select('id, all_tracks, linked_track_ids')
-      .eq('id', ticketClassId)
-      .maybeSingle();
+      .eq('id', ticketClassId);
+    if (strict) ticketQuery = ticketQuery.eq('tenant_id', tenantId).eq('complex_event_id', complexEventId);
+    const { data: tc, error: ticketError } = await ticketQuery.maybeSingle();
+    if (strict && (ticketError || !tc)) throw new Error('Registered ticket scope unavailable');
     if (tc) {
       allTracks = !!tc.all_tracks;
       linkedTrackIds = Array.isArray(tc.linked_track_ids) ? tc.linked_track_ids : [];
@@ -135,7 +172,8 @@ export async function getComplexRegisteredSessions(complexEventId, ticketClassId
     return [];
   }
 
-  const { data: sessions } = await sessionQuery;
+  const sessions = strict ? await readCompleteCheckinRows(sessionQuery.order('id', { ascending: true }))
+    : (await sessionQuery).data;
   if (!sessions || sessions.length === 0) return [];
 
   // In-person sessions only.
@@ -145,11 +183,13 @@ export async function getComplexRegisteredSessions(complexEventId, ticketClassId
   const trackIds = [...new Set(inPerson.map((s) => s.complex_event_track_id).filter(Boolean))];
   let trackNames = {};
   if (trackIds.length > 0) {
-    const { data: tracks } = await supabase
-      .from('complex_event_track')
-      .select('id, name')
-      .in('id', trackIds);
-    for (const t of tracks || []) trackNames[t.id] = t.name;
+    for (let offset=0; offset<trackIds.length; offset+=100) {
+      let tracksQuery = supabase.from('complex_event_track').select('id, name').in('id', trackIds.slice(offset,offset+100));
+      if (strict) tracksQuery = tracksQuery.eq('tenant_id', tenantId).eq('complex_event_id', complexEventId);
+      const { data: tracks, error: trackError } = await tracksQuery;
+      if (strict && (trackError || !Array.isArray(tracks))) throw new Error('Session track names unavailable');
+      for (const t of tracks || []) trackNames[t.id] = t.name;
+    }
   }
 
   return inPerson.map((s) => ({
@@ -163,22 +203,33 @@ export async function getComplexRegisteredSessions(complexEventId, ticketClassId
  * array of { session, token, checked_in_at } for the in-person registered
  * sessions. Skips entirely (returns []) when no in-person sessions apply.
  */
-export async function ensureComplexSessionTokens(complexBooking, tenantId = null) {
+export async function ensureComplexSessionTokens(complexBooking, tenantId = null, options = {}) {
+  const supabase = options.db || defaultCheckinDatabase;
+  const strict = options.strict === true;
+  if (strict && (!supabase || !complexBooking?.id || !tenantId)) throw new Error('Session check-in identity unavailable');
   if (!supabase || !complexBooking?.id) return [];
   const complexEventId = complexBooking.event_id;
   const tid = tenantId || complexBooking.tenant_id;
+  if (strict) {
+    const {data: persisted,error} = await supabase.from('complex_event_booking')
+      .select('id,event_id,ticket_class_id,status').eq('tenant_id',tid).eq('id',complexBooking.id).maybeSingle();
+    if (error || !persisted || persisted.status!=='confirmed' || persisted.event_id!==complexEventId
+      || persisted.ticket_class_id!==complexBooking.ticket_class_id) throw new Error('Registered session scope changed');
+  }
 
   const sessions = await getComplexRegisteredSessions(
     complexEventId,
     complexBooking.ticket_class_id || complexBooking.ticketClassId,
-    tid
+    tid, options
   );
   if (sessions.length === 0) return [];
 
-  const { data: existingRows } = await supabase
+  let existingQuery = supabase
     .from('complex_event_session_checkin')
     .select('id, session_id, token, checked_in_at')
     .eq('booking_id', complexBooking.id);
+  if (strict) existingQuery = existingQuery.eq('tenant_id',tid).eq('complex_event_id',complexEventId).order('id');
+  const existingRows = strict ? await readCompleteCheckinRows(existingQuery) : (await existingQuery).data;
   const existingBySession = {};
   for (const r of existingRows || []) existingBySession[r.session_id] = r;
 
@@ -200,19 +251,23 @@ export async function ensureComplexSessionTokens(complexBooking, tenantId = null
         .maybeSingle();
       if (error) {
         // Likely a unique-constraint race — re-read.
-        const { data: fresh } = await supabase
+        let reread = supabase
           .from('complex_event_session_checkin')
           .select('id, session_id, token, checked_in_at')
           .eq('booking_id', complexBooking.id)
-          .eq('session_id', session.id)
-          .maybeSingle();
+          .eq('session_id', session.id);
+        if (strict) reread = reread.eq('tenant_id',tid).eq('complex_event_id',complexEventId);
+        const { data: fresh } = await reread.maybeSingle();
         row = fresh;
       } else {
         row = inserted;
       }
     }
     if (row) {
+      if (strict && !row.token) throw new Error('Session token could not be verified');
       result.push({ session, token: row.token, checked_in_at: row.checked_in_at });
+    } else if (strict) {
+      throw new Error('Session token could not be saved');
     }
   }
   return result;

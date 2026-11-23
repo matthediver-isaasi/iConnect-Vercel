@@ -1,3 +1,5 @@
+import { useEventReservation, useOwnedEventReservation } from "@/contexts/EventReservationContext";
+import { restoreReservationCart, heldReservationQuantity, isGuestOwnedReservation } from "@/lib/eventReservationSelection.mjs";
 import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
@@ -107,9 +109,10 @@ function TrackAccessIndicator({ ticket, tracks }) {
 }
 
 function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false, eventId }) {
+  const ownedReservation = useOwnedEventReservation();
   const capability = useUnifiedBookingCapability({ eventId, source: "complex", viewerId: memberInfo?.id,
-    tenantId: memberInfo?.tenant_id, enabled: open });
-  const unified = capability.data?.version === 2 && capability.data.enabled;
+    tenantId: memberInfo?.tenant_id, enabled: open && !ownedReservation });
+  const unified = !ownedReservation && capability.data?.version === 2 && capability.data.enabled;
   const [selfJobTitle, setSelfJobTitle] = useState(memberInfo?.job_title || '');
   const [externalJobTitle, setExternalJobTitle] = useState('');
   useEffect(() => { if (open) setSelfJobTitle(memberInfo?.job_title || ''); }, [open, memberInfo?.job_title]);
@@ -540,6 +543,10 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
 }
 
 function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, openLogin, editorMode = false, allocationContext = null }) {
+  const ownedReservation = useOwnedEventReservation();
+  const reservationViewerKey = useTicketViewerKey(memberInfo);
+  const reservation = useEventReservation({ eventId: event.id, eventKind: 'complex', viewerKey: reservationViewerKey,
+    enabled: !editorMode && !allocationContext && event.waiting_list_enabled !== true });
   const waitingListEnabled = event?.waiting_list_enabled === true;
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
@@ -606,6 +613,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const isTicketSoldOut = useCallback((tc) => {
     if (waitingListEnabled) return false;
     if (allocationContext?.ticketTypeId && String(tc.id) === allocationContext.ticketTypeId) return false;
+    const held = heldReservationQuantity(ownedReservation?.snapshot, ownedReservation?.offer.nodeId, tc.id);
+    if (held > 0 && (cart[String(tc.id)]?.attendees.length || 0) <= held) return false;
     const live = getTicketClassAvailability(tc.id);
     if (live) return live.isSoldOut;
     const isUnlimited = tc.is_unlimited_tickets === true
@@ -616,7 +625,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     if (typeof tc.is_sold_out === 'boolean') return tc.is_sold_out;
     if (typeof tc.remaining === 'number') return tc.remaining <= 0;
     return Number(tc.available_count) <= 0;
-  }, [getTicketClassAvailability, allocationContext?.ticketTypeId, waitingListEnabled]);
+  }, [getTicketClassAvailability, allocationContext?.ticketTypeId, waitingListEnabled, ownedReservation?.snapshot, ownedReservation?.offer.nodeId, cart]);
 
   // Remaining tickets for a finite class, or null when unlimited / unknown.
   const getTicketRemaining = useCallback((tc) => {
@@ -713,7 +722,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const next = {};
       for (const [id, item] of Object.entries(previous)) {
         const ticket = availableTicketClasses.find(tc => String(tc.id) === String(id));
-        if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) {
+        if (!ticket || (!ownedReservation && (isReleaseBlocked(ticket) || isTicketSoldOut(ticket)))) {
           changed = true;
           continue;
         }
@@ -971,7 +980,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   // CTA override "detail_page" mode: hide ticket add-attendee buttons and
   // payment options; show ticket prices + a "Continue to book" button.
-  const useCtaOverrideDetailMode = !waitingListEnabled && !!event?.cta_override_url
+  const useCtaOverrideDetailMode = !reservation.intercept && !waitingListEnabled && !!event?.cta_override_url
     && event?.cta_override_mode === 'detail_page';
 
   // TBC events with "Replace standard booking elements" on: ticket prices and
@@ -1142,6 +1151,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const paymentOptionsSection = shouldShowPaymentOptions ? (
     <PaymentOptions
+      reservation={reservation}
+      reservationItems={Object.entries(cart).map(([id, item]) => ({ id, attendees: item.attendees }))}
       editorMode={editorMode}
       waitingListItems={Object.entries(cart).map(([id, item]) => ({ ticket_class_id: id, attendees: item.attendees }))}
       tbcBookingReplacement={tbcBookingReplacement}
@@ -1373,8 +1384,12 @@ export function ComplexEventDetailExperience({
   editorMode = false,
   allocationToken = null,
 }) {
-  const { memberInfo: sessionMember, organizationInfo, isAdmin, authResolved, sessionValidated, roleStatus } = useMemberAccess();
-  const memberInfo = authResolved && sessionValidated && roleStatus === 'ready' ? sessionMember : null;
+  const ownedReservation = useOwnedEventReservation();
+  const ownedGuest = isGuestOwnedReservation(ownedReservation?.snapshot);
+  const { memberInfo: sessionMember, organizationInfo: browserOrganizationInfo, isAdmin: browserIsAdmin, authResolved, sessionValidated, roleStatus } = useMemberAccess();
+  const memberInfo = !ownedGuest && authResolved && sessionValidated && roleStatus === 'ready' ? sessionMember : null;
+  const organizationInfo = ownedGuest ? null : browserOrganizationInfo;
+  const isAdmin = !ownedGuest && browserIsAdmin;
   const viewerKey = useTicketViewerKey(memberInfo);
   const { openLogin, loginModal } = useEventLogin();
   // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
@@ -1382,7 +1397,7 @@ export function ComplexEventDetailExperience({
   const { data: myActiveGroupIds = [], isFetched: myActiveGroupIdsFetched } = useMyGroupIds();
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
-  const [cart, setCart] = useState({});
+  const [cart, setCart] = useState(() => ownedReservation ? restoreReservationCart(ownedReservation.offer) : {});
   const { data: allocationPayload, isLoading: allocationLoading, error: allocationError } = useQuery({
     queryKey: ['event-allocation-context', allocationToken, ...viewerKey],
     queryFn: () => publicClient.getEventAllocationContext(allocationToken),
@@ -1419,17 +1434,24 @@ export function ComplexEventDetailExperience({
   const { data: queriedEvent, isLoading: eventLoading, error: eventError, refetch: retryEvent, isFetching: eventFetching } = useQuery({
     queryKey: ['complex-event', eventId, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEvent(eventId),
-    enabled: !!eventId,
+    enabled: !!eventId && !ownedReservation,
     staleTime: 30 * 1000
   });
   const event = useMemo(() => {
+    if (ownedReservation) {
+      const authorized = ownedReservation.offer.event;
+      let pricing = authorized.pricing_config;
+      if (typeof pricing === 'string') { try { pricing = JSON.parse(pricing); } catch { pricing = {}; } }
+      return { ...authorized, pricing_config: { ...pricing, ticket_classes: ownedReservation.offer.tickets,
+        ticket_classes_configured: true } };
+    }
     if (!queriedEvent || !allocationContext) return queriedEvent;
     let pricing = queriedEvent.pricing_config;
     if (typeof pricing === 'string') {
       try { pricing = JSON.parse(pricing); } catch { pricing = null; }
     }
     return { ...queriedEvent, pricing_config: { ...pricing, ticket_classes: mergeAllocationTicket(pricing?.ticket_classes || [], allocationPayload, allocationContext) } };
-  }, [queriedEvent, allocationPayload, allocationContext]);
+  }, [queriedEvent, allocationPayload, allocationContext, ownedReservation?.offer]);
   const speakerDisclosure = useEventDisclosure(event?.id, event?.speaker_display_mode);
 
   // The cart outlives BookingSection while an identity-specific query loads.

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertStandaloneEventOffer } from './eventFunnelPurchasePolicy.js';
 import { INVOICING_ADDRESS_KEYS, resolveStoredInvoicingAddress, invoicingAddressError } from '../../shared/invoicingAddress.js';
 import { publicTicketEmailExists } from './publicTicketEmail.js';
 import { billingOrganizationIds as resolveBillingOrganizationIds } from './billingOrganizationAffiliations.js';
@@ -81,26 +82,11 @@ function selectedAddress(selection, fallback) {
   return resolveStoredInvoicingAddress(address, 'member');
 }
 
-export async function prepareUnifiedBookingContract({ db, tenantId, source, eventId, requestId, memberId, purchaser, selection, ticketIds = [] }) {
-  if (!uuid.test(requestId || '') || !uuid.test(eventId || '') || !['booking', 'complex_event_booking'].includes(source)) {
-    fail('A valid original checkout reference and event are required', 400);
-  }
+export async function resolveUnifiedBookingCustomer({ db, tenantId, requestId, memberId, purchaser, selection }) {
   const booker = memberId ? { memberId } : {
     first_name: String(purchaser?.first_name || '').trim(), last_name: String(purchaser?.last_name || '').trim(),
     email: String(purchaser?.email || '').trim().toLowerCase(), organization: String(purchaser?.organization || '').trim(),
   };
-  const request = { booker, selection: selection || null, ticketIds: [...new Set(ticketIds.filter(Boolean).map(String))].sort() };
-  const prior = await db.from('unified_booking_contract').select('*').eq('tenant_id', tenantId).eq('id', requestId).maybeSingle();
-  if (prior.error) fail('Booking instructions are unavailable', 503);
-  if (prior.data) {
-    if (prior.data.source !== source || prior.data.event_id !== eventId || prior.data.member_id !== (memberId || null)
-      || canonical(prior.data.snapshot.request) !== canonical(request)) fail('Checkout instructions changed. Resume the original checkout without paying again.');
-    return prior.data;
-  }
-  if (!await unifiedBookingReady(db)) fail('The new booking flow is not enabled', 503);
-  const event = await db.from(source === 'booking' ? 'event' : 'complex_event').select('*')
-    .eq('id', eventId).eq('tenant_id', tenantId).maybeSingle();
-  if (event.error || !event.data) fail('Event not found', 404);
   let contact;
   let selectedBindings;
   let originalBooker;
@@ -125,20 +111,51 @@ export async function prepareUnifiedBookingContract({ db, tenantId, source, even
       organizationReference: booker.organization || null, invoicingAddress: selectedAddress(selection, null),
       provenance: { kind: 'guest_purchaser', requestId } };
   }
-  let accounting;
-  try { accounting = await (await import('./eventInvoiceProducer.js')).loadEventInvoiceContext(db, tenantId); }
-  catch { accounting = { reviewReason: 'Accounting configuration could not be frozen; review required', provider: null, settings: {} }; }
-  const provider = accounting.provider;
+  return { contact, selectedBindings, originalBooker };
+}
+
+export function bindUnifiedBookingCustomer(contact, selectedBindings, provider) {
+  const bound = structuredClone(contact);
   if (selectedBindings && provider) {
     const qbo = provider.name === 'quickbooks';
     const id = qbo ? selectedBindings.quickbooksId : selectedBindings.xeroId;
     const company = qbo ? selectedBindings.quickbooksCompany : selectedBindings.xeroCompany;
     const selectedCompany = qbo ? provider.realmId : provider.xeroTenantId;
     if (id) {
-      if (!company || company !== selectedCompany) contact.providerBindingConflict = true;
-      else contact.providerCustomerId = id;
+      if (!company || company !== selectedCompany) bound.providerBindingConflict = true;
+      else bound.providerCustomerId = id;
     }
   }
+  return bound;
+}
+
+export async function prepareUnifiedBookingContract({ db, tenantId, source, eventId, requestId, memberId, purchaser, selection, ticketIds = [] }) {
+  if (!uuid.test(requestId || '') || !uuid.test(eventId || '') || !['booking', 'complex_event_booking'].includes(source)) {
+    fail('A valid original checkout reference and event are required', 400);
+  }
+  const booker = memberId ? { memberId } : {
+    first_name: String(purchaser?.first_name || '').trim(), last_name: String(purchaser?.last_name || '').trim(),
+    email: String(purchaser?.email || '').trim().toLowerCase(), organization: String(purchaser?.organization || '').trim(),
+  };
+  const request = { booker, selection: selection || null, ticketIds: [...new Set(ticketIds.filter(Boolean).map(String))].sort() };
+  const prior = await db.from('unified_booking_contract').select('*').eq('tenant_id', tenantId).eq('id', requestId).maybeSingle();
+  if (prior.error) fail('Booking instructions are unavailable', 503);
+  if (prior.data) {
+    if (prior.data.source !== source || prior.data.event_id !== eventId || prior.data.member_id !== (memberId || null)
+      || canonical(prior.data.snapshot.request) !== canonical(request)) fail('Checkout instructions changed. Resume the original checkout without paying again.');
+    return prior.data;
+  }
+  if (!await unifiedBookingReady(db)) fail('The new booking flow is not enabled', 503);
+  await assertStandaloneEventOffer({db,tenantId,eventKind:source==='booking'?'simple':'complex',eventId,ticketIds:request.ticketIds});
+  const event = await db.from(source === 'booking' ? 'event' : 'complex_event').select('*')
+    .eq('id', eventId).eq('tenant_id', tenantId).maybeSingle();
+  if (event.error || !event.data) fail('Event not found', 404);
+  const customer = await resolveUnifiedBookingCustomer({ db, tenantId, requestId, memberId, purchaser, selection });
+  const originalBooker = customer.originalBooker;
+  let accounting;
+  try { accounting = await (await import('./eventInvoiceProducer.js')).loadEventInvoiceContext(db, tenantId); }
+  catch { accounting = { reviewReason: 'Accounting configuration could not be frozen; review required', provider: null, settings: {} }; }
+  const contact = bindUnifiedBookingCustomer(customer.contact, customer.selectedBindings, accounting.provider);
   const tickets = source === 'booking' ? event.data.pricing_config?.ticket_classes || []
     : await (await import('./ticketReleaseAccess.js')).loadComplexReleaseTickets(db, event.data);
   const policies = tickets.filter(ticket => request.ticketIds.includes(String(ticket.id))).map(ticket => ({
@@ -154,6 +171,7 @@ export async function prepareUnifiedBookingContract({ db, tenantId, source, even
   const snapshot = { version: 2, request, booker: originalBooker, contact, accounting, policies, invoiceEvent };
   const result = await db.rpc('unified_booking_prepare', { p_id: requestId, p_tenant: tenantId, p_source: source,
     p_event: eventId, p_member: memberId || null, p_snapshot: snapshot });
+  if(result.error?.code==='PT403') fail('This ticket requires its source registration in the same checkout.',403);
   if (result.error || !result.data?.id) fail('Booking instructions could not be frozen; retry the same checkout', 503);
   return result.data;
 }

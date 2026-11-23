@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { readEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { homepageRoute } from '../_lib/homepage.js';
 import { FAVICON_LINKS } from '../../shared/tenantFavicon.js';
@@ -989,7 +990,7 @@ export async function renderCanvasDynamicBlock(supabaseClient, tenant, block, no
       else if (filter === 'past') q = q.lt('start_date', nowIso).order('start_date', { ascending: false });
       else q = q.order('start_date', { ascending: c.sortBy !== 'start-desc' });
       if (c.featuredOnly) q = q.eq('is_featured', true);
-      const { data } = await q.limit(limit);
+      const { data } = await readEventFunnelDiscovery({db:supabaseClient,query:q.limit(limit)});
       const items = data || [];
       if (items.length === 0) return null;
       const texts = []; let firstImage = null;
@@ -1286,22 +1287,22 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
       title: `Events | ${tenant.name}`,
       description: `Browse upcoming events from ${tenant.name}`,
       query: async () => {
-        let result = await supabaseClient
+        let result = await readEventFunnelDiscovery({db:supabaseClient,query:supabaseClient
           .from('event')
           .select('id, title, slug, start_date, location, summary, status')
           .eq('tenant_id', tenant.id)
           .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
           .is('member_group_id', null)
           .order('start_date', { ascending: true })
-          .limit(50);
+          .limit(50)});
         if (result.error?.code === '42703') {
-          result = await supabaseClient
+          result = await readEventFunnelDiscovery({db:supabaseClient,query:supabaseClient
             .from('event')
             .select('id, title, slug, start_date, location, summary, status')
             .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
             .is('member_group_id', null)
             .order('start_date', { ascending: true })
-            .limit(50);
+            .limit(50)});
         }
         return (result.data || []).map(e => `<li><strong>${escapeHtml(e.title)}</strong>${!isImmediateEvent(e) && e.start_date ? ` - ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}${e.location ? ` | ${escapeHtml(e.location)}` : ''}</li>`).join('\n');
       }

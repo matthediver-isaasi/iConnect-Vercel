@@ -13,6 +13,7 @@ async function loadHandler(path) {
     write: false,
     platform: 'node',
     format: 'esm',
+    banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(process.cwd() + "/package.json");' },
     plugins: [{
       name: 'event-display-mode-handler-fixture',
       setup(builder) {
@@ -117,6 +118,10 @@ function createDatabase(seed) {
 
   return {
     effects,
+    async rpc(name) {
+      assert.equal(name, 'event_funnel_inventory_projection');
+      return { data: [], error: null };
+    },
     from(table) {
       let filters = [];
       let singular = false;
@@ -186,7 +191,7 @@ async function invoke(relativePath, fixture, req) {
   process.env.SUPABASE_URL = 'https://fixture.invalid';
   process.env.SUPABASE_SERVICE_KEY = 'fixture-key';
   const res = response();
-  await (await getHandler(relativePath))(req, res);
+  await (await getHandler(relativePath))({ headers: {}, ...req }, res);
   return res;
 }
 

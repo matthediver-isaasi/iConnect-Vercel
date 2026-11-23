@@ -32,6 +32,7 @@ import {
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from './zoomClient.js';
 import Stripe from 'stripe';
 import { captureCancellationCredits, prepareCancellationCredits } from './bookingCreditEvidence.js';
+import { assertLegacyFunnelReversalAllowed } from './eventFunnelReversalBoundary.js';
 import {
   BOOKING_SOURCE_COMPLEX,
   isComplexSource,
@@ -121,6 +122,12 @@ export async function cancelBooking({
   const LP = logPrefixFor(reason);
   const isComplex = isComplexSource(source);
   const bookingTable = getBookingTable(source);
+
+  try {
+    await assertLegacyFunnelReversalAllowed({db:supabase,tenantId,source:bookingTable,bookingIds:[booking.id]});
+  } catch(error) {
+    return {success:false,error:error.message,code:error.code,requiresManualAction:true,reversalResults};
+  }
 
   if (booking.status === 'cancelled') {
     if (!isComplex) {

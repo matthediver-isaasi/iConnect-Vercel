@@ -128,6 +128,7 @@ export function providerCooldown(retryAfter, now = Date.now(), random = Math.ran
 export async function processEventInvoiceRecovery({
   db, tenantId = null, source = null, bookingGroupReference = null,
   providerFactory = null, now = Date.now, random = Math.random, deadlineAt = now() + 35_000,
+  onVerifiedInvoice = null,
 } = {}) {
   const rpc = (name, args) => recoveryRpc(db, name, args, deadlineAt);
   const row = await rpc('claim', { p_tenant_id: tenantId, p_source: source, p_group: bookingGroupReference,
@@ -191,6 +192,7 @@ export async function processEventInvoiceRecovery({
       activeWrite = null;
     }
     provider.validateInvoice(invoice);
+    if(onVerifiedInvoice)await onVerifiedInvoice({row,invoice});
     if (!await rpc('record_invoice', {
       p_id: row.id, p_token: row.lease_token, p_invoice_id: invoice.InvoiceID,
       p_invoice_number: invoice.InvoiceNumber || null,

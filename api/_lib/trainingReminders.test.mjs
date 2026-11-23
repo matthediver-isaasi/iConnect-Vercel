@@ -97,7 +97,7 @@ async function loadHarness() {
     'zoomRegistration.js': 'export const readZoomRegistration = async (token, kind, id) => ({registration_required:!!globalThis.__trainingTest.registrationRequired, join_url:`https://example.test/nov${id}`}); export const zoomRequest = async () => ({registrants:globalThis.__trainingTest.registrants || []});',
     'database.js': 'export const supabase = { from: (...args) => globalThis.__trainingTest.db.from(...args) };',
     'emailService.js': 'export const sendEmail = async args => globalThis.__trainingTest.send(args);',
-    'transactionalInbox.js': 'export const buildInboxDelivery = async () => null;',
+    'transactionalInbox.js': 'export const buildInboxDelivery = async () => { await globalThis.__trainingTest.beforeSend?.();return null; };',
     'campaignEventSurvey.js': 'export const resolveEventEmailSurvey = async (db, config) => config;',
     'checkinService.js': 'export const buildQrImageUrl = () => ""; export const ensureBookingToken = async () => ""; export const ensureComplexSessionTokens = async () => [];',
   };
@@ -195,6 +195,29 @@ test('real cron claims once, renders targeted session, suppresses stale rows and
   }
 });
 
+test('late cancellation or recipient transfer suppresses the real reminder send', async () => {
+  const {cron}=await loadHarness(),secret=process.env.CRON_SECRET;
+  process.env.CRON_SECRET='isolated-fixture-only';
+  try {
+    for(const change of [{status:'cancelled'},{attendee_email:'replacement@example.test'}]){
+      const data=fixture(),sends=[];data.event[0].is_training=false;
+      data.scheduled_email.push({id:'late-change',event_email_id:'email',booking_id:'booking',
+        attendee_email:'fixture@example.test',status:'pending',scheduled_send_time:'2000-01-01T00:00:00Z'});
+      globalThis.__trainingTest={db:fakeClient(data),
+        beforeSend:()=>Object.assign(data.booking[0],change),
+        send:async args=>{sends.push(args);return {success:true};}};
+      let result;
+      await cron({headers:{authorization:'Bearer isolated-fixture-only'}},{
+        status(){return this;},json(value){result=value;return value;}});
+      assert.equal(result.sent,0);assert.equal(result.skipped.length,1);
+      assert.equal(sends.length,0);assert.equal(data.scheduled_email[0].status,'cancelled');
+    }
+  }finally {
+    if(secret===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=secret;
+    delete globalThis.__trainingTest;
+  }
+});
+
 test('unapplied training migration cannot block unrelated event deliveries', async () => {
   const { cron } = await loadHarness();
   const data = fixture(), sends = [];
@@ -203,7 +226,7 @@ test('unapplied training migration cannot block unrelated event deliveries', asy
   data.booking.push({ ...data.booking[0], id: 'ordinary-booking', event_id: 'ordinary' });
   data.scheduled_email.push(
     { id: 'training', event_email_id: 'email', booking_id: 'booking', status: 'pending', scheduled_send_time: '2000-01-01T00:00:00Z' },
-    { id: 'ordinary', event_email_id: 'ordinary-email', booking_id: 'ordinary-booking', status: 'pending', scheduled_send_time: '2000-01-01T00:00:00Z' },
+    { id: 'ordinary', event_email_id: 'ordinary-email', booking_id: 'ordinary-booking', attendee_email: 'fixture@example.test', status: 'pending', scheduled_send_time: '2000-01-01T00:00:00Z' },
   );
   globalThis.__trainingTest = {
     db: fakeClient(data, { missingTrainingSnapshot: true }),

@@ -26,7 +26,10 @@ function fixture() {
   };
 }
 function database(tables, failTable) {
-  return { from(table) {
+  return { async rpc(name) {
+    if(name==='event_funnel_discovery_ready') return {error:{code:'PGRST202'}};
+    throw new Error(`Unexpected fixture RPC: ${name}`);
+  }, from(table) {
     const filters = [];
     let single = false;
     const q = {
@@ -34,6 +37,10 @@ function database(tables, failTable) {
       eq(k, v) { filters.push(row => row[k] === v); return q; },
       is(k, v) { filters.push(row => (row[k] ?? null) === v); return q; },
       in(k, v) { filters.push(row => v.includes(row[k])); return q; },
+      or() {
+        if((tables[table] || []).length) throw new Error(`Fixture OR requires explicit semantics for ${table}`);
+        return q;
+      },
       ilike(k, v) { filters.push(row => row[k]?.toLowerCase() === v.toLowerCase()); return q; },
       single() { single = true; return q; }, maybeSingle() { single = true; return q; },
       then(resolve) {

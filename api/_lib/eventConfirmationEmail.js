@@ -13,13 +13,14 @@ export function parseCcField(cc) {
   return cc.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null) {
+export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null, deliveryOptions = {}) {
   if (!supabase) return [];
 
   const results = [];
 
   try {
-    const { data: confirmationEmails, error: emailsError } = await supabase
+    const { data: confirmationEmails, error: emailsError } = deliveryOptions.emailConfigs
+      ? { data: deliveryOptions.emailConfigs, error: null } : await supabase
       .from('event_email')
       .select('*')
       .eq('event_id', eventId)
@@ -118,8 +119,9 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     let qrHtml = '';
     if (!event.is_online && event.qr_on_confirmation !== false) {
       try {
-        qrHtml = await buildConfirmationQrHtml(event, booking, eventId);
+        qrHtml = await buildConfirmationQrHtml(event, booking, eventId, {strict:deliveryOptions.requireCheckin===true});
       } catch (qrErr) {
+        if (deliveryOptions.requireCheckin) throw qrErr;
         console.warn('[sendConfirmationEmailsFromTemplate] QR build failed:', qrErr?.message);
       }
     }
@@ -143,7 +145,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
         const ccList = parseCcField(emailConfig.cc);
 
-        const emailResult = await sendEmail({
+        const deliver = deliveryOptions.send || (payload => sendEmail(payload));
+        const emailResult = await deliver({
           to: bookingData.attendee_email,
           subject: subject,
           html: formatBodyAsHtml(body) + qrHtml,
@@ -151,7 +154,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
           tenantId: event.tenant_id,
           attachments: icsAttachment ? [icsAttachment] : undefined,
           inboxDelivery,
-        });
+          ...(deliveryOptions.deadlineAt ? { deadlineAt: deliveryOptions.deadlineAt } : {}),
+        }, emailConfig);
 
         if (emailResult.success) {
           console.log(`[sendConfirmationEmailsFromTemplate] Sent confirmation to ${bookingData.attendee_email}`);
@@ -194,7 +198,8 @@ function escapeQrText(str) {
 
 // Build entrance-QR HTML appended to in-person booking confirmations.
 // Returns '' when no in-person token applies (e.g. online sessions only).
-async function buildConfirmationQrHtml(event, booking, eventId) {
+async function buildConfirmationQrHtml(event, booking, eventId, options = {}) {
+  if (options.strict && !booking?.id) throw new Error('Entrance registration is unavailable');
   if (!booking?.id) return '';
 
   if (event.is_complex) {
@@ -204,7 +209,7 @@ async function buildConfirmationQrHtml(event, booking, eventId) {
       ticket_class_id: booking.ticket_class_id || booking.ticketClassId || null,
       tenant_id: event.tenant_id,
     };
-    const sessions = await ensureComplexSessionTokens(complexBooking, event.tenant_id);
+    const sessions = await ensureComplexSessionTokens(complexBooking, event.tenant_id, options);
     if (!sessions || sessions.length === 0) return '';
     const cards = sessions
       .filter((s) => s && s.token)
@@ -222,7 +227,8 @@ async function buildConfirmationQrHtml(event, booking, eventId) {
     </div>`;
   }
 
-  const token = await ensureBookingToken(booking.id, event.tenant_id);
+  const token = await ensureBookingToken(booking.id, event.tenant_id, options);
+  if (options.strict && !token) throw new Error('Entrance ticket is not ready');
   if (!token) return '';
   return `<div style="font-family: Arial, sans-serif;margin-top:24px;">
     <h3 style="font-size:16px;color:#333333;margin:0 0 8px 0;text-align:center;">Your entrance QR code</h3>

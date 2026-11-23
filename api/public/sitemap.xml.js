@@ -1,5 +1,6 @@
 import { resolveHomepage } from '../_lib/homepage.js';
 import { supabase } from '../_lib/database.js';
+import { readEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
@@ -92,22 +93,22 @@ return async function handler(req, res) {
 
     urls.push({ loc: baseUrl + articlesListPath, changefreq: 'daily', priority: '0.8' });
 
-    let eventsResult = await supabase
+    let eventsResult = await readEventFunnelDiscovery({db:supabase,query:supabase
       .from('event')
       .select('id, slug, start_date, status')
       .eq('tenant_id', tenant.id)
       .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
       .is('member_group_id', null)
-      .order('start_date', { ascending: false });
+      .order('start_date', { ascending: false })});
 
     if (eventsResult.error?.code === '42703') {
       console.warn('[Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter');
-      eventsResult = await supabase
+      eventsResult = await readEventFunnelDiscovery({db:supabase,query:supabase
         .from('event')
         .select('id, slug, start_date, status')
         .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
         .is('member_group_id', null)
-        .order('start_date', { ascending: false });
+        .order('start_date', { ascending: false })});
     }
 
     const [articlesResult, newsResult, jobsResult, customPagesResult] = await Promise.all([

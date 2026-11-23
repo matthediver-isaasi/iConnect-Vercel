@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createFunnelDraft, draftFingerprint, graphConnections, graphIssues, nodeTitle, earlierPurchaseNodes,
+  purchaseVisibilityPatch, purchaseVisibilityIssues } from './eventFunnelBuilderModel.mjs';
+
+const catalog = [{ id: 'conference', kind: 'simple', title: 'Annual conference', tickets: [{ id: 'admission', name: 'Admission' }] }];
+function validDraft() {
+  const draft = createFunnelDraft('association');
+  Object.assign(draft.graph.nodes[0], {
+    event: { id: 'conference', kind: 'simple', tenantId: 'association' }, ticketIds: ['admission'],
+  });
+  return draft;
+}
+
+test('new drafts have independent IDs, revision zero and layout separate from graph', () => {
+  const first = createFunnelDraft('association'), second = createFunnelDraft('association');
+  assert.notEqual(first.id, second.id);
+  assert.equal(first.revision, 0);
+  assert.deepEqual(first.graph.nodes.map(node => node.type), ['source', 'checkout']);
+  assert.equal(first.graph.entry, first.graph.nodes[0].id);
+  assert.equal(first.graph.nodes[0].accept, first.graph.nodes[1].id);
+  assert.ok(first.layout.positions[first.graph.entry]);
+  assert.equal(first.graph.nodes[0].position, undefined);
+});
+
+test('catalog validation reports missing references without modifying the saved graph', () => {
+  const draft = validDraft(), before = JSON.stringify(draft);
+  assert.deepEqual(graphIssues(draft.graph, catalog, 'association'), []);
+  assert.ok(graphIssues(draft.graph, [], 'association').some(issue => issue.includes('reference is preserved')));
+  assert.equal(JSON.stringify(draft), before);
+  assert.match(nodeTitle(draft.graph.nodes[0], []), /Missing event: conference/);
+});
+
+test('ticket references remain visible and cross-tenant drafts cannot save', () => {
+  const draft = validDraft();
+  draft.graph.nodes[0].ticketIds.push('removed-parking');
+  assert.ok(graphIssues(draft.graph, catalog, 'association').some(issue => issue.includes('removed-parking')));
+  assert.ok(graphIssues(draft.graph, catalog, 'other').some(issue => issue.includes('different tenant')));
+});
+
+test('view connections reflect authoritative domain destinations and preserve missing targets', () => {
+  const draft = validDraft();
+  draft.graph.nodes.push({ id: 'branch', type: 'condition', rules: [{ priority: 7, match: 'any', tests: [], to: 'missing-offer' }], fallback: draft.graph.nodes[1].id });
+  const before = JSON.stringify(draft.graph);
+  const connections = graphConnections(draft.graph);
+  assert.ok(connections.some(edge => edge.sourceHandle === 'rule-0' && edge.target === 'missing-offer' && edge.label.includes('7')));
+  assert.ok(connections.some(edge => edge.sourceHandle === 'fallback'));
+  assert.equal(JSON.stringify(draft.graph), before);
+});
+
+test('fingerprint includes layout and edits but excludes server revision metadata', () => {
+  const draft = validDraft(), before = draftFingerprint(draft);
+  draft.revision = 8; draft.published_version_id = 'published-version';
+  assert.equal(draftFingerprint(draft), before);
+  draft.layout.positions[draft.graph.entry].x += 12;
+  assert.notEqual(draftFingerprint(draft), before);
+});
+
+test('inspector flags are explicit, type-scoped edits and do not normalize absent legacy properties', () => {
+  const draft = validDraft(), source = draft.graph.nodes[0], before = draftFingerprint(draft);
+  assert.deepEqual(purchaseVisibilityPatch(source, 'unlisted', true), {});
+  assert.deepEqual(purchaseVisibilityPatch(source, 'funnelOnly', true), {});
+  assert.deepEqual(purchaseVisibilityPatch({ type: 'addon' }, 'unlisted', true), {});
+  assert.deepEqual(purchaseVisibilityPatch({ type: 'event' }, 'unlisted', true), { unlisted: true });
+  assert.deepEqual(purchaseVisibilityPatch({ type: 'addon' }, 'funnelOnly', false), { funnelOnly: false });
+  purchaseVisibilityIssues(source, draft.graph.nodes);
+  assert.equal(Object.hasOwn(source, 'unlisted'), false);
+  assert.equal(Object.hasOwn(source, 'funnelOnly'), false);
+  assert.equal(draftFingerprint(draft), before);
+});
+
+test('same-checkout prerequisites follow connection order, not array order', () => {
+  const nodes = [
+    { id: 'later', type: 'event', accept: 'checkout', skip: 'checkout', requires: [] },
+    { id: 'offer', type: 'event', accept: 'later', skip: 'checkout', requires: ['source'], funnelOnly: true },
+    { id: 'source', type: 'source', accept: 'offer', requires: [] },
+    { id: 'checkout', type: 'checkout' },
+  ];
+  assert.deepEqual(earlierPurchaseNodes(nodes, 'offer').map(node => node.id), ['source']);
+  assert.deepEqual(purchaseVisibilityIssues(nodes[1], nodes), []);
+  assert.ok(purchaseVisibilityIssues({ ...nodes[1], requires: [] }, nodes).some(issue => issue.includes('earlier purchase')));
+  assert.ok(purchaseVisibilityIssues({ ...nodes[1], requires: ['later'] }, nodes).length > 0);
+  assert.ok(purchaseVisibilityIssues({ ...nodes[0], unlisted: 'yes' }, nodes).length > 0);
+});

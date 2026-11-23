@@ -9,17 +9,20 @@ export function safeZoomAttendeeUrl(value) {
 }
 
 export async function zoomRequest(token, path, options = {}) {
+  const { deadlineAt, ...requestOptions } = options;
+  const remaining = deadlineAt == null ? 15000 : deadlineAt - Date.now();
+  if (remaining <= 0) throw new Error('Zoom request deadline reached');
   const response = await fetch(`https://api.zoom.us/v2/${path}`, {
-    ...options,
-    signal: AbortSignal.timeout(15000),
+    ...requestOptions,
+    signal: AbortSignal.timeout(Math.min(15000, remaining)),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
   if (!response.ok) throw new Error(`Zoom request failed (HTTP ${response.status}). Check integration scopes and meeting configuration.`);
   return response.status === 204 ? null : response.json();
 }
 
-export async function readZoomRegistration(token, kind, id) {
-  const data = await zoomRequest(token, `${kind}/${encodeURIComponent(id)}`);
+export async function readZoomRegistration(token, kind, id, { request = zoomRequest } = {}) {
+  const data = await request(token, `${kind}/${encodeURIComponent(id)}`);
   const approval = data.settings?.approval_type;
   if (![0, 1, 2].includes(approval)) throw new Error('Zoom registration setting is unavailable');
   return {
@@ -43,14 +46,14 @@ export async function enableZoomRegistration(token, kind, id) {
   return after;
 }
 
-export async function listZoomRegistrations(token, kind, id) {
+export async function listZoomRegistrations(token, kind, id, { request = zoomRequest } = {}) {
   const records = new Map();
   for (const status of ['approved', 'pending', 'denied']) {
     let next = '';
     const seen = new Set();
     do {
       const query = new URLSearchParams({ status, page_size: '300', next_page_token: next });
-      const data = await zoomRequest(token, `${kind}/${encodeURIComponent(id)}/registrants?${query}`);
+      const data = await request(token, `${kind}/${encodeURIComponent(id)}/registrants?${query}`);
       if (!Array.isArray(data.registrants)) throw new Error('Incomplete Zoom registrant response');
       for (const row of data.registrants) {
         const email = row.email?.trim().toLowerCase();

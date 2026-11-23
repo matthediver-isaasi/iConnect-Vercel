@@ -11,6 +11,7 @@ import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent, assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { prepareUnifiedBookingContract, createUnifiedBookingPayment } from '../_lib/unifiedBookingContract.js';
+import { createFunnelGuardedLegacyIntent } from '../_lib/eventFunnelLegacyIntent.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
@@ -915,6 +916,9 @@ const functionHandlers = {
       ? await createUnifiedBookingPayment({ db: supabase, stripe, contract: unifiedContract, parameters: paymentParameters })
       : invoiceAddressPolicy
       ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
+      : !publicTicketPurchase && !programQuote && metadata?.event_id && metadata?.payment_type !== 'donation'
+      ? await createFunnelGuardedLegacyIntent({db:supabase,stripe,tenantId,eventKind:'simple',
+        eventId:metadata.event_id,ticketIds:[resolvedTicketId || 'default'],parameters:paymentParameters})
       : await stripe.paymentIntents.create(paymentParameters,
         programQuote ? { idempotencyKey: `program-credit:${tenantId}:${programQuote.memberId}:${params.purchaseRequestId}` }
           : publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);

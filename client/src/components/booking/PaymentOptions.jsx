@@ -1,3 +1,7 @@
+import { reservationSelection, savedReservationAcceptance, isGuestOwnedReservation } from "@/lib/eventReservationSelection.mjs";
+import { useOwnedEventReservation } from "@/contexts/EventReservationContext";
+import DOMPurify from "dompurify";
+import "./EventReservationIntegration.css";
 import RegistrationAssociationField from "./RegistrationAssociationField";
 import UnifiedBookingCustomer from "./UnifiedBookingCustomer";
 import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
@@ -445,12 +449,29 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUr
 
 // Isolate waiting mode before mounting ANY payment hooks or return handlers.
 export default function PaymentOptions(props) {
+  const owned = useOwnedEventReservation();
+  const guestOwned = isGuestOwnedReservation(owned?.snapshot);
+  const checkoutProps = guestOwned ? { ...props, memberInfo: null, organizationInfo: null, isGuestCheckout: true } : props;
+  if (props.reservation?.intercept && !props.reservation.active) {
+    return <div className="event-reservation-notice" aria-live="polite">
+      {props.reservation.error ? <>
+        <h3>Registration could not be checked</h3>
+        <p role="alert">We could not verify how to reserve your places. No booking or payment has been submitted.</p>
+        <Button type="button" variant="outline" className="mt-3" onClick={props.reservation.retry}>Try again</Button>
+      </> : <div className="event-reservation-loading" role="status">
+        <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" />
+        <p>Checking registration availability…</p>
+      </div>}
+    </div>;
+  }
   return props.event?.waiting_list_enabled === true
     ? <WaitingListCheckout key={`${props.event.id}:${props.memberInfo?.tenant_id}:${props.memberInfo?.id}`} {...props} />
-    : <NormalPaymentOptions {...props} />;
+    : <NormalPaymentOptions key={props.reservation?.active ? 'reservation' : 'standalone'} {...checkoutProps} />;
 }
 
 function NormalPaymentOptions({
+  reservation = null,
+  reservationItems = null,
   totalCost, 
   memberInfo, 
   organizationInfo, 
@@ -476,11 +497,11 @@ function NormalPaymentOptions({
   isSoldOut = false,
   isRegistrationClosed = false,
   hasAttendeesWithMissingNames = false,
-  hasBookingTerms = false,
-  bookingTerms = '',
-  termsAccepted = false,
-  setTermsAccepted = null,
-  onShowTermsModal = null,
+  hasBookingTerms: providedHasBookingTerms = false,
+  bookingTerms: providedBookingTerms = '',
+  termsAccepted: providedTermsAccepted = false,
+  setTermsAccepted: providedSetTermsAccepted = null,
+  onShowTermsModal: providedOnShowTermsModal = null,
   collectThirdPartyConsent = false,
   thirdPartyConsent = true,
   setThirdPartyConsent = null,
@@ -509,6 +530,7 @@ function NormalPaymentOptions({
     eventId: event.id, kind: isComplexEvent ? 'complex' : 'simple', memberId: memberInfo?.id,
   });
   useEffect(() => {
+    if (reservation?.active) return undefined;
     if (!allocationContext) void offerCommunications(null);
     return () => cancelEventRegistrationConsent({
       eventId: event.id, kind: isComplexEvent ? 'complex' : 'simple', memberId: memberInfo?.id,
@@ -538,9 +560,9 @@ function NormalPaymentOptions({
   const unifiedDiscovery = useUnifiedBookingCapability({
     eventId: event?.id, source: isComplexEvent ? "complex" : "simple", viewerId: memberInfo?.id,
     tenantId: memberInfo?.tenant_id || activeTenant || event?.tenant_id,
-    enabled: isOneOffEvent || isComplexEvent,
+    enabled: !reservation?.owned && (isOneOffEvent || isComplexEvent),
   });
-  const unifiedBooking = unifiedDiscovery.data?.version === 2 && unifiedDiscovery.data?.enabled === true;
+  const unifiedBooking = !reservation?.owned && unifiedDiscovery.data?.version === 2 && unifiedDiscovery.data?.enabled === true;
   const [unifiedDraft, setUnifiedDraft] = useState(null);
   const firstCustomer = unifiedDiscovery.data?.choices?.[0];
   const unifiedInvoiceSelection = unifiedDraft?.scope === checkoutScope ? unifiedDraft.value
@@ -575,7 +597,9 @@ function NormalPaymentOptions({
     purchaseRequestFingerprint.current = resolved.fingerprint;
     return purchaseRequestId.current;
   };
-  const [separatePurchaserInfo, setPurchaserInfo] = useState(() => ticketRequiresPurchaserIdentity ? purchaseIdentity() : ({
+  const [separatePurchaserInfo, setPurchaserInfo] = useState(() => reservation?.active
+    ? purchaseIdentity(reservation.purchaser || reservation.initialAnswers?.purchaser)
+    : (ticketRequiresPurchaserIdentity ? purchaseIdentity() : ({
     first_name: guestInfo?.first_name || '',
     last_name: guestInfo?.last_name || '',
     email: guestInfo?.email || '',
@@ -583,7 +607,7 @@ function NormalPaymentOptions({
     registration_association: guestInfo?.registration_association || null,
     phone: guestInfo?.phone || '',
     job_title: guestInfo?.job_title || ''
-  }));
+  })));
   const hasRegistrationAssociations = !unifiedBooking && !memberInfo && Boolean(guestInfo?.registration_association
     || separatePurchaserInfo.registration_association || attendees.some(person => person.registration_association));
   const requiresPurchaserIdentity = unifiedBooking && isGuestCheckout || ticketRequiresPurchaserIdentity || hasRegistrationAssociations;
@@ -595,13 +619,13 @@ function NormalPaymentOptions({
     && (!isComplexEvent || !!event?.member_group_id) && guestBookingForSelf !== undefined;
   const basePurchaserInfo = associationSelfPurchaser || (selfBookingChoiceRequired && guestBookingForSelf === true)
     ? { ...purchaseIdentity(guestInfo), ...normalizePublicInvoicePoAddress(separatePurchaserInfo) } : separatePurchaserInfo;
-  const purchaserInfo = unifiedBooking && isGuestCheckout
+  const purchaserInfo = reservation?.purchaser || (reservation?.active ? separatePurchaserInfo : unifiedBooking && isGuestCheckout
     ? { ...(requiresPurchaserIdentity ? basePurchaserInfo : { ...guestInfo, ...basePurchaserInfo,
         first_name: basePurchaserInfo.first_name || guestInfo?.first_name, last_name: basePurchaserInfo.last_name || guestInfo?.last_name,
         email: basePurchaserInfo.email || guestInfo?.email }), ...unifiedInvoiceSelection.address }
-    : basePurchaserInfo;
-  const showPurchaserFields = requiresPurchaserIdentity
-    && !associationSelfPurchaser && (!selfBookingChoiceRequired || guestBookingForSelf === false);
+    : basePurchaserInfo);
+  const showPurchaserFields = (reservation?.active && isGuestCheckout) || (requiresPurchaserIdentity
+    && !associationSelfPurchaser && (!selfBookingChoiceRequired || guestBookingForSelf === false));
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
@@ -637,7 +661,7 @@ function NormalPaymentOptions({
     ? "Please provide the booker's first name, last name and valid email address."
     : selfBookingChoiceRequired && guestBookingForSelf === null
     ? "Please choose whether you are booking for yourself."
-    : (unifiedBooking ? null : associationIdentityError) || (ticketRequiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems, { optionalOrganization: unifiedBooking }) : null);
+    : (unifiedBooking || reservation?.owned ? null : associationIdentityError) || (ticketRequiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems, { optionalOrganization: unifiedBooking || reservation?.owned }) : null);
   const guardGuestIdentityEmails = async () => {
     if (memberInfo || !isGuestCheckout) return true;
     const emails = [...new Set([purchaserInfo, guestInfo, ...attendees]
@@ -666,11 +690,11 @@ function NormalPaymentOptions({
     return true;
   };
   const guardTicketBooking = () => {
-    if ((isOneOffEvent || isComplexEvent) && (unifiedDiscovery.isPending || unifiedDiscovery.isError)) {
+    if (!reservation?.active && (isOneOffEvent || isComplexEvent) && (unifiedDiscovery.isPending || unifiedDiscovery.isError)) {
       toast.error(unifiedDiscovery.isError ? 'Invoice customer choices could not be checked. Reload checkout before continuing.' : 'Please wait while checkout availability is checked.');
       return false;
     }
-    if (unifiedBooking && isGuestCheckout && remainingBalance > 0
+    if (!reservation?.active && unifiedBooking && isGuestCheckout && remainingBalance > 0
       && ['invoicing_address_line1','invoicing_city','invoicing_postal_code','invoicing_country']
         .some(key => !String(unifiedInvoiceSelection.address?.[key] || '').trim())) {
       toast.error('Enter invoice address line 1, city, postcode and country before continuing.');
@@ -697,6 +721,7 @@ function NormalPaymentOptions({
   }, [ticketBookingUnavailable]);
 
   useEffect(() => {
+    if (reservation?.active) return;
     if (!guestInfo || ticketRequiresPurchaserIdentity) return;
     setPurchaserInfo(previous => ({
       ...previous,
@@ -765,8 +790,35 @@ function NormalPaymentOptions({
     : null;
   const codeOfConduct = useEventCodeOfConduct(eventPaymentSettings, event?.id,
     !eventPaymentSettingsLoading && !eventPaymentSettingsError && Array.isArray(eventPaymentSettings));
+  // The reservation uses this surface's successfully-loaded policy version for
+  // both display and submission, not a differently cached page-level copy.
+  const configuredTerms = Array.isArray(eventPaymentSettings)
+    ? eventPaymentSettings.find(setting => setting.setting_key === 'event_booking_terms')?.setting_value || '' : '';
+  const bookingTerms = reservation?.active ? configuredTerms : providedBookingTerms;
+  const hasBookingTerms = reservation?.active
+    ? Boolean(bookingTerms.trim() && bookingTerms !== '<p><br></p>') : providedHasBookingTerms;
+  const [reservationTerms, setReservationTerms] = useState({ content: bookingTerms, accepted: false });
+  // Do not resurrect an earlier acceptance if configured content changes away
+  // and later changes back while this screen remains mounted.
+  if (reservation?.active && reservationTerms.content !== bookingTerms) {
+    setReservationTerms({ content: bookingTerms, accepted: false });
+  }
+  const termsAccepted = reservation?.active
+    ? reservationTerms.content === bookingTerms && reservationTerms.accepted : providedTermsAccepted;
+  const setTermsAccepted = reservation?.active
+    ? value => setReservationTerms({ content: bookingTerms, accepted: value === true }) : providedSetTermsAccepted;
+  const [showReservationTerms, setShowReservationTerms] = useState(false);
+  const onShowTermsModal = reservation?.active ? () => setShowReservationTerms(true) : providedOnShowTermsModal;
   const liveCodeOfConduct = useRef(codeOfConduct);
   liveCodeOfConduct.current = codeOfConduct;
+  const restoredReservationAnswers = useRef(false);
+  useEffect(() => {
+    if (!reservation?.initialAnswers || restoredReservationAnswers.current || eventPaymentSettingsLoading || eventPaymentSettingsError) return;
+    restoredReservationAnswers.current = true;
+    const accepted = savedReservationAcceptance(reservation.initialAnswers, bookingTerms, codeOfConduct.content);
+    setReservationTerms({ content: bookingTerms, accepted: accepted.terms });
+    codeOfConduct.setAccepted(accepted.conduct);
+  }, [reservation?.initialAnswers, eventPaymentSettingsLoading, eventPaymentSettingsError, bookingTerms, codeOfConduct.content]);
   useEffect(() => {
     // An unconfirmed card form must not outlive the conduct version it was
     // opened for. Already-paid recovery below retains its original snapshot.
@@ -837,6 +889,7 @@ function NormalPaymentOptions({
 
   // Initialize Stripe by fetching the publishable key from the backend
   useEffect(() => {
+    if (reservation?.active) return;
     const initStripe = async () => {
       if (stripePromise) {
         setStripeAvailable(true);
@@ -863,6 +916,7 @@ function NormalPaymentOptions({
   // When a user returns from 3D Secure bank verification, the URL will contain
   // payment_intent and redirect_status params. We detect this and auto-complete the booking.
   useEffect(() => {
+    if (reservation?.active) return;
     if (paymentReturnHandled || !event?.id) return;
     
     const urlParams = new URLSearchParams(window.location.search);
@@ -1977,6 +2031,30 @@ function NormalPaymentOptions({
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
+    if (reservation?.intercept) {
+      if (!reservation.active || reservation.pending || reservation.loading || !termsRequirementMet
+        || eventPaymentSettingsLoading || eventPaymentSettingsError || isSoldOut || isRegistrationClosed
+        || hasAttendeesWithMissingNames || noTicketsForRole) return;
+      const purchaser = reservation.purchaser || (memberInfo ? {
+        first_name: memberInfo.first_name || '', last_name: memberInfo.last_name || '',
+        email: memberInfo.email || '', organization: organizationInfo?.name || memberInfo.organization || '',
+      } : separatePurchaserInfo);
+      if (!purchaser.first_name?.trim() || !purchaser.last_name?.trim()
+        || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaser.email || '')) {
+        toast.error("Please provide the purchaser's first name, last name and valid email address.");
+        return;
+      }
+      if (!reservation.owned && checkGuestEmailIsMember && !memberInfo && await checkGuestEmailIsMember()) return;
+      if (!reservation.owned && !await guardGuestIdentityEmails()) return;
+      const selection = reservationSelection({
+        items: reservationItems || [{ id: selectedTicketClass?.id || 'default', attendees }],
+        purchaser, termsAccepted: !hasBookingTerms || termsAccepted, bookingTerms,
+        conduct: codeOfConduct, thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent : undefined,
+      });
+      if (!selection.tickets.length) return;
+      await reservation.submit(selection);
+      return;
+    }
     if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {
       toast.error(eventPaymentSettingsError
         ? 'Payment options could not be loaded. Please retry before booking.'
@@ -2530,11 +2608,14 @@ function NormalPaymentOptions({
   // Also require terms acceptance if terms exist
   const termsRequirementMet = (!hasBookingTerms || termsAccepted) && codeOfConduct.canProceed;
   const paymentPolicyReady = !memberInfo || totalCost <= 0 || eventPaymentPolicy !== null;
-  const canProceed = !purchaseIdentityError && !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
+  const canProceed = !purchaseIdentityError && !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (reservation?.active
+    ? ticketsRequired > 0 && !isSubmitting && !reservation.pending && !reservation.loading && !noTicketsForRole
+      && !eventPaymentSettingsLoading && !eventPaymentSettingsError
+    : (
     (isComplexEvent || isOneOffEvent)
       ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
       : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
-  );
+  ));
 
   // Notify parent component of canProceed state changes
   useEffect(() => {
@@ -2775,7 +2856,9 @@ function NormalPaymentOptions({
 
   const mainContent = (
     <>
-      {tbcReplacementActive ? (
+      {reservation?.active ? <p className="text-sm text-muted-foreground">
+        Continue to review optional extras. You will pay once at the final checkout. This does not confirm a booking.
+      </p> : tbcReplacementActive ? (
         tbcBookingReplacement.message ? (
           <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50" data-testid="card-tbc-booking-replacement">
             <p className="text-sm text-blue-900 whitespace-pre-line" data-testid="text-tbc-booking-replacement-message">
@@ -2784,6 +2867,9 @@ function NormalPaymentOptions({
           </div>
         ) : null
       ) : (isOneOffEvent || isComplexEvent) ? renderOneOffPricing() : renderProgramEventDisplay()}
+      {reservation?.ownedGuest && <p className="text-sm text-muted-foreground">
+        This reservation was started as a guest. Signing in does not change its original purchaser or ticket eligibility.
+      </p>}
 
           {releaseBlockedTickets.map(ticket => (
             <p key={ticket.id} className="text-sm text-slate-600" role="status" data-testid={`checkout-ticket-release-${ticket.id}`}>
@@ -2792,7 +2878,7 @@ function NormalPaymentOptions({
           ))}
 
           {/* Action Buttons */}
-          {!isOneOffEvent && !hasEnoughTickets && event.program_tag && (
+          {!reservation?.active && !isOneOffEvent && !hasEnoughTickets && event.program_tag && (
             <Button
               variant="outline"
               className="w-full"
@@ -2898,6 +2984,10 @@ function NormalPaymentOptions({
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Processing...
                 </>
+              ) : reservation?.pending ? (
+                'Saving your selection…'
+              ) : reservation?.active ? (
+                'Continue'
               ) : isRegistrationClosed ? (
                 'Registration Closed'
               ) : isSoldOut ? (
@@ -2928,6 +3018,21 @@ function NormalPaymentOptions({
 
   return (
     <>
+      {reservation?.active && <Dialog open={showReservationTerms} onOpenChange={setShowReservationTerms}>
+        <DialogContent className="max-w-2xl max-h-[80dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Terms and conditions</DialogTitle>
+            <DialogDescription>Booking terms for this event reservation.</DialogDescription></DialogHeader>
+          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bookingTerms) }} />
+        </DialogContent>
+      </Dialog>}
+      {reservation?.error && <div role="alert" className="event-reservation-notice mb-4">
+        <h3>Your selection could not be saved</h3>
+        <p>{reservation.error.message || 'Please try again. No booking or payment has been submitted.'}</p>
+        {reservation.resume && <Button type="button" variant="outline" className="mt-3"
+          onClick={reservation.resume}>Check saved reservation</Button>}
+        {!reservation.owned && <Button type="button" variant="ghost" className="mt-3"
+          onClick={reservation.retry}>Check registration again</Button>}
+      </div>}
       {confirmationModal}
       {renderAsCard ? (
         <Card className="border-slate-200 shadow-lg sticky top-8">
@@ -2935,25 +3040,29 @@ function NormalPaymentOptions({
             <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
-            {showPurchaserFields && <PurchaserIdentityFields optionalOrganization={unifiedBooking} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
+            {showPurchaserFields && <fieldset disabled={Boolean(reservation?.purchaser)} aria-label={reservation?.purchaser ? 'Original purchaser, read only' : 'Purchaser details'}>
+              <PurchaserIdentityFields optionalOrganization={unifiedBooking || reservation?.owned} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />
+            </fieldset>}
             {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
             {mainContent}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {showPurchaserFields && <PurchaserIdentityFields optionalOrganization={unifiedBooking} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
+          {showPurchaserFields && <fieldset disabled={Boolean(reservation?.purchaser)} aria-label={reservation?.purchaser ? 'Original purchaser, read only' : 'Purchaser details'}>
+            <PurchaserIdentityFields optionalOrganization={unifiedBooking || reservation?.owned} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />
+          </fieldset>}
           {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
           {mainContent}
         </div>
       )}
 
       {/* Stripe Payment Drawer */}
-      {unifiedBooking && remainingBalance > 0 && <UnifiedBookingCustomer
+      {!reservation?.active && unifiedBooking && remainingBalance > 0 && <UnifiedBookingCustomer
         choices={unifiedDiscovery.data.choices} guest={isGuestCheckout} value={unifiedInvoiceSelection}
         required={isGuestCheckout} onChange={value => setUnifiedDraft({ scope: checkoutScope, value })} />}
-      {invoiceAddress.step}
-      {unifiedBooking && unifiedDiscovery.data?.incomplete && <p role="status" className="text-sm text-amber-800">
+      {!reservation?.active && invoiceAddress.step}
+      {!reservation?.active && unifiedBooking && unifiedDiscovery.data?.incomplete && <p role="status" className="text-sm text-amber-800">
         Some linked customers or saved addresses could not be verified. Billing yourself remains available.
         Reload to retry; do not select a different customer unless you intend to bill them.
       </p>}

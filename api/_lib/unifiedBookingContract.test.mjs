@@ -47,6 +47,7 @@ function fixture() {
       return query;
     },
     async rpc(name, args) {
+      if (name === 'event_funnel_standalone_offer_allowed') return { data: true };
       if (name === 'unified_booking_readiness') return { data: { version: 2, enabled: true } };
       if (name === 'unified_booking_prepare') {
         const row = { id: args.p_id, tenant_id: args.p_tenant, source: args.p_source, event_id: args.p_event,
@@ -60,6 +61,16 @@ function fixture() {
   return db;
 }
 const input = db => ({ db, tenantId: tenant, source: 'booking', eventId, requestId: id, ticketIds: ['ticket'] });
+test('new restricted instructions are denied but an owned frozen checkout can resume',async()=>{
+  const db=fixture(),request={...input(db),memberId:'member',selection:{type:'member',id:'member'}};
+  const original=await prepareUnifiedBookingContract(request);
+  const rpc=db.rpc.bind(db);
+  db.rpc=async(name,args)=>name==='event_funnel_standalone_offer_allowed'?{data:false}:rpc(name,args);
+  assert.deepEqual(await prepareUnifiedBookingContract(request),original);
+  await assert.rejects(prepareUnifiedBookingContract({...request,requestId:'00000000-0000-4000-8000-000000000099'}),
+    {statusCode:403,code:'FUNNEL_PREREQUISITE_REQUIRED'});
+  assert.equal(db.rows.unified_booking_contract.length,1);
+});
 test('readiness requires explicit matching version and enabled flag', async () => {
   for (const data of [null, { version: 1, enabled: true }, { version: 2, enabled: false }]) {
     assert.equal(await unifiedBookingReady({ rpc: async () => ({ data }) }), false);

@@ -27,6 +27,7 @@ import { INTERNAL_EVENT_TYPES_SETTING_KEY, parseInternalEventTypes } from "@/lib
 import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
 import { EVENT_DISPLAY_TIMEZONES_KEY, parseEventDisplayTimezones } from "../../../shared/eventDisplayTimezones.js";
 import EventDisplayTimezoneEditor from "@/components/events/EventDisplayTimezoneEditor";
+import EventFunnelSettings from "@/components/events/EventFunnelSettings";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -1880,6 +1881,7 @@ export default function EventSettingsPage() {
           </Button>
         </div>
 
+        <EventFunnelSettings />
         {/* Configuration Section */}
         <Card className="border-slate-200 shadow-sm mb-8">
           <CardHeader className="border-b border-slate-200">

@@ -26,6 +26,15 @@ function fixture({ stripe = true, missing = false, throttle = null } = {}) {
   return { row, db, transport, calls };
 }
 
+test('funnel preparation freezes native tax references without adding them to provider payload',async()=>{
+  const f=fixture();f.row.source_type='event_funnel';
+  f.row.snapshot.linkage.lineAllocations=[{index:0,source:'booking',bookingId:'booking',amountMinor:2000}];
+  const resolved=await prepareAccountingEventSource(f),envelope=resolved.invoice.envelope;
+  assert.deepEqual(envelope.expected.funnelTaxLines,[{index:0,amountMinor:2000,grossMinor:2000,taxMinor:0,
+    taxCodeId:'tax',taxRateId:null,percentage:0}]);
+  assert.equal(envelope.payload.funnelTaxLines,undefined);
+});
+
 for (const stripe of [false, true]) test(`QBO event preparation freezes exact economics and original receipt: ${stripe}`, async () => {
   const f = fixture({ stripe });
   const original = structuredClone(f.row.snapshot);

@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import {approveFunnelCancellation} from '../_lib/eventFunnelCancellationApproval.js';
 import { sendEmail } from '../_lib/emailService.js';
 import {
   buildCancellationEmail,
@@ -67,10 +68,6 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Cancellation request not found' });
     }
 
-    if (request.status !== 'pending') {
-      return res.status(400).json({ error: `Request has already been ${request.status}` });
-    }
-
     let reviewerName = 'Admin';
     if (ctx.tenantUserId) {
       const { data: tu } = await supabase.from('tenant_user').select('email, name').eq('id', ctx.tenantUserId).single();
@@ -81,6 +78,18 @@ export default async function handler(req, res) {
     }
     let reversalResults = null;
 
+    if (status === 'approved') {
+      const funnel=await approveFunnelCancellation({db:supabase,ctx,req,requests:[request],reviewerName,
+        hasAdminAccess,hasFeatureAccess,
+        amountsByRequest:{[request.id]:{refundAllocation:refund_allocation||{},customRefundAmount:custom_refund_amount??null}},
+        options:reversal_options||{},reviewNotes:review_notes||null,suppressEmails:suppress_emails??false,
+        creditNoteEmail:credit_note_email||null});
+      if(funnel)return res.json({request:{...request,status:'approved',reviewed_by:reviewerName,
+        review_notes:review_notes||null,reviewed_at:funnel.reviewedAt},reversalResults:{funnel}});
+    }
+    if (request.status !== 'pending') {
+      return res.status(400).json({ error: `Request has already been ${request.status}` });
+    }
     if (status === 'approved') {
       // Effective Stripe refund amount: explicit custom value wins, otherwise
       // honour the allocation breakdown coming from the modal.
@@ -178,6 +187,7 @@ export default async function handler(req, res) {
 
     return res.json({ request: updated, reversalResults });
   } catch (err) {
+    if([400,403,409,429,503].includes(err.status))return res.status(err.status).json({error:err.message});
     console.error('[CancellationRequest] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }

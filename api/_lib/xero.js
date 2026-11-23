@@ -1882,6 +1882,7 @@ export async function emailXeroCreditNote({ appTenantId, creditNoteId, creditNot
 
 export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference, recoveryKey }, {
   fetcher = xeroRateLimitedFetch, loadToken = getValidXeroAccessToken,
+  buildAmounts = buildXeroCreditAmounts, verifyCredit = null, validateCredit = assertXeroCreditTotal,
 } = {}) {
   const fetch = fetcher;
   if (!appTenantId) throw new Error('appTenantId is required');
@@ -1957,6 +1958,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
         throw new Error('Existing credit note exceeds the intended gross credit; administrator review required');
       }
       console.log(`[Xero] Credit note already exists for reference "${reference}": ${matchingCN.CreditNoteNumber}`);
+      if(verifyCredit)await verifyCredit(matchingCN,invoice);
       return {
         creditNoteId: matchingCN.CreditNoteID,
         creditNoteNumber: matchingCN.CreditNoteNumber,
@@ -1982,7 +1984,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
     throw new Error(`Invoice ${invoiceId} has no associated contact in Xero`);
   }
 
-  const creditAmounts = buildXeroCreditAmounts(invoice, effectiveAmount, description);
+  const creditAmounts = await buildAmounts(invoice, effectiveAmount, description);
 
   const creditNotePayload = {
     CreditNotes: [{
@@ -2014,8 +2016,9 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   if (!creditNote?.CreditNoteID) {
     throw new Error(`Failed to create Xero credit note: ${JSON.stringify(creditNoteData).substring(0, 500)}`);
   }
-  assertXeroCreditTotal(creditNote, effectiveAmount, invoice.CurrencyCode,
+  validateCredit(creditNote, effectiveAmount, invoice.CurrencyCode,
     creditAmounts.LineItems.reduce((sum, line) => sum + line.TaxAmount, 0));
+  if(verifyCredit)await verifyCredit(creditNote,invoice);
 
   console.log(`[Xero] Credit note created: ${creditNote.CreditNoteNumber} (${creditNote.CreditNoteID})`);
 

@@ -2,8 +2,11 @@ import { getSessionMember } from '../_lib/session.js';
 import { getAccountingProvider, getAccountingProviderByName } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { readFunnelInvoiceDownload, fetchFunnelInvoicePdf } from '../_lib/eventFunnelInvoiceReaders.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -30,6 +33,16 @@ export default async function handler(req, res) {
   }
 
   try {
+    const sharedInvoice = await readFunnelInvoiceDownload({ db: supabase, tenantId,
+      groupRef: bookingGroupRef, memberId: sessionMember?.id, isAdmin });
+    if (sharedInvoice) {
+      const pdf = await fetchFunnelInvoicePdf({ db: supabase, tenantId, link: sharedInvoice });
+      const filename = String(sharedInvoice.invoiceNumber || bookingGroupRef).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0,100);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', pdf.length);
+      res.setHeader('Content-Disposition', `${req.query.inline === 'true' ? 'inline' : 'attachment'}; filename="invoice-${filename}.pdf"`);
+      return res.send(pdf);
+    }
     let booking = null;
 
     const { data: regularBooking, error } = await supabase
@@ -104,6 +117,9 @@ export default async function handler(req, res) {
 
     return res.send(pdfBuffer);
   } catch (error) {
+    if ([403,409,503].includes(error.status)) {
+      return res.status(error.status).json({ error: 'The original checkout invoice is not available.' });
+    }
     console.error('Error serving invoice PDF:', error);
     if (error.code === 'ACCOUNTING_PROVIDER_NONE' || error.code === 'ACCOUNTING_PROVIDER_NOT_CONFIGURED') {
       return res.status(503).json({ error: 'The invoice is temporarily unavailable. Please try again later.' });

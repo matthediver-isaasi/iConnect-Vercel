@@ -9,6 +9,7 @@ import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationReve
 import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
 import { registrationGroupMatches } from '../../shared/eventRegistrationSearch.mjs';
 import { addUnifiedBookingReportStatus } from '../_lib/unifiedBookingReport.js';
+import { addFunnelInvoiceReportStatus } from '../_lib/eventFunnelInvoiceReaders.js';
 
 // Never log provider messages/details: they can contain query values or HTML.
 export function reportQueryFailure(stage, error) {
@@ -1101,6 +1102,7 @@ export default async function handler(req, res, publicPoOnly = false) {
       }
 
       await addUnifiedBookingReportStatus(supabase, tenantId, bookingGroups);
+      await addFunnelInvoiceReportStatus(supabase, tenantId, bookingGroups);
       summary = {
         ...summarizeRegistrationRevenue(bookingGroups),
         totalVoucher,

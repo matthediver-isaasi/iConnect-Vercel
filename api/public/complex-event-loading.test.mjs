@@ -32,7 +32,12 @@ async function invoke(name, { ticketError = null, eventError = null, missing = f
     { id: 'ordinary', complex_event_id: 'event', price: 12, available_count: 2, visibility_mode: 'members_and_public' },
     { id: 'private', complex_event_id: 'event', price: 1, audience_mode: 'selected_members', selected_member_ids: [memberId], visibility_mode: 'members_only' },
   ];
-  globalThis.eventLoadingFixture = { viewer, db: { from(table) {
+  globalThis.eventLoadingFixture = { viewer, db: {
+    async rpc(name) {
+      assert.equal(name, 'event_funnel_inventory_projection');
+      return { data: [], error: null };
+    },
+    from(table) {
     const call = { table, filters: [] }; calls.push(call);
     const builder = {
       select() { return this; }, order() { return this; }, or() { return this; },

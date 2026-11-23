@@ -44,6 +44,7 @@ async function handler(file) {
 function database(seed) {
   return {
     async rpc(name, args) {
+      if (name === 'event_funnel_inventory_projection') return { data: [], error: null };
       assert.equal(name, 'simple_event_capacity');
       const event = seed.event.find(row => row.id === args.p_event_id);
       const confirmed = (seed.booking || []).filter(row => row.status === 'confirmed').length;

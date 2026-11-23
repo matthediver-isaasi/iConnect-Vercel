@@ -1,0 +1,14 @@
+.event-reservation-page { max-width: 80rem; margin-inline: auto; padding: clamp(1rem, 3vw, 2.5rem); min-height: 100dvh; }
+.event-reservation-notice { border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--muted) / .45); padding: 1.25rem; }
+.event-reservation-notice h3 { font-size: 1rem; font-weight: 600; margin-bottom: .5rem; }
+.event-reservation-notice p { font-size: .875rem; line-height: 1.6; color: hsl(var(--muted-foreground)); }
+.event-reservation-nav { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+.event-reservation-loading { display: grid; gap: .75rem; padding: 1.5rem; }
+.event-reservation-loading span { height: 1rem; width: 80%; border-radius: .25rem; background: hsl(var(--muted)); }
+.event-reservation-loading span:nth-child(2) { width: 60%; }
+.event-reservation-loading span:nth-child(3) { height: 7rem; width: 100%; }
+.event-reservation-page:has([data-viewing-history="true"]) [data-testid="journey-skip"] { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .event-reservation-reveal { animation: reservation-reveal 180ms ease-out; }
+  @keyframes reservation-reveal { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+}

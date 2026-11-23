@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
 import { classifyEmailDelivery } from '../_lib/emailDeliveryClassification.js';
+import { receiveFunnelMailgunReceipt } from '../_lib/eventFunnelMailgunReceipt.js';
 
 const MAILGUN_WEBHOOK_SIGNING_KEY = process.env.MAILGUN_WEBHOOK_SIGNING_KEY;
 
@@ -47,6 +48,12 @@ export default async function handler(req, res) {
 
   const eventData = req.body['event-data'] || req.body;
   const signature = req.body.signature;
+  // Funnel recovery is strictly signed even when the legacy campaign route
+  // permits an unconfigured signing key. Never inherit that compatibility path.
+  try {
+    const receipt=await receiveFunnelMailgunReceipt({body:req.body,db:supabase,signingKey:MAILGUN_WEBHOOK_SIGNING_KEY});
+    if(receipt)return res.status(receipt.status).json(receipt.body);
+  } catch {return res.status(503).json({error:'Receipt processing requires retry'});}
 
   if (signature && MAILGUN_WEBHOOK_SIGNING_KEY) {
     const isValid = verifyWebhookSignature(

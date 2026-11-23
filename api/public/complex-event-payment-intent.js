@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { prepareUnifiedBookingContract, createUnifiedBookingPayment } from '../_lib/unifiedBookingContract.js';
+import { createFunnelGuardedLegacyIntent } from '../_lib/eventFunnelLegacyIntent.js';
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent } from '../_lib/eventInvoiceAddressPolicy.js';
 import { enforceAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
@@ -454,6 +455,9 @@ export default async function handler(req, res) {
       ? await createUnifiedBookingPayment({ db: supabase, stripe, contract: unifiedContract, parameters: paymentParameters })
       : invoiceAddressPolicy
       ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
+      : !publicTicketPurchase
+      ? await createFunnelGuardedLegacyIntent({db:supabase,stripe,tenantId:tenant.id,eventKind:'complex',
+        eventId:event_id,ticketIds:normalizedItems.map(item=>item.ticket_class_id),parameters:paymentParameters})
       : await stripe.paymentIntents.create(paymentParameters,
         publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenant.id}:${publicTicketPurchase.id}` } : undefined);
     if (publicTicketPurchase) {

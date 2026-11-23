@@ -57,6 +57,7 @@ import {
 } from "@/lib/eventRegistrationRecordedFinancial";
 import { summarizeRegistrationRevenue, registrationRevenueExplanation } from "../../../shared/eventRegistrationRevenue.mjs";
 import { registrationGroupMatches } from "../../../shared/eventRegistrationSearch.mjs";
+import EventFunnelCancellationRecovery from "@/components/booking/EventFunnelCancellationRecovery";
 import {
   formatRegistrationCreditBreakdown,
   formatRegistrationCreditExplanation,
@@ -72,6 +73,17 @@ function formatDietarySelections(value) {
 }
 
 function ReportInvoice({ payment, groupRef, testId }) {
+  const shared=payment.sharedCheckout;
+  return <div className="inline-flex flex-col gap-1">
+    <ReportInvoiceContent payment={payment} groupRef={groupRef} testId={testId} />
+    {shared && <span className="text-xs text-muted-foreground" title={`Checkout ${shared.orderId}`}>
+      Shared checkout {shared.orderId} · {shared.invoiceMode === 'consolidated' ? 'Combined invoice' : 'Invoice per event'}
+    </span>}
+    {shared?.orderId && <EventFunnelCancellationRecovery orderId={shared.orderId} />}
+  </div>;
+}
+
+function ReportInvoiceContent({ payment, groupRef, testId }) {
   if (eventInvoiceId(payment) || eventInvoiceNumber(payment) || eventInvoiceAwaited(payment) || eventInvoiceNeedsAttention(payment)) {
     return <span className="inline-flex items-center gap-1">
       <EventInvoiceStatus record={payment} admin showInvoice testId={testId} />
@@ -85,6 +97,11 @@ function ReportInvoice({ payment, groupRef, testId }) {
 }
 
 function reportInvoiceExport(payment) {
+  const invoice=reportInvoiceExportText(payment),shared=payment.sharedCheckout;
+  return shared ? `${invoice ? `${invoice}; ` : ''}Checkout ${shared.orderId}; ${shared.invoiceMode === 'consolidated' ? 'Combined invoice' : 'Invoice per event'}` : invoice;
+}
+
+function reportInvoiceExportText(payment) {
   const number = eventInvoiceNumber(payment);
   if (number || eventInvoiceId(payment)) {
     const label = number || 'Invoice available';
@@ -2708,7 +2725,7 @@ export default function EventRegistrationReport() {
                             <td className="pt-3 pr-3 text-right whitespace-nowrap" data-testid="text-total-credits">
                               {formatRegistrationCreditSummary(filteredSummary.creditsSummary)}
                             </td>
-                            <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 11 : 10}>
+                            <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 10 : 9}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
                                 <span>Account: {filteredSummary.countByMethod?.account || 0}</span>
                                 <span>Card: {filteredSummary.countByMethod?.card || 0}</span>

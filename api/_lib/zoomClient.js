@@ -102,7 +102,7 @@ export async function getZoomAccessTokenForTenant(tenantId) {
   );
 }
 
-async function getZoomTokenWithCredentials(cacheKey, accountId, clientId, clientSecret) {
+async function getZoomTokenWithCredentials(cacheKey, accountId, clientId, clientSecret, { deadlineAt } = {}) {
   const cached = tokenCacheByTenant.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt - 60000) {
     return cached.token;
@@ -110,7 +110,10 @@ async function getZoomTokenWithCredentials(cacheKey, accountId, clientId, client
 
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
+  const remaining = deadlineAt == null ? null : deadlineAt - Date.now();
+  if (remaining !== null && remaining <= 0) throw new Error('Zoom authentication deadline reached');
   const response = await fetch('https://zoom.us/oauth/token', {
+    ...(remaining === null ? {} : { signal: AbortSignal.timeout(Math.min(10000, remaining)) }),
     method: 'POST',
     headers: {
       'Authorization': `Basic ${basicAuth}`,
@@ -133,6 +136,19 @@ async function getZoomTokenWithCredentials(cacheKey, accountId, clientId, client
   });
 
   return data.access_token;
+}
+
+// Funnel workers need an account-bound cache key rather than the legacy
+// tenant-only cache: changing a connection must not reuse the old authority.
+export async function getFunnelZoomAuthority(tenantId, { deadlineAt, credentialsFor=getTenantZoomCredentials,
+  tokenFor=getZoomTokenWithCredentials } = {}) {
+  const credentials = await credentialsFor(tenantId);
+  if (!credentials) throw new Error('Zoom authority unavailable');
+  const authorityHash = crypto.createHash('sha256')
+    .update(JSON.stringify([credentials.account_id, credentials.client_id])).digest('hex');
+  const token = await tokenFor(`funnel:${tenantId}:${authorityHash}`,
+    credentials.account_id, credentials.client_id, credentials.client_secret, { deadlineAt });
+  return { token, authorityHash };
 }
 
 export async function getTenantIdFromSession(req) {

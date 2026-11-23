@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
+import { scopeEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
 import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
@@ -35,7 +37,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: rawEvents, error } = await supabase
+    let eventsQuery = supabase
       .from('complex_event')
       .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, registration_closes_at, event_type, is_featured, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, member_group_id, group_event_public, custom_duration_explainer, speaker_display_mode, sponsor_display_mode, waiting_list_enabled')
       .eq('tenant_id', tenant.id)
@@ -46,6 +48,8 @@ export default async function handler(req, res) {
       // leaked to anonymous visitors.
       .or('member_group_id.is.null,group_event_public.is.true')
       .order('start_date', { ascending: true });
+    ({query:eventsQuery}=await scopeEventFunnelDiscovery({db:supabase,query:eventsQuery}));
+    const {data:rawEvents,error}=await eventsQuery;
 
     if (error) {
       console.error('[Public Complex Events] Query error:', error);
@@ -139,7 +143,8 @@ export default async function handler(req, res) {
     }
 
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
-    const events = (rawEvents || []).map(event => {
+    const capacityEvents = await projectPublicShoppingAvailability(supabase, tenant.id, 'complex', rawEvents || []);
+    const events = capacityEvents.map(event => {
       const allTicketClasses = filterViewerTickets(ticketClassesByEvent[event.id] || [], viewer, tenant.id);
       const allPrices = allTicketClasses
         .map(tc => Number(tc.price))
@@ -192,6 +197,7 @@ export default async function handler(req, res) {
         image_url: event.image_url,
         status: event.status,
         available_seats: event.available_seats,
+        ...(event.shopping_held ? { shopping_held: event.shopping_held } : {}),
         timezone: event.timezone,
         event_state: event.event_state || null,
         registration_closes_at: event.registration_closes_at || null,

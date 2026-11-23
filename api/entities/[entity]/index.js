@@ -141,6 +141,8 @@ import {
 import { GROUP_FIELDS_KEY } from '../../../shared/memberGroupCustomFields.js';
 import { validateGroupValueWrite, projectGroupCustomFields } from '../../_lib/memberGroupCustomFields.js';
 
+import { scopeEventFunnelDiscovery,isDirectEventLookup } from '../../_lib/eventFunnelDiscovery.js';
+
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   'form_privacy_settings_url',
   GROUP_FIELDS_KEY,
@@ -910,6 +912,10 @@ export default async function handler(req, res) {
       // and pickers use the operational population.
       if (entityNorm === 'member' && typeof tenantCtx.parsedFilter?.id !== 'string') {
         ({ query } = await operationalMemberQuery(supabase, query));
+      }
+      if(['event','complexevent'].includes(entityNorm)
+        && !isDirectEventLookup(tenantCtx.parsedFilter)) {
+        ({query}=await scopeEventFunnelDiscovery({db:supabase,query,isAdministrator:await hasAdminAccess(tenantCtx)}));
       }
       if (entityNorm === 'blogpost') {
         res.setHeader('Cache-Control', 'private, no-store');

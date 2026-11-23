@@ -1,3 +1,5 @@
+import { useEventReservation, useOwnedEventReservation } from "@/contexts/EventReservationContext";
+import { restoreReservationCart, heldReservationQuantity, isGuestOwnedReservation } from "@/lib/eventReservationSelection.mjs";
 import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
@@ -267,7 +269,15 @@ export function EventDetailsExperience({
   debugMode = false,
   allocationToken = null,
 }) {
-  const { memberInfo, organizationInfo, memberRole, authResolved, sessionValidated, roleStatus, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const ownedReservation = useOwnedEventReservation();
+  const ownedGuest = isGuestOwnedReservation(ownedReservation?.snapshot);
+  const { memberInfo: browserMemberInfo, organizationInfo: browserOrganizationInfo, memberRole: browserMemberRole, authResolved, sessionValidated, roleStatus, isFeatureExcluded: browserIsFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  // A later browser login never upgrades the audience or purchaser of an
+  // already-owned guest reservation. Ownership remains API/cookie verified.
+  const memberInfo = ownedGuest ? null : browserMemberInfo;
+  const organizationInfo = ownedGuest ? null : browserOrganizationInfo;
+  const memberRole = ownedGuest ? null : browserMemberRole;
+  const isFeatureExcluded = ownedGuest ? undefined : browserIsFeatureExcluded;
   const [selectedProgramOwner, setSelectedProgramOwner] = useState(null);
   const programTicketOwner = selectedProgramOwner || (organizationInfo?.id ? 'organization' : 'member');
   const { data: personalProgramBalances = {}, error: personalProgramError } = useQuery({
@@ -295,7 +305,8 @@ export function EventDetailsExperience({
   const [registrationMode, setRegistrationMode] = useState('colleagues');
   const [memberAttending, setMemberAttending] = useState(false);
   const [activeRegistrationPanel, setActiveRegistrationPanel] = useState(null); // 'team' | 'external' | null
-  const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
+  const [selectedTicketClassId, setSelectedTicketClassId] = useState(() => ownedReservation
+    ? Object.keys(restoreReservationCart(ownedReservation.offer))[0] || null : null);
   const [earlyBirdExpiredTick, setEarlyBirdExpiredTick] = useState(0);
   const handleEarlyBirdExpired = useCallback(() => setEarlyBirdExpiredTick(t => t + 1), []);
   const [paymentCanProceed, setPaymentCanProceed] = useState(false);
@@ -436,6 +447,18 @@ export function EventDetailsExperience({
     console.log('[EventDetails] Running initialization logic');
     hasInitialized.current = eventId; // Mark as initialized for this eventId
 
+    if (ownedReservation) {
+      const restored = restoreReservationCart(ownedReservation.offer);
+      const [ticketId, item] = Object.entries(restored)[0] || [];
+      const savedAnswers = ownedReservation.offer.draft?.answers;
+      setAttendees(item?.attendees || []);
+      if (ticketId) setSelectedTicketClassId(ticketId);
+      if (savedAnswers?.purchaser || ownedReservation.snapshot.purchaser) setGuestInfo(previous => ({ ...previous,
+        ...(ownedReservation.snapshot.purchaser || savedAnswers.purchaser),
+        ...(item?.attendees?.[0] || {}) }));
+      setGuestBookingForSelf(false);
+      return;
+    }
     if (currentMemberInfo && eventId) {
       const savedRegistration = sessionStorage.getItem(`event_registration_${eventId}`);
       console.log('[EventDetails] Saved registration in sessionStorage:', savedRegistration ? 'exists' : 'not found');
@@ -469,7 +492,7 @@ export function EventDetailsExperience({
   // Separate useEffect to save state to sessionStorage
   useEffect(() => {
     // Only save if initialization has completed for the current eventId
-    if (!editorMode && eventId && currentMemberInfo && hasInitialized.current === eventId) {
+    if (!ownedReservation && !editorMode && eventId && currentMemberInfo && hasInitialized.current === eventId) {
       const registrationData = {
         attendees,
         registrationMode,
@@ -480,13 +503,27 @@ export function EventDetailsExperience({
   }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo, editorMode]);
 
   // Resolve waiting mode before realtime notifications: interest never sells out.
-  const { data: event, isLoading } = useEventData(eventId);
+  const { data: fetchedEvent, isLoading } = useEventData(ownedReservation ? null : eventId);
+  const event = useMemo(() => {
+    if (!ownedReservation) return fetchedEvent;
+    const authorized = ownedReservation.offer.event;
+    let pricing = authorized.pricing_config;
+    if (typeof pricing === 'string') { try { pricing = JSON.parse(pricing); } catch { pricing = {}; } }
+    return { ...authorized, pricing_config: { ...pricing, ticket_classes: ownedReservation.offer.tickets,
+      ticket_classes_configured: true } };
+  }, [fetchedEvent, ownedReservation?.offer]);
+  const reservation = useEventReservation({ eventId, eventKind: 'simple', viewerKey,
+    enabled: authResolved && !!event && !editorMode && !allocationToken && event.waiting_list_enabled !== true });
   const unifiedCapability = useUnifiedBookingCapability({ eventId, viewerId: currentMemberInfo?.id,
     tenantId: currentMemberInfo?.tenant_id || event?.tenant_id,
-    enabled: authResolved && !!event && (event.waiting_list_enabled === true || !event.program_tag) });
-  const unifiedBooking = unifiedCapability.data?.version === 2 && unifiedCapability.data.enabled;
+    enabled: !ownedReservation && authResolved && !!event && (event.waiting_list_enabled === true || !event.program_tag) });
+  const unifiedBooking = !ownedReservation && unifiedCapability.data?.version === 2 && unifiedCapability.data.enabled;
+  // Owned answers have already passed the reservation contract. Do not turn a
+  // previously optional organisation into a new required field when discovery
+  // is intentionally disabled to avoid adopting a later login's customer.
+  const guestOrganizationOptional = Boolean(ownedReservation) || unifiedBooking;
   const isGuestFormValid = guestInfo.first_name.trim() !== '' && guestInfo.last_name.trim() !== ''
-    && guestInfo.email.includes('@') && (unifiedBooking || guestInfo.organization.trim() !== '');
+    && guestInfo.email.includes('@') && (guestOrganizationOptional || guestInfo.organization.trim() !== '');
   // Set up realtime subscription for seat updates
   const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
     showSoldOutToast: event?.waiting_list_enabled !== true,
@@ -874,6 +911,9 @@ export function EventDetailsExperience({
   const getTicketSoldOut = (ticket) => {
     if (waitingListEnabled) return false;
     if (!ticket) return false;
+    const held = heldReservationQuantity(ownedReservation?.snapshot, ownedReservation?.offer.nodeId, ticket.id);
+    const quantity = isGuestCheckout ? 1 : attendees.filter(person => person.isValid).length;
+    if (held > 0 && quantity <= held) return false;
     const realtimeAvail = getTicketClassAvailability(String(ticket.id));
     if (realtimeAvail) {
       return realtimeAvail.isSoldOut === true;
@@ -1024,6 +1064,8 @@ export function EventDetailsExperience({
   // Auto-select first available PURCHASABLE ticket class
   // Also reset selection if currently selected ticket becomes non-purchasable
   useEffect(() => {
+    if (ownedReservation && selectedTicketClassId
+      && allNormalizedTickets.some(ticket => String(ticket.id) === String(selectedTicketClassId))) return;
     if (allocationMode && allocationContext.ticketTypeId) {
       setSelectedTicketClassId(allocationContext.ticketTypeId);
       return;
@@ -1475,11 +1517,13 @@ export function EventDetailsExperience({
 
   // CTA override "detail_page" mode: card opens this page, but booking inputs
   // are hidden and replaced with a "Continue to book" button linking out.
-  const useCtaOverrideDetailMode = !waitingListEnabled && !!event?.cta_override_url
+  const useCtaOverrideDetailMode = !reservation.intercept && !waitingListEnabled && !!event?.cta_override_url
     && event?.cta_override_mode === 'detail_page';
   
   // Check if event is sold out (not unlimited and available_seats <= 0)
-  const isSoldOut = !waitingListEnabled && !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
+  const selectionHeld = ticketsRequired > 0 && heldReservationQuantity(ownedReservation?.snapshot,
+    ownedReservation?.offer.nodeId, selectedTicketClass?.id) >= ticketsRequired;
+  const isSoldOut = !selectionHeld && !waitingListEnabled && !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
   
   // Check if registration is closed (event_state is 'closed')
   // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
@@ -1558,6 +1602,7 @@ export function EventDetailsExperience({
   const hasEnoughTickets = isOneOffEvent || programRetryAvailable || availableProgramTickets >= ticketsRequired;
 
   const checkGuestEmailIsMember = async (emailToCheck) => {
+    if (ownedReservation) return false;
     const email = emailToCheck || guestInfo?.email;
     if (!isGuestCheckout || !email) return false;
     try {
@@ -1590,6 +1635,7 @@ export function EventDetailsExperience({
   };
 
   const handleConfirmBooking = async () => {
+    if (reservation.intercept) return;
     if (!codeOfConduct.canProceed) {
       toast.error('Please accept the Code of Conduct before booking.');
       return;
@@ -2263,9 +2309,9 @@ export function EventDetailsExperience({
 
                     <div className="space-y-2">
                       <Label htmlFor="guest-organization" className={isGuestFormDisabled ? "text-slate-400" : ""}>
-                        Organisation {unifiedBooking ? '(optional)' : <span className="text-red-500">*</span>}
+                        Organisation {guestOrganizationOptional ? '(optional)' : <span className="text-red-500">*</span>}
                       </Label>
-                      {unifiedBooking ? <Input id="guest-organization" value={guestInfo.organization}
+                      {guestOrganizationOptional ? <Input id="guest-organization" value={guestInfo.organization}
                         placeholder="Organisation reference (optional)" disabled={isGuestFormDisabled}
                         onChange={event => setGuestInfo(previous => ({ ...previous, organization: event.target.value }))} /> : <RegistrationAssociationField
                         eventId={eventId}
@@ -2433,7 +2479,7 @@ export function EventDetailsExperience({
                         />
                         
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
-                        {!isOneOffEvent && !waitingListEnabled && (
+                        {!reservation.intercept && !isOneOffEvent && !waitingListEnabled && (
                           <div className="pt-4 border-t border-slate-200 space-y-4">
                             <label className="block text-sm font-medium">
                               Programme ticket owner
@@ -2889,6 +2935,7 @@ export function EventDetailsExperience({
               </Card>
             ) : (
             <PaymentOptions
+              reservation={reservation}
               editorMode={editorMode}
               tbcBookingReplacement={tbcBookingReplacement}
               totalCost={totalCost}

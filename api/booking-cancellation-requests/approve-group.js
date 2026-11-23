@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import {approveFunnelCancellation} from '../_lib/eventFunnelCancellationApproval.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { getAccountingProvider, buildCreditNoteColumnUpdate } from '../_lib/accountingProvider.js';
 import { sendEmail } from '../_lib/emailService.js';
@@ -13,6 +14,7 @@ import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClien
 import Stripe from 'stripe';
 import { captureCancellationCredits, prepareCancellationCredits } from '../_lib/bookingCreditEvidence.js';
 import { createRecoverableCancellationCredit } from '../_lib/cancellationCreditRecovery.js';
+import { assertLegacyFunnelReversalAllowed } from '../_lib/eventFunnelReversalBoundary.js';
 import {
   isComplexSource,
   normalizeComplexBooking,
@@ -70,8 +72,7 @@ export default async function handler(req, res) {
       .from('booking_cancellation_request')
       .select('*')
       .in('id', request_ids)
-      .eq('tenant_id', tenantId)
-      .eq('status', 'pending');
+      .eq('tenant_id', tenantId);
 
     if (fetchError) {
       console.error('[GroupApproval] Error fetching requests:', fetchError);
@@ -88,6 +89,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Some requests are not pending or not found: ${missing.join(', ')}` });
     }
 
+    let reviewerName = 'Admin';
+    if (ctx.tenantUserId) {
+      const { data: tu } = await supabase.from('tenant_user').select('email, name').eq('id', ctx.tenantUserId).single();
+      if (tu) reviewerName = tu.email || tu.name || 'Admin';
+    } else if (ctx.memberId) {
+      const { data: m } = await supabase.from('member').select('email, first_name, last_name').eq('id', ctx.memberId).single();
+      if (m) reviewerName = m.email || [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Admin';
+    }
+    if(status==='approved'){
+      const funnel=await approveFunnelCancellation({db:supabase,ctx,req,requests:pendingRequests,reviewerName,
+        hasAdminAccess,hasFeatureAccess,options:reversal_options||{},reviewNotes:review_notes||null,
+        suppressEmails:suppress_emails??false,creditNoteEmail:credit_note_email||null,
+        groupAmounts:{refundAllocation:refund_allocation||{},customRefundAmount:custom_refund_amount??null}});
+      if(funnel)return res.json({success:true,count:pendingRequests.length,reversalResults:{funnel}});
+    }
+    if(pendingRequests.some(r=>r.status!=='pending')){
+      return res.status(400).json({error:'Some requests have already been reviewed'});
+    }
     const groupRefs = [...new Set(pendingRequests.map(r => r.booking_group_reference).filter(Boolean))];
     if (groupRefs.length === 0) {
       return res.status(400).json({ error: 'All requests must have a booking_group_reference for group approval' });
@@ -101,14 +120,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'All requests in a group must have the same booking source. Cannot mix regular and complex event bookings.' });
     }
 
-    let reviewerName = 'Admin';
-    if (ctx.tenantUserId) {
-      const { data: tu } = await supabase.from('tenant_user').select('email, name').eq('id', ctx.tenantUserId).single();
-      if (tu) reviewerName = tu.email || tu.name || 'Admin';
-    } else if (ctx.memberId) {
-      const { data: m } = await supabase.from('member').select('email, first_name, last_name').eq('id', ctx.memberId).single();
-      if (m) reviewerName = m.email || [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Admin';
-    }
     let reversalResults = null;
 
     if (status === 'approved') {
@@ -171,6 +182,7 @@ export default async function handler(req, res) {
     console.log(`[GroupApproval] ${status} ${pendingRequests.length} group cancellation request(s)`);
     return res.json({ success: true, count: pendingRequests.length, reversalResults });
   } catch (err) {
+    if([400,403,409,429,503].includes(err.status))return res.status(err.status).json({error:err.message});
     console.error('[GroupApproval] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -225,6 +237,12 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
     if (bookingsError || !bookings || bookings.length === 0) {
       return { success: false, error: 'Failed to fetch bookings for group' };
+    }
+
+    try {
+      await assertLegacyFunnelReversalAllowed({db:supabase,tenantId,source:bookingTable,bookingIds:bookings.map(row=>row.id)});
+    } catch(error) {
+      return {success:false,error:error.message,code:error.code};
     }
 
     const orgIds = [...new Set(bookings.map(b => b.organization_id).filter(Boolean))];

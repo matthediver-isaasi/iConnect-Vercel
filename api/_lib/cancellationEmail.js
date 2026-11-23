@@ -30,7 +30,12 @@ function escapeHtml(value) {
  * also gates whether manual-action fallback lines and program-ticket lines
  * are emitted.
  */
-export function buildFinancialSummaryLines({ flow, isGroup, reversalResults }) {
+export function buildFinancialSummaryLines({ flow, isGroup, reversalResults, currency = 'GBP' }) {
+  if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+    throw new Error('Cancellation currency unavailable');
+  }
+  // Preserve historical GBP output; new checkouts pass their frozen currency.
+  const money = value => `${currency === 'GBP' ? '£' : `${currency} `}${Number(value).toFixed(2)}`;
   const lines = [];
   if (!reversalResults) return lines;
   const rr = reversalResults;
@@ -41,15 +46,15 @@ export function buildFinancialSummaryLines({ flow, isGroup, reversalResults }) {
       .filter(t => t.success)
       .reduce((sum, t) => sum + Number(t.amount || 0), 0);
     if (totalTrainingFund > 0) {
-      lines.push(`Training fund: £${totalTrainingFund.toFixed(2)} reinstated`);
+      lines.push(`Training fund: ${money(totalTrainingFund)} reinstated`);
     }
   } else if (rr.trainingFund?.success) {
-    lines.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
+    lines.push(`Training fund: ${money(rr.trainingFund.amount)} reinstated`);
   }
 
   for (const v of rr.vouchers || []) {
     if (v.reinstated) {
-      lines.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
+      lines.push(`Voucher ${v.code}: ${money(v.amount)} reinstated`);
     }
     if (v.replacementCreated) {
       // Event-deletion flow historically did not look up expiry text; if no
@@ -71,13 +76,13 @@ export function buildFinancialSummaryLines({ flow, isGroup, reversalResults }) {
   }
 
   if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) {
-    lines.push(`Card refund: £${Number(rr.stripeRefund.amount).toFixed(2)} will be returned to your payment method`);
+    lines.push(`Card refund: ${money(rr.stripeRefund.amount)} will be returned to your payment method`);
   } else if (isEventDeleted && rr.stripeRefund && rr.stripeRefund.requiresManualRefund) {
-    lines.push(`Card refund of £${Number(rr.stripeRefund.amount).toFixed(2)} could not be processed automatically — our team will be in touch`);
+    lines.push(`Card refund of ${money(rr.stripeRefund.amount)} could not be processed automatically — our team will be in touch`);
   }
 
   if (rr.xeroCreditNote?.success) {
-    lines.push(`Credit note ${rr.xeroCreditNote.creditNoteNumber} raised for £${Number(rr.xeroCreditNote.amount).toFixed(2)}`);
+    lines.push(`Credit note ${rr.xeroCreditNote.creditNoteNumber} raised for ${money(rr.xeroCreditNote.amount)}`);
   } else if (isEventDeleted && rr.xeroCreditNote?.requiresManualAction) {
     lines.push(`A credit note will be issued shortly`);
   }
@@ -143,6 +148,7 @@ export function buildCancellationEmail({
   hasDifferentBookerAttendee = false,
   eventDeletedReason = false,
   reversalResults = null,
+  currency = 'GBP',
   reviewNotes = null,
   organiserMessage = null,
 }) {
@@ -235,7 +241,7 @@ export function buildCancellationEmail({
 
   // Financial summary (only when something was reversed and not on rejection)
   if (!isRejected) {
-    const financialLines = buildFinancialSummaryLines({ flow, isGroup, reversalResults });
+    const financialLines = buildFinancialSummaryLines({ flow, isGroup, reversalResults, currency });
     if (financialLines.length > 0) {
       if (isEventDeletedFlow) {
         body += `<div style="margin:20px 0;padding:16px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;">`;

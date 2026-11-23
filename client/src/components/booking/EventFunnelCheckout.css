@@ -1,0 +1,31 @@
+.event-funnel-checkout { display: grid; gap: 1.25rem; color: hsl(var(--foreground)); min-width: 0; }
+.event-funnel-checkout h3 { font-size: 1.125rem; font-weight: 600; }
+.event-funnel-checkout h4 { font-weight: 600; font-size: .95rem; }
+.event-funnel-checkout p { line-height: 1.6; }
+.event-funnel-checkout__muted { font-size: .875rem; color: hsl(var(--muted-foreground)); }
+.event-funnel-checkout__panel { border: 1px solid hsl(var(--border)); border-radius: var(--radius); padding: clamp(1rem, 2vw, 1.5rem); display: grid; gap: 1rem; background: hsl(var(--background)); min-width: 0; }
+.event-funnel-checkout__notice { border-left: 3px solid hsl(var(--primary)); padding: .875rem 1rem; background: hsl(var(--muted) / .5); border-radius: .25rem; font-size: .875rem; overflow-wrap: anywhere; }
+.event-funnel-checkout__notice[data-error="true"] { border-left-color: hsl(var(--destructive)); }
+.event-funnel-checkout__fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1rem; }
+.event-funnel-checkout__fields:disabled { opacity: .8; }
+.event-funnel-checkout__label { display: grid; gap: .4rem; font-size: .875rem; font-weight: 500; }
+.event-funnel-checkout input:not([type="checkbox"]):not([type="radio"]), .event-funnel-checkout select { background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--input)); border-radius: calc(var(--radius) - 2px); padding: .625rem .75rem; min-height: 2.75rem; max-width: 100%; }
+.event-funnel-checkout :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.event-funnel-checkout__choice { display: flex; align-items: flex-start; gap: .65rem; font-size: .875rem; line-height: 1.6; padding-block: .4rem; cursor: pointer; }
+.event-funnel-checkout__choice input { margin-top: .3rem; accent-color: hsl(var(--primary)); flex-shrink: 0; }
+.event-funnel-checkout__actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.event-funnel-checkout__lines { display: grid; gap: 0; }
+.event-funnel-checkout__line { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.25rem; padding-block: .9rem; border-bottom: 1px solid hsl(var(--border)); font-size: .875rem; }
+.event-funnel-checkout__line > div { min-width: 0; overflow-wrap: anywhere; }
+.event-funnel-checkout__amount { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+.event-funnel-checkout__totals { display: grid; gap: .6rem; }
+.event-funnel-checkout__totals > div { display: flex; justify-content: space-between; gap: 1rem; font-size: .875rem; }
+.event-funnel-checkout__totals > div:last-child { font-size: 1.125rem; font-weight: 600; padding-top: .75rem; border-top: 1px solid hsl(var(--border)); }
+.event-funnel-checkout__reference { font-size: .8rem; overflow-wrap: anywhere; color: hsl(var(--muted-foreground)); }
+@media (min-width: 768px) {
+  .event-funnel-checkout__columns { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+}
+@media (max-width: 767px) {
+  .event-funnel-checkout__columns { display: grid; gap: 1rem; }
+  .event-funnel-checkout__actions > button { width: 100%; }
+}

@@ -46,6 +46,8 @@ test('bounded runner reconstructs then consumes persisted approval before sole w
   let claim = 0;
   const db = { rpc: async (name, args) => {
     calls.push([name, args]);
+    if (name === 'unified_booking_provision_due') return { data: 0 };
+    if (name === 'unified_booking_invoice_claim') return { data: null };
     if (name.endsWith('_sweep')) return { data: 3 };
     if (name.endsWith('_automatic_candidates')) return { data: [] };
     if (name.endsWith('_hydrate_historical')) return { data: 1 };
@@ -64,11 +66,12 @@ test('bounded runner reconstructs then consumes persisted approval before sole w
   }) });
   assert.deepEqual(result, { swept: 3, hydrated: 1, complete: 1, retry: 0, needs_review: 0 });
   assert.equal(invoices, 1); assert.equal(payments, 1);
-  assert.deepEqual(calls.slice(0, 5).map(([name]) => name), [
+  assert.deepEqual(calls.slice(0, 7).map(([name]) => name), [
+    'unified_booking_provision_due', 'unified_booking_invoice_claim',
     'event_invoice_recovery_heartbeat', 'event_invoice_recovery_sweep',
     'event_invoice_recovery_automatic_candidates', 'event_invoice_recovery_hydrate_historical', 'event_invoice_recovery_claim',
   ]);
-  assert.deepEqual(calls[3][1], { p_limit: 20, p_id: null });
+  assert.deepEqual(calls[5][1], { p_limit: 20, p_id: null });
   assert.ok(!calls.some(([name]) => name.endsWith('_approve_historical')));
 });
 

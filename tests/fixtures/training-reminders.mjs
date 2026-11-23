@@ -2,13 +2,13 @@ export const now = new Date('2026-10-27T12:00:00Z');
 export function fixture() {
   return {
     event: [{ id: 'event', tenant_id: 'tenant', is_training: true, timezone: 'Europe/London', title: 'Introduction to Advice', start_date: '2026-10-26T00:00:00Z' }],
-    event_email: [{ id: 'email', event_id: 'event', email_type: 'reminder', is_enabled: true, timing_type: '1_day_before', subject: '{{event_date}}', body: '{{event_time}} {{zoom_link}} {{agenda_line_date}} {{agenda_schedule}}' }],
+    event_email: [{ id: 'email', tenant_id: 'tenant', event_id: 'event', email_type: 'reminder', is_enabled: true, timing_type: '1_day_before', subject: '{{event_date}}', body: '{{event_time}} {{zoom_link}} {{agenda_line_date}} {{agenda_schedule}}' }],
     event_agenda_item: [
       { id: 'moodle', event_id: 'event', start_date: '2026-10-26', item_type: 'Moodle' },
       { id: 'nov3', event_id: 'event', start_date: '2026-11-03', start_time: '09:15:00', item_type: 'Online', zoom_meeting_id: 'zoom3' },
       { id: 'nov5', event_id: 'event', start_date: '2026-11-05', start_time: '09:15:00', item_type: 'Online', zoom_meeting_id: 'zoom5' },
     ],
-    booking: [{ id: 'booking', event_id: 'event', attendee_email: 'fixture@example.test', status: 'confirmed' }],
+    booking: [{ id: 'booking', tenant_id: 'tenant', event_id: 'event', attendee_email: 'fixture@example.test', status: 'confirmed' }],
     zoom_meeting: [{ id: 'zoom3', tenant_id: 'tenant', zoom_meeting_id: '3', join_url: 'https://example.test/nov3' }, { id: 'zoom5', tenant_id: 'tenant', zoom_meeting_id: '5', join_url: 'https://example.test/nov5' }],
     scheduled_email: [],
   };

@@ -85,6 +85,8 @@ export async function preparePublicTicketPurchase({
     p_id: requestId, p_tenant_id: tenantId, p_event_id: eventId,
     p_event_kind: eventKind, p_snapshot: snapshot,
   });
+  if(error?.code==='PT403') throw new PublicTicketMemberError('FUNNEL_PREREQUISITE_REQUIRED',
+    'This ticket requires its source registration in the same checkout.',403);
   if (error?.code === '23514') {
     throw new PublicTicketMemberError('PURCHASE_CHANGED', 'Purchase details changed. Start a new checkout before paying.', 409);
   }

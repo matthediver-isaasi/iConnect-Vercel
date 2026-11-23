@@ -21,6 +21,7 @@ import Home from "./Home";
 const AdminSetup = lazy(() => import("./AdminSetup"));
 
 import EventDetails from "./EventDetails";
+import EventReservation from "./EventReservation";
 
 import BuyProgramTickets from "./BuyProgramTickets";
 
@@ -530,6 +531,7 @@ const PAGES = {
     AdminSetup: AdminSetup,
     
     EventDetails: EventDetails,
+    EventReservation: EventReservation,
     
     BuyProgramTickets: BuyProgramTickets,
     
@@ -891,6 +893,7 @@ const PAGES = {
 }
 
 function _getCurrentPage(url, quoteNaming) {
+    if (url.split('?')[0].replace(/\/$/, '').toLowerCase() === '/eventreservation') return 'EventReservation';
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
@@ -1056,6 +1059,7 @@ function PagesContent() {
                 <Route path="/AdminSetup" element={<AdminSetup />} />
                 
                 <Route path="/EventDetails" element={<EventDetails />} />
+                <Route path="/EventReservation" element={<EventReservation />} />
                 <Route path="/events/:eventSlug" element={<EventDetails />} />
                 
                 <Route path="/BuyProgramTickets" element={<BuyProgramTickets />} />
@@ -1564,6 +1568,7 @@ function StandaloneRoutes() {
             <Route path="/dd-setup/:token" element={<DirectDebitInvitationPage />} />
             <Route path="/dd-migrate/:token" element={<DirectDebitMigrationPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
+            <Route path="/EventReservation" element={<EventReservation />} />
             <Route path="/events/:eventSlug" element={<EventDetails />} />
             <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
             <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />

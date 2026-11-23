@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { readEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { articlePublicationDateFilter } from '../../shared/articlePublication.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -130,9 +131,10 @@ export default async function handler(req, res) {
     // Content entities are skipped entirely in microsite-only mode.
     const emptyResult = { data: [] };
     const contentQuery = (builder) => (micrositeOnly ? Promise.resolve(emptyResult) : builder);
+    const eventQuery = query => micrositeOnly ? Promise.resolve(emptyResult) : readEventFunnelDiscovery({db:supabase,query});
 
     const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult, complexEventsResult] = await Promise.all([
-      contentQuery(supabase
+      eventQuery(supabase
         .from('event')
         .select('id, title, description, start_date, end_date, image_url, status, search_text')
         .eq('tenant_id', tenant.id)
@@ -172,7 +174,7 @@ export default async function handler(req, res) {
       
       runPagesQuery(),
 
-      contentQuery(supabase
+      eventQuery(supabase
         .from('complex_event')
         .select('id, title, description, summary, slug, image_url, start_date, end_date, location, search_text')
         .eq('tenant_id', tenant.id)

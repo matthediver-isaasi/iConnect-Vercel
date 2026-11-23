@@ -93,7 +93,7 @@ async function run({ original = invoice(), responseTotal = 200, existing = [], a
   vm.runInContext(functionSource, context);
   try {
     const result = await context.createXeroCreditNote({ appTenantId: 'tenant', invoiceId: 'invoice',
-      creditAmount: amount, reference: 'Cancel: fixture' });
+      creditAmount: amount, reference: 'Cancel: fixture' },{fetcher:context.fetch});
     return { result, calls };
   } catch (error) { return { error, calls }; }
 }

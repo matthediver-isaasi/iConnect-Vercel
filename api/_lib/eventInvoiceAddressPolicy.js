@@ -250,6 +250,7 @@ export async function prepareEventInvoiceAddressPolicy(input) {
   const saved = await input.db.from('event_invoice_address_policy').insert({
     id, tenant_id: input.tenantId, member_id: input.memberId, event_id: input.eventId, source: input.source, snapshot: policy,
   }).select('id').single();
+  if(saved.error?.code==='PT403') fail('This ticket requires its source registration in the same checkout.',403);
   if (saved.error?.code === '23505') {
     const prior = await readExisting();
     if (!prior) changed();

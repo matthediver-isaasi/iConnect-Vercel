@@ -1,3 +1,4 @@
+import {funnelCancellationRecoveryNotice} from '@/lib/eventFunnelCancellationNotice';
 import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -445,6 +446,11 @@ export default function CancellationRequests() {
         const messages = [`${requestIds.length} ticket(s) cancellation approved${useGroupEndpoint ? ' (consolidated)' : ''}`];
         const warnings = [];
         for (const rr of allReversalResults) {
+          const recoveryNotice=funnelCancellationRecoveryNotice(rr.funnel);
+          if(recoveryNotice){
+            (recoveryNotice.warning?warnings:messages).push(recoveryNotice.text);
+            continue;
+          }
           if (useGroupEndpoint) {
             const totalTF = (rr.trainingFund || []).filter(t => t.success).reduce((sum, t) => sum + t.amount, 0);
             if (totalTF > 0) messages.push(`Training fund: £${totalTF.toFixed(2)} reinstated`);

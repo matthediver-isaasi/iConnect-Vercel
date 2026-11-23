@@ -1,4 +1,5 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
 import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -65,6 +66,7 @@ export default async function handler(req, res) {
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
+    Object.assign(event, (await projectPublicShoppingAvailability(supabase, tenant.id, 'complex', [event]))[0]);
 
     // Task #3508: include the linked member group's name so the UI can render
     // a "join <group> to book" dialogue for non-members.
@@ -184,6 +186,7 @@ export default async function handler(req, res) {
       image_focal_point: event.image_focal_point || null,
       status: event.status,
       available_seats: event.available_seats,
+      ...(event.shopping_held ? { shopping_held: event.shopping_held } : {}),
       timezone: event.timezone,
       event_type: event.event_type || null,
       filter_tags: event.filter_tags || [],

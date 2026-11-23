@@ -3,7 +3,7 @@ import { capturedEventSettlement, stripeEventInvoiceContact } from './eventInvoi
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 import { invoicingAddressToQuickBooks } from '../../shared/invoicingAddress.js';
 
-export const isAccountingEventSource = source => ['booking', 'complex_event_booking'].includes(source);
+export const isAccountingEventSource = source => ['booking', 'complex_event_booking', 'event_funnel'].includes(source);
 const fail = (code, retry = false) => { throw Object.assign(new Error(code), { code, retry, permanent: !retry }); };
 const minor = value => Math.round(Number(value) * 100);
 const settingsKeys = ['quickbooks_event_item_id', 'quickbooks_event_tax_code_id', 'quickbooks_event_stripe_bank_account_id'];
@@ -19,8 +19,8 @@ function capturedBillAddress(addressText) {
   return address;
 }
 
-async function rpc(db, name, args) {
-  let query = db.rpc(`accounting_event_${name}`, args);
+async function rpc(db, name, args, prefix='accounting_event_') {
+  let query = db.rpc(`${prefix}${name}`, args);
   if (typeof query.abortSignal === 'function') query = query.abortSignal(AbortSignal.timeout(5000));
   const { data, error } = await query;
   if (error) fail('ACCOUNTING_EVENT_PERSISTENCE_UNAVAILABLE', true);
@@ -71,11 +71,13 @@ export async function enqueueQuickBooksEventInvoice(input, context, { capture } 
 
 export async function assertAccountingEventSource({ db, row }) {
   if (!isAccountingEventSource(row.source_type) || row.provider !== 'quickbooks') fail('ACCOUNTING_EVENT_SOURCE_INVALID');
-  if (await rpc(db, 'guard', { p_id: row.id, p_token: row.lease_token }) !== true) fail('ACCOUNTING_EVENT_SOURCE_CHANGED');
+  if (await rpc(db, 'guard', { p_id: row.id, p_token: row.lease_token },
+    row.source_type==='event_funnel'?'event_funnel_quickbooks_':'accounting_event_') !== true) fail('ACCOUNTING_EVENT_SOURCE_CHANGED');
 }
 
 export async function linkAccountingEventSource({ db, row }) {
-  const result = await rpc(db, 'link', { p_id: row.id, p_token: row.lease_token });
+  const result = await rpc(db, 'link', { p_id: row.id, p_token: row.lease_token },
+    row.source_type==='event_funnel'?'event_funnel_quickbooks_':'accounting_event_');
   if (result?.linked !== true) fail('ACCOUNTING_EVENT_LINK_NOT_CONFIRMED', true);
   return result;
 }
@@ -134,6 +136,8 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   if (policies.length !== 1 || !['Exclusive', 'Inclusive'].includes(policies[0])) fail('ACCOUNTING_EVENT_TAX_POLICY_REQUIRED');
   const inclusive = policies[0] === 'Inclusive';
   const rates = new Map();
+  const rateIds = new Map();
+  const funnelTaxLines = [];
   const lines = [];
   let totalMinor = 0;
   for (const line of intent.lines) {
@@ -146,6 +150,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
       const details = tax.SalesTaxRateList?.TaxRateDetail;
       if (tax.Taxable === false && (!details || details.length === 0)) {
         rates.set(taxId, 0);
+        rateIds.set(taxId, null);
       } else {
       if (!Array.isArray(details) || details.length !== 1 || details[0].TaxTypeApplicable === 'TaxOnTax') {
         fail('ACCOUNTING_EVENT_TAX_RATE_REQUIRES_REVIEW');
@@ -153,6 +158,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
       const rate = await read('TaxRate', details[0].TaxRateRef?.value);
       if (!Number.isFinite(Number(rate.RateValue)) || Number(rate.RateValue) < 0) fail('ACCOUNTING_EVENT_TAX_RATE_INVALID');
       rates.set(taxId, Number(rate.RateValue));
+      rateIds.set(taxId, String(details[0].TaxRateRef.value));
       }
     }
     if (!Number.isFinite(line.Quantity) || line.Quantity <= 0 || !Number.isFinite(line.UnitAmount)
@@ -168,6 +174,8 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
     const taxMinor = Math.round(amountMinor * rate / (inclusive ? 100 + rate : 100));
     if (line.TaxAmount != null && minor(line.TaxAmount) !== taxMinor) fail('ACCOUNTING_EVENT_TAX_EVIDENCE_CHANGED');
     totalMinor += amountMinor + (inclusive ? 0 : taxMinor);
+    funnelTaxLines.push({index:lines.length,amountMinor,grossMinor:amountMinor+(inclusive?0:taxMinor),taxMinor,
+      taxCodeId:String(taxId),taxRateId:rateIds.get(taxId),percentage:rate});
     lines.push({ DetailType: 'SalesItemLineDetail', Description: line.Description, Amount: amountMinor / 100,
       SalesItemLineDetail: { ItemRef: { value: String(item.Id) }, Qty: line.Quantity,
         UnitPrice: line.UnitAmount, TaxCodeRef: { value: String(taxId) } } });
@@ -236,6 +244,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   snapshot.invoice = { envelope: prepareAccountingRequestEnvelope({
     provider: row.provider, environment: snapshot.environment, operationKey,
     payload, expected: { contactId: String(customer.Id), currency: intent.currency, totalMinor,
+      ...(row.source_type==='event_funnel'&&Array.isArray(snapshot.linkage?.lineAllocations)?{funnelTaxLines}:{}),
       fields: { TxnDate: payload.TxnDate, DueDate: payload.DueDate, GlobalTaxCalculation: payload.GlobalTaxCalculation, Line: lines,
         ...(payload.BillAddr ? { BillAddr: payload.BillAddr } : {}) } },
   }) };

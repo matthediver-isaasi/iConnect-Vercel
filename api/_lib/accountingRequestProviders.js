@@ -1,5 +1,6 @@
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 import { xeroRateLimitedFetch } from './xeroRateLimit.js';
+import {captureFunnelQuickBooksInvoice} from './eventFunnelQuickBooksTax.js';
 
 // This boundary deliberately does not import the legacy invoice helpers: those
 // combine preparation, invoice creation, payment and best-effort linkage. Queue
@@ -178,6 +179,8 @@ export function validateAccountingRequestResult(row, kind, record) {
   return { id, provider: row.provider, ...(payment ? { paymentId: id, payment_recorded: true } : {
     invoiceId: id, invoice_id: id, invoiceNumber: record.InvoiceNumber || record.DocNumber || null,
     invoice_number: record.InvoiceNumber || record.DocNumber || null,
+    ...(!xero&&row.source_type==='event_funnel'&&e.expected.funnelTaxLines
+      ?{issuedInvoice:captureFunnelQuickBooksInvoice(record,e.expected)}:{}),
     ...(['sales_invoice_schedule', 'sales_commercial_sale'].includes(row.source_type) ? {
       status: xero ? record.Status : record.Balance == null ? 'unknown' : Number(record.Balance) === 0 ? 'paid' : 'open',
       createdAt: xero ? record.DateString || null : record.MetaData?.CreateTime || null,
