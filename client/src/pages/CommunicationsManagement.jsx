@@ -31,6 +31,7 @@ import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import { downloadCsv, slugifyFilename } from "@/lib/csvExport";
 import { audiencePreviewToCsv } from "@/lib/audienceCsvExport";
 import { isJobPostingsCategory, invalidateJobAlertPreferences } from "@/lib/jobAlerts.mjs";
+import { fetchSubscriberEntity, subscriberInputKey, subscriberInputState, subscriberStateLabel } from "@/lib/subscriptionCountState.mjs";
 import {
   beginExternalSubscriberRequest,
   createLatestRequestTracker,
@@ -57,8 +58,11 @@ const CATEGORY_AUDIENCE_LABELS = {
 };
 
 export default function CommunicationsManagementPage() {
-  const activeTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const declaredTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const activeTenantId = declaredTenantId || memberInfo?.tenant_id || null;
+  const currentTenantRef = useRef(activeTenantId);
+  currentTenantRef.current = activeTenantId;
   const [accessChecked, setAccessChecked] = useState(false);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -197,8 +201,10 @@ export default function CommunicationsManagementPage() {
   };
 
   const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery({
-    queryKey: ['communication-categories'],
-    queryFn: () => base44.entities.CommunicationCategory.list({ sort: { display_order: 'asc' } }),
+    queryKey: ['communication-categories', activeTenantId],
+    queryFn: ({ signal }) => fetchSubscriberEntity('CommunicationCategory', activeTenantId, signal)
+      .then(rows => rows.sort((a, b) => (a.display_order || 0) - (b.display_order || 0))),
+    enabled: !!activeTenantId,
     staleTime: 0,
     retry: 1,
   });
@@ -252,38 +258,50 @@ export default function CommunicationsManagementPage() {
     retry: 1,
   });
 
-  const { data: preferences = [] } = useQuery({
-    queryKey: ['member-communication-preferences'],
-    queryFn: () => base44.entities.MemberCommunicationPreference.listAll({
-      sort: { id: 'asc' },
-    }),
+  const preferencesQuery = useQuery({
+    queryKey: subscriberInputKey('member-communication-preferences', activeTenantId),
+    queryFn: ({ signal }) => fetchSubscriberEntity('MemberCommunicationPreference', activeTenantId, signal),
     staleTime: 0,
     retry: 1,
-    enabled: communicationsTab !== 'status-report',
+    enabled: !!activeTenantId && communicationsTab !== 'status-report',
   });
+  const preferences = preferencesQuery.data || [];
 
-  const { data: allMembers = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['all-members-for-export'],
-    queryFn: () => base44.entities.Member.listAll({
-      sort: { id: 'asc' },
-    }),
+  const membersQuery = useQuery({
+    queryKey: subscriberInputKey('all-members-for-export', activeTenantId),
+    queryFn: ({ signal }) => fetchSubscriberEntity('Member', activeTenantId, signal),
     staleTime: 60000,
-    enabled: communicationsTab !== 'status-report',
+    enabled: !!activeTenantId && communicationsTab !== 'status-report',
   });
+  const allMembers = membersQuery.data || [];
+  const membersLoading = !membersQuery.isSuccess || membersQuery.isFetching;
 
-  const {
-    data: externalSubscriberCounts = {},
-    error: externalSubscriberCountsError,
-  } = useQuery({
-    queryKey: ['external-subscriber-counts'],
-    queryFn: async () => {
-      const response = await fetch('/api/admin/external-subscribers', { credentials: 'include' });
+  const externalCountsQuery = useQuery({
+    queryKey: subscriberInputKey('external-subscriber-counts', activeTenantId),
+    enabled: !!activeTenantId,
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/admin/external-subscribers', { credentials: 'include', headers: { 'X-Tenant-Id': activeTenantId }, signal });
       if (!response.ok) throw new Error('Failed to fetch external subscriber counts');
       const data = await response.json();
-      return data.counts || {};
+      if (!data.counts || typeof data.counts !== 'object' || Array.isArray(data.counts) ||
+          Object.values(data.counts).some(count => !Number.isInteger(count) || count < 0)) {
+        throw new Error('Invalid external subscriber counts');
+      }
+      return data.counts;
     },
     staleTime: 30000,
   });
+  const externalSubscriberCounts = externalCountsQuery.data || {};
+  const externalSubscriberCountsError = externalCountsQuery.error;
+  const subscriberState = subscriberInputState(activeTenantId, [membersQuery, preferencesQuery, externalCountsQuery]);
+  const subscribersReady = subscriberState === 'ready';
+  const retrySubscriberInputs = () => Promise.all([membersQuery.refetch(), preferencesQuery.refetch(), externalCountsQuery.refetch()]);
+  const subscriberStatus = !subscribersReady && (
+    <div role="status" className="text-sm text-slate-600">
+      {subscriberStateLabel(subscriberState)}
+      {subscriberState === 'unavailable' && <Button variant="outline" size="sm" onClick={retrySubscriberInputs}>Retry subscriber counts</Button>}
+    </div>
+  );
 
   useEffect(() => {
     if (externalSubscriberCountsError) {
@@ -1143,6 +1161,13 @@ export default function CommunicationsManagementPage() {
     externalTotal: 0,
     externalActionGeneration: 0,
   });
+  useEffect(() => {
+    setShowSubscribersDialog(false);
+    setViewingCategory(null);
+    externalRequestTrackerRef.current.invalidate();
+    externalAbortControllerRef.current?.abort();
+    setExternalSubscribers([]);
+  }, [activeTenantId]);
 
   const fetchExternalSubscribers = useCallback(async (categoryId, page = 1, search = '') => {
     subscriberModalContextRef.current = beginExternalSubscriberRequest(
@@ -1388,11 +1413,28 @@ export default function CommunicationsManagementPage() {
   };
 
   const handleExportSubscribers = async (category) => {
+    if (!subscribersReady) {
+      toast.error('Subscriber inputs are not ready. Retry subscriber counts before exporting.');
+      return;
+    }
+    const exportTenantId = activeTenantId;
+    const inputVersions = [membersQuery.dataUpdatedAt, preferencesQuery.dataUpdatedAt, externalCountsQuery.dataUpdatedAt];
     setExportingCategory(category.id);
     try {
       const memberSubscribers = getSubscribersForCategory(category.id);
       
-      const extSubs = await fetchAllExternalSubscribers({ categoryId: category.id });
+      const extSubs = await fetchAllExternalSubscribers({
+        categoryId: category.id,
+        fetchImpl: (url, options) => fetch(url, { ...options, headers: { 'X-Tenant-Id': exportTenantId } }),
+      });
+      const currentInputs = ['all-members-for-export', 'member-communication-preferences', 'external-subscriber-counts']
+        .map(prefix => queryClient.getQueryState(subscriberInputKey(prefix, exportTenantId)));
+      if (currentTenantRef.current !== exportTenantId ||
+          currentInputs.some((state, index) => !state || state.status !== 'success' ||
+            state.fetchStatus !== 'idle' || state.isInvalidated || state.dataUpdatedAt !== inputVersions[index]) ||
+          extSubs.length !== getExternalSubscriberCount(category.id)) {
+        throw new Error('Subscriber inputs changed. Refresh counts and retry the export.');
+      }
 
       if (memberSubscribers.length === 0 && extSubs.length === 0) {
         toast.info('No subscribers to export for this category');
@@ -1442,7 +1484,7 @@ export default function CommunicationsManagementPage() {
       toast.success(`Exported ${totalExported} subscribers (${memberSubscribers.length} members, ${extSubs.length} external)`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export subscribers');
+      toast.error(error.message || 'Failed to export subscribers. Please retry.');
     } finally {
       setExportingCategory(null);
     }
@@ -2054,11 +2096,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </Badge>
                               )}
                               <span className="text-sm text-muted-foreground">
-                                {externalSubscriberCountsUnavailable
-                                  ? 'Subscriber count unavailable'
+                                {!subscribersReady
+                                  ? subscriberStateLabel(subscriberState)
                                   : `${totalCount} subscriber${totalCount !== 1 ? 's' : ''}`}
                               </span>
                             </div>
+                            {subscriberState === 'unavailable' && subscriberStatus}
 
                           {expandedCategories[category.id] && (
                             <>
@@ -2097,20 +2140,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 <button
                                   className="text-sm text-slate-600 hover:text-blue-600 hover:underline cursor-pointer bg-transparent border-0 p-0"
                                   onClick={() => openSubscribersView(category)}
-                                  disabled={membersLoading}
-                                  title={membersLoading ? 'Loading members...' : 'View subscribers'}
+                                  disabled={!subscribersReady}
+                                  title={!subscribersReady ? subscriberStateLabel(subscriberState) : 'View subscribers'}
                                   data-testid={`button-view-subscribers-${category.id}`}
                                 >
-                                  {externalSubscriberCountsUnavailable ? (
-                                    <span className="font-medium text-red-700">Subscriber count unavailable</span>
+                                  {!subscribersReady ? (
+                                    <span className="font-medium">{subscriberStateLabel(subscriberState)}</span>
                                   ) : (
                                     <><span className="font-medium text-slate-900 hover:text-blue-600">{totalCount}</span> subscribers</>
                                   )}
-                                  {!externalSubscriberCountsUnavailable && externalCount > 0 && (
+                                  {subscribersReady && externalCount > 0 && (
                                     <span className="text-xs text-slate-400 ml-1">({subscriberCount} members, {externalCount} external)</span>
                                   )}
                                 </button>
-                                {optedOutCount > 0 && (
+                                {subscribersReady && optedOutCount > 0 && (
                                   <>
                                     <span className="text-xs text-slate-300">|</span>
                                     <button
@@ -2130,7 +2173,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   size="sm"
                                   className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                   onClick={() => handleExportSubscribers(category)}
-                                  disabled={exportingCategory === category.id || totalCount === 0 || membersLoading}
+                                  disabled={exportingCategory === category.id || totalCount === 0 || !subscribersReady}
                                   title={membersLoading ? 'Loading members...' : totalCount === 0 ? 'No subscribers to export' : 'Export subscribers to CSV'}
                                   data-testid={`button-export-category-${category.id}`}
                                 >
@@ -2544,7 +2587,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
         </Dialog>
 
         <Dialog
-          open={showSubscribersDialog}
+          open={showSubscribersDialog && !!viewingCategory && categories.some(category => category.id === viewingCategory.id)}
           onOpenChange={(open) => {
             if (!open) {
               externalRequestTrackerRef.current.invalidate();
@@ -2568,8 +2611,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </DialogTitle>
                   <DialogDescription id="subscribers-dialog-description" className="mt-1">
                     {(() => {
-                      if (externalSubscriberCountsUnavailable) {
-                        return 'External subscriber count unavailable. Please try again.';
+                      if (!subscribersReady) {
+                        return subscriberStateLabel(subscriberState);
                       }
                       const memberCount = viewingCategory ? getSubscriberCount(viewingCategory.id) : 0;
                       const extCount = viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0;
@@ -2590,7 +2633,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   variant="outline"
                   size="sm"
                   onClick={() => viewingCategory && handleExportSubscribers(viewingCategory)}
-                  disabled={exportingCategory === viewingCategory?.id || membersLoading}
+                  disabled={exportingCategory === viewingCategory?.id || !subscribersReady}
                   className="flex items-center gap-2"
                   data-testid="button-export-from-dialog"
                 >
@@ -2605,7 +2648,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             </DialogHeader>
             
             <div className="flex-1 overflow-auto mt-4">
-              <Tabs value={subscriberTab} onValueChange={(val) => {
+              {!subscribersReady ? subscriberStatus : <Tabs value={subscriberTab} onValueChange={(val) => {
                 setSubscriberTab(val);
                 if (val === 'external') {
                   setLoadingExternalSubscribers(true);
@@ -2991,7 +3034,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     </>
                   )}
                 </TabsContent>
-              </Tabs>
+              </Tabs>}
             </div>
           </DialogContent>
         </Dialog>

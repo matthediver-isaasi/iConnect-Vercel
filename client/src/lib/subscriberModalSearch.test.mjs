@@ -346,10 +346,10 @@ test('campaign, admin, and Zoho paths all use explicit-true subscription semanti
   assert.match(zohoJobSource, /pref\?\.is_subscribed === true/);
   assert.match(
     readFileSync(new URL('../pages/CommunicationsManagement.jsx', import.meta.url), 'utf8'),
-    /MemberCommunicationPreference\.listAll\(\{\s*sort: \{ id: 'asc' \}/
+    /fetchSubscriberEntity\('MemberCommunicationPreference', activeTenantId, signal\)/
   );
   assert.match(
     readFileSync(new URL('../pages/CommunicationsManagement.jsx', import.meta.url), 'utf8'),
-    /Member\.listAll\(\{\s*sort: \{ id: 'asc' \}/
+    /fetchSubscriberEntity\('Member', activeTenantId, signal\)/
   );
 });

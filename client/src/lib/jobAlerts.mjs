@@ -1,3 +1,4 @@
+import { invalidateSubscriberInputs } from './subscriptionCountState.mjs';
 export const isJobPostingsCategory = category => category?.system_key === 'job_postings';
 
 export const jobAlertsKey = (tenantId, memberId) => ['job-alerts', tenantId, memberId];
@@ -13,7 +14,7 @@ export function invalidateJobAlertPreferences(queryClient, tenantId) {
       predicate: query => query.queryKey[0] === 'job-alerts' && (!tenantId || query.queryKey[1] === tenantId),
     }),
     queryClient.invalidateQueries({ queryKey: ['my-communication-preferences'] }),
-    queryClient.invalidateQueries({ queryKey: ['member-communication-preferences'] }),
+    invalidateSubscriberInputs(queryClient),
     queryClient.invalidateQueries({ queryKey: ['communication-categories'] }),
   ]);
 }

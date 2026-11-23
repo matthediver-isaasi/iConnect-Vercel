@@ -96,12 +96,23 @@ export async function fetchAllExternalSubscribers({
     }
 
     const data = await response.json();
-    const pageSubscribers = data.subscribers || [];
-    total = Number(data.total) || 0;
+    if (!Array.isArray(data.subscribers) || !Number.isInteger(data.total) || data.total < 0) {
+      throw new Error('Invalid external subscriber export response. Please retry.');
+    }
+    const pageSubscribers = data.subscribers;
+    if (Number.isFinite(total) && total !== data.total) {
+      throw new Error('External subscribers changed during export. Please retry.');
+    }
+    total = data.total;
     subscribers.push(...pageSubscribers);
 
-    if (pageSubscribers.length === 0) break;
+    if (pageSubscribers.length === 0 && subscribers.length < total) {
+      throw new Error('Incomplete external subscriber export. Please retry.');
+    }
     page += 1;
+  }
+  if (subscribers.length !== total || new Set(subscribers.map(row => row.id)).size !== total) {
+    throw new Error('External subscribers changed during export. Please retry.');
   }
 
   return subscribers;

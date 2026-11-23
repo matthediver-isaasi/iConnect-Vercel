@@ -43,6 +43,7 @@ import MemberEmails from "@/components/MemberEmails";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import { fetchAdminMemberCommunicationPreferences } from "@/lib/memberCommunicationPreferences";
+import { invalidateSubscriberInputs } from "@/lib/subscriptionCountState.mjs";
 
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   const fileExt = file.name.split(".").pop();
@@ -482,6 +483,7 @@ export default function AdminMemberEdit() {
       }
       
       queryClient.invalidateQueries({ queryKey: ["admin-member-communication-preferences", memberRecord.id] });
+      invalidateSubscriberInputs(queryClient);
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
     } catch (error) {
       console.error("Failed to update communication preference:", error);

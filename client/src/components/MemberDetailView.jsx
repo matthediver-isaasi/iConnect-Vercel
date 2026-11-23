@@ -82,6 +82,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { invalidateSubscriberInputs } from "@/lib/subscriptionCountState.mjs";
 import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 // DISABLED: import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
@@ -596,6 +597,7 @@ export default function MemberDetailView({
       }
       
       queryClient.invalidateQueries({ queryKey: ["admin-member-communication-preferences", member.id] });
+      invalidateSubscriberInputs(queryClient);
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
     } catch (error) {
       console.error("Failed to update communication preference:", error);
@@ -614,6 +616,7 @@ export default function MemberDetailView({
     setUpdatingOptOutAll(true);
     try {
       const nextState = await setAdminMemberCommunicationGlobalState(member.id, optOut);
+      invalidateSubscriberInputs(queryClient);
       queryClient.setQueryData(["admin-member-communication-preferences", member.id], nextState);
       toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
     } catch (error) {

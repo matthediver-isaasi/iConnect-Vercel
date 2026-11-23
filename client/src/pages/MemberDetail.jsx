@@ -48,6 +48,7 @@ import { useDateFormat } from "@/hooks/useDateFormat";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { toast } from "sonner";
+import { invalidateSubscriberInputs } from "@/lib/subscriptionCountState.mjs";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MemberBounceWarning from "@/components/communications/MemberBounceWarning";
@@ -736,6 +737,7 @@ export default function MemberDetail() {
       }
       
       queryClient.invalidateQueries({ queryKey: ["admin-member-communication-preferences", id] });
+      invalidateSubscriberInputs(queryClient);
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
     } catch (error) {
       console.error("Failed to update communication preference:", error);
@@ -754,6 +756,7 @@ export default function MemberDetail() {
     setUpdatingOptOutAll(true);
     try {
       const nextState = await setAdminMemberCommunicationGlobalState(member.id, optOut);
+      invalidateSubscriberInputs(queryClient);
       queryClient.setQueryData(["admin-member-communication-preferences", id], nextState);
       toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
     } catch (error) {
