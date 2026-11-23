@@ -25,9 +25,12 @@ not establish technical readiness or authorise bypassing purchasing safeguards.
 complete feature rollout, superseding the earlier instruction to leave migrations
 unapplied.
 
-**How to apply:** Do not ask again for the same migration permission. Verify recoverable backups, rehearse
-restore and schema backout, and establish treatment of bookings/payments made
-after deployment before applying the batch. Keep automatic migrations disabled.
+**How to apply:** Do not ask again for the same migration permission. The owner
+subsequently explicitly waived a database restore rehearsal and reconfirmed
+two-minute PITR. Do not require that rehearsal again or describe it as completed.
+Retain migration compatibility checks, transactional rollback where possible,
+and explicit treatment of bookings/payments made after deployment. Keep
+automatic migrations disabled.
 
 The owner reports Supabase point-in-time recovery with changes logged every two
 minutes and up to seven days of retention.

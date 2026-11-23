@@ -41,8 +41,9 @@ or activation is safe.
 
 ## Outstanding — do not describe this as rollout-ready
 
-- Current provider-confirmed recovery window and existing isolated restore
-  rehearsal evidence have been requested from the owner. No restore was run.
+- The owner reconfirmed two-minute PITR and explicitly waived a database restore
+  rehearsal. No restore was run; this is owner-reported coverage, not independent
+  verification of recoverable timestamps. Do not block on that waived rehearsal.
 - Full live-schema-baseline rehearsal and partial backout remain unverified.
 - The authoring API still rejects publication unconditionally. SQL readiness
   remains purchasing-disabled. Completing the activation implementation and
@@ -55,3 +56,18 @@ The generated migration package is an offline preparation tool, not a live
 installer. The original readiness gate remains fail-closed. Do not bypass it,
 use a generic database push, claim the fixture tests establish live safety, or
 enable purchasing merely to remove the current authoring error.
+
+## Atomic installer preparation
+
+`scripts/apply-event-funnel-release.mjs` adds an offline-default, SHA-pinned
+DEST-only installer. Its explicit rehearsal mode rolls back the entire batch;
+its apply mode commits only after all 45 files and service-only/RLS/readiness
+checks succeed. Source outer transaction boundaries are validated and removed
+so the batch uses one transaction, not 45 separately committed migrations.
+Publishing remains disabled. Three installer tests passed.
+
+The first attempted rollback-only rehearsal could not authenticate to the
+destination PostgreSQL connection (SQLSTATE `28P01`). It failed before a
+transaction or any migration started. No schema/history/data changes occurred.
+The existing read-only MCP connection remains usable, but does not establish
+that the direct installer credential is valid.
