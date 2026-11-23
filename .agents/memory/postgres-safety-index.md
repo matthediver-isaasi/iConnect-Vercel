@@ -12,4 +12,5 @@ description: Function permissions, pooled locks, nullable JSON and legacy schema
 - [Legacy transition-row types](legacy-transition-row-types.md) — dropped attributes can break whole transition-row composites only on the real long-lived schema.
 - [RPC fixture schema parity](rpc-fixture-schema-parity.md) — verify deployed key types and ownership columns; similar tables may have different tenant boundaries.
 - [Extension function resolution](postgres-extension-resolution.md) — production pgcrypto is in extensions; restricted RPCs must qualify its functions.
+- [Function body comparisons](postgres-function-body-comparison.md) — SQL and JavaScript trimming differ; normalize edge whitespace consistently before drift checks.
 - [Absent typed-row audit JSON](postgres-absent-row-audit.md) — a missing SELECT INTO row can serialize as an all-null object rather than JSON null.
