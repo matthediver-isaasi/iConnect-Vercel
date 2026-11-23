@@ -68,6 +68,7 @@ private/bnms-renewal-policy-2026-10-04/
 
 # Private session-log uploads: retain locally, exclude from published source.
 /generated-artifacts/
+/private/gfi-heads-briefing/
 attached_assets/BNMS_Organisation_Address_Import_1794860888095.xlsx
 attached_assets/Ind_supports_to_update_v2_1794429119756.xlsx
 attached_assets/Ind_supports_to_update_v1_1794427353516.xlsx
