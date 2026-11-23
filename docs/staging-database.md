@@ -126,13 +126,18 @@ These variables have separate **Preview** values pointing at staging; their
 | `SUPABASE_URL`, `VITE_SUPABASE_URL` | `https://skaszwscycbfvfofnifx.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | staging anon key |
 | `SUPABASE_SERVICE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | staging service_role key |
-| `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `DEST_DATABASE_URL` | staging pooler URL |
+| `POSTGRES_URL`, `POSTGRES_PRISMA_URL` | staging transaction pooler URL |
+| `DEST_DATABASE_URL` | staging session pooler URL |
+| `DEST_SUPABASE_URL`, `DEST_SUPABASE_KEY` | staging URL and service_role key |
+| `R2_*` (backup bucket) | unset: previews must not write production backups |
 | `GOCARDLESS_ENVIRONMENT` | `sandbox` |
 | `MAILGUN_API_KEY` | unset while testing (see Email above) |
-| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | Stripe test keys, or unset |
+| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | unset (add Stripe **test** keys as Preview values to test platform billing) |
 
 The stale `conf5` branch-only variables (an old project, `iixnxbicvckncdclfaph`)
-were removed.
+were removed. Production and Development values were verified unchanged
+(same keys, types and value hashes) after the change; shared variables only
+lost their Preview target.
 
 Who can read the copy: the staging project is in the same Supabase
 organisation, so organisation members can see it. Treat it like production data.
