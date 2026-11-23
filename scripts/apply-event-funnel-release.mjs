@@ -29,6 +29,53 @@ export async function releaseFiles() {
   return { files, hash };
 }
 
+// The managed integration does not expose a client session. Keep every DDL
+// statement in one DO statement; a deliberate final exception rolls back a
+// rehearsal, including any migration-history work performed by the provider.
+export function managedReleaseQuery(files, { rehearse = true } = {}) {
+  assert.equal(files.length, 45);
+  const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  const steps = files.map(f => `
+    stage := ${literal(f.file)};
+    EXECUTE ${literal(f.body)};
+    INSERT INTO supabase_migrations.schema_migrations(version,name,statements)
+      VALUES(${literal(f.deploymentVersion)},${literal(f.file.replace(/^\d+_|\.sql$/g, ''))},ARRAY[${literal(f.sql)}]);`).join('\n');
+  return `DO $funnel_release$
+DECLARE stage text := 'identity'; ready jsonb;
+BEGIN
+  PERFORM set_config('lock_timeout','1s',true);
+  PERFORM set_config('statement_timeout','60000',true);
+  IF current_database()<>'postgres' OR NOT EXISTS(
+    SELECT 1 FROM public.tenant WHERE id='fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+    THEN RAISE EXCEPTION 'Destination identity failed'; END IF;
+  IF NOT pg_try_advisory_xact_lock(hashtextextended('event-funnel-schema-release',0))
+    THEN RAISE EXCEPTION 'Another funnel installer is running'; END IF;
+  IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname LIKE 'event_funnel_%')
+    THEN RAISE EXCEPTION 'Existing funnel schema: no replay'; END IF;
+  IF EXISTS(SELECT 1 FROM supabase_migrations.schema_migrations
+    WHERE version IN (${files.map(f => literal(f.deploymentVersion)).join(',')}))
+    THEN RAISE EXCEPTION 'Deployment versions already used'; END IF;
+  ${steps}
+  stage := 'verification';
+  SELECT public.event_funnel_readiness() INTO ready;
+  IF ready->>'authoring' IS DISTINCT FROM 'true' OR ready->>'purchasing' IS DISTINCT FROM 'false'
+    THEN RAISE EXCEPTION 'Readiness verification failed'; END IF;
+  IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname LIKE 'event_funnel_%'
+    AND (has_function_privilege('anon',p.oid,'EXECUTE') OR has_function_privilege('authenticated',p.oid,'EXECUTE')))
+    THEN RAISE EXCEPTION 'Funnel routines exposed'; END IF;
+  IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relkind='r' AND c.relname LIKE 'event_funnel_%' AND NOT c.relrowsecurity)
+    THEN RAISE EXCEPTION 'Funnel tables missing RLS'; END IF;
+  SET CONSTRAINTS ALL IMMEDIATE;
+  ${rehearse ? "RAISE EXCEPTION 'FUNNEL_REHEARSAL_PASSED_ROLLED_BACK' USING ERRCODE='P0001';" : "NOTIFY pgrst, 'reload schema';"}
+EXCEPTION WHEN OTHERS THEN
+  RAISE EXCEPTION 'Funnel stage %: % (%)',stage,SQLERRM,SQLSTATE;
+END
+$funnel_release$;`;
+}
+
 export async function main(args = process.argv.slice(2), env = process.env) {
   assert.ok(args.every(a => ['--rehearse', '--apply'].includes(a) || /^--review-sha256=[a-f0-9]{64}$/.test(a)), 'Unknown argument');
   assert.ok(!(args.includes('--apply') && args.includes('--rehearse')), 'Choose one operation');

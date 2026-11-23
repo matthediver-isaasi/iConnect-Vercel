@@ -16,6 +16,16 @@
 
 ## Overview
 
+**Installation update, 23 November 2026:** The owner approved live installation
+and waived a backup restore rehearsal. All 45 files below were rehearsed with
+transactional rollback against verified DEST and then committed atomically using
+collision-free deployment identities. See
+[the rollout evidence](../docs/event-funnel-rollout-preflight.md) for the exact
+hash, managed-connection execution and post-commit checks. **Do not replay this
+batch. Authoring is installed, but purchasing and application publishing remain
+disabled pending activation work.** The earlier staging-only instructions below
+are historical rollout context, not the current installation status.
+
 **Live application remains on hold pending a verified recovery plan.** The owner
 initially requested a staging-first rollout, then permitted live migration
 subject to a clear backout route. That conditional permission does not establish
