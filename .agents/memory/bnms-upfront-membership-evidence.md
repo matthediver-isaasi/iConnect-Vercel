@@ -441,3 +441,18 @@ authority remain separate.
 **How to apply:** Verify invoice settlement, retain exact approved start/end
 dates, preserve the older historical entry, and check payment-card recognition
 as well as the stored record.
+
+## Coverage approval without future policy authority
+
+Approval of a paid historical term and its member-class structure does not,
+by itself, approve today's structure's future role-change, login, renewal-window
+or collection rules.
+
+**Why:** A current structure can include access changes absent from the imported
+history. Copying its complete configuration into a reconstructed commitment
+would silently introduce policy outside a financial-evidence-only repair.
+
+**How to apply:** Where access-policy changes are expressly excluded, capture
+the approved structure identity and duration without unapproved future policy.
+Verify the real renewal context and disclose any resulting review-required
+state; obtain separate policy authority rather than enabling checkout implicitly.

@@ -25,6 +25,26 @@ const { setActiveTenantId } = await import("../api/base44Client.js");
 
 // Optional private receipt: verifies real repaired rows without committing member data.
 const repairReceipt = 'generated-artifacts/bnms-invoice-date-repair/priced-verify.json';
+const singleRepairReceipt = 'generated-artifacts/bnms-membership-5734/verification.json';
+test('approved single-member invoice term renders actual API evidence without replacing the older history',
+  { skip: !existsSync(singleRepairReceipt) }, async () => {
+    const { payload } = JSON.parse(readFileSync(singleRepairReceipt, 'utf8'));
+    await mounted({ dataOverrides: payload }, (container, calls) => {
+      const current = container.querySelector('[data-testid="row-member-history-586d4e57-598b-4dd2-ab9f-120f0be539a3"]');
+      assert.ok(current);
+      assert.match(current.textContent, /2026-2027 Overseas full member/);
+      assert.match(current.textContent, /£156\.00/);
+      assert.match(current.textContent, /6 October 2026/);
+      assert.match(current.textContent, /5 October 2027/);
+      assert.match(current.textContent, /12 months/);
+      assert.match(current.textContent, /Paid/);
+      assert.doesNotMatch(current.textContent, /Structure unknown|Uncommitted/);
+      assert.equal(current.querySelector('[data-testid="button-view-invoice-586d4e57-598b-4dd2-ab9f-120f0be539a3"]').title,
+        'View invoice 300005516');
+      assert.ok(container.querySelector('[data-testid="row-member-history-36d03663-c9e3-5cad-a630-53f0a4776f9f"]'));
+      assert.deepEqual(calls, []);
+    });
+  });
 test('verified reconstruction receipts render complete priced membership history', { skip: !existsSync(repairReceipt) }, async () => {
   const { results, held } = JSON.parse(readFileSync(repairReceipt, 'utf8'));
   assert.equal(held.length, 0);
