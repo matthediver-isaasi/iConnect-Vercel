@@ -5,6 +5,12 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+Vercel capacity3 Preview is intended to use the same live database as Production.
+
+**Why:** On 2026-11-23 the owner explicitly chose live database use after being warned that Preview actions can affect real bookings and member records.
+
+**How to apply:** Align the Preview database URL and matching service credential with the approved live target; preserve Production settings. Preview is not an isolated test environment. This decision does not authorise test writes, messages or payments.
+
 Follow the documented DEST workflow for awards work; do not require a separate development database as a prerequisite.
 
 **Why:** The owner explicitly corrected the awards work on 2026-11-13: use the DEST Supabase database as documented in `replit.md`. Some `DEV_` aliases point to production; their names do not establish isolation, but this is not grounds to disregard the approved destination workflow.
