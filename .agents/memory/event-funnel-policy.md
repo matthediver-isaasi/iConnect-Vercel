@@ -17,14 +17,15 @@ form Cart stock model. Source stock must survive failed optional additions, and
 one fixed reservation expiry must not extend during ordinary edits. Production
 migrations and live provider operations require separate explicit approval.
 
-Do not apply funnel migrations. Retain the saved migration instructions and
-backout plan while completing implementation.
+The owner has now authorised installing the migrations for the complete funnel
+rollout. Retain the saved migration instructions and backout plan; approval does
+not establish technical readiness or authorise bypassing purchasing safeguards.
 
-**Why:** The owner most recently requested completion without applying
-migrations, superseding the earlier conditional live-migration permission.
+**Why:** On 2026-11-23 the owner explicitly requested installation for the
+complete feature rollout, superseding the earlier instruction to leave migrations
+unapplied.
 
-**How to apply:** Obtain fresh permission before applying to application databases.
-Verify recoverable backups, rehearse
+**How to apply:** Do not ask again for the same migration permission. Verify recoverable backups, rehearse
 restore and schema backout, and establish treatment of bookings/payments made
 after deployment before applying the batch. Keep automatic migrations disabled.
 
