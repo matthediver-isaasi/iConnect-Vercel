@@ -166,3 +166,4 @@
 - [Live query contract decisions](live-query-contract-policy.md) — ID resource routes and Teams meeting fields do not authorize new slug or parent-meeting schema.
 - [Simple-event total policy](simple-event-total-capacity-policy.md) — mutable historical counters do not establish intended maxima; require explicit confirmation before live conversion.
 - [Subscriber count authority](subscriber-count-authority.md) — input readiness is not consent eligibility; separate cached rendering, database evidence and campaign recipients.
+- [GFI Heads briefing policy](gfi-heads-briefing-policy.md) — one-time correction only; no future role-driven enrollment or count-semantic changes.
