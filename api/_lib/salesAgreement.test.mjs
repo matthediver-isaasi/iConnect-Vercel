@@ -154,6 +154,7 @@ test('completion delivers retained PDF to both frozen parties and reports indepe
   const db = {
     storage: { from: () => ({ download: async () => ({ data: new Blob([artifact]) }) }) },
     rpc: async (name, args) => {
+      if (name === 'check_sales_automatic_delivery') return { data: 'permitted' };
       assert.equal(name, 'claim_sales_agreement_completion_notice');
       return { data: { attempts: 1, recipient_email: args.p_party === 'sender' ? 'seller@example.org' : 'buyer@example.org' } };
     },

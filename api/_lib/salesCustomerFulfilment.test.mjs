@@ -15,6 +15,7 @@ test('durable claim suppresses concurrent/repeated sends; rejected delivery retr
   let state = 'pending'; const messages = [];
   const db = {
     rpc: async (name, args) => {
+      if (name === 'check_sales_automatic_delivery') return { data: 'permitted' };
       if (name === 'claim_sales_customer_fulfilment') {
         if (state !== 'pending') return { data: null };
         state = 'sending'; return { data: row };
@@ -40,7 +41,8 @@ test('durable claim suppresses concurrent/repeated sends; rejected delivery retr
 });
 test('unknown provider outcomes are held for review rather than blindly resent', async () => {
   let final;
-  const db = { rpc: async (name, args) => name.startsWith('claim')
+  const db = { rpc: async (name, args) => name === 'check_sales_automatic_delivery'
+    ? { data: 'permitted' } : name.startsWith('claim')
     ? { data: row } : (final = args.p_outcome, { data: true }),
   from: () => { const q = { select: () => q, eq: () => q, single: async () => ({ data: { slug: 'safe' } }) }; return q; } };
   await deliverCustomerFulfilment(db, row, { send: async () => { throw new Error('timeout'); } });

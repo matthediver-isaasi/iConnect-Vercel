@@ -3,6 +3,7 @@ import { SalesHttpError } from './salesAccess.js';
 import { hashAllocationInviteToken, deriveAllocationInviteToken, getPublicAllocationInvitationContext } from './allocationInvitation.js';
 import { canonicalQuoteBaseUrl } from './salesQuoteDelivery.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { checkSalesAutomaticDelivery } from './salesCommunicationPolicy.js';
 
 export async function fulfilmentResult(query) {
   const { data, error } = await query;
@@ -92,6 +93,10 @@ export async function deliverCustomerFulfilment(db, row, dependencies = {}) {
     } else {
       const tenant = await fulfilmentResult(db.from('tenant').select('domain,slug').eq('id', claimed.tenant_id).single());
       const url = `${canonicalQuoteBaseUrl(tenant)}/sales-ticket-registration#token=${encodeURIComponent(token)}`;
+      const policy = await checkSalesAutomaticDelivery(db, {
+        tenantId: claimed.tenant_id, category: 'customer_fulfilment', id: row.id, claim: lease,
+      });
+      if (policy === 'suppressed') return 'suppressed';
       sending = true;
       let timeout;
       const delivery = (dependencies.send || sendTenantEmail)({
@@ -119,7 +124,7 @@ export async function runCustomerFulfilment({ db, ...dependencies }) {
   const rows = await fulfilmentResult(db.from('sales_customer_fulfilment').select('id,tenant_id,sale_id')
     .in('status', ['pending', 'sending']).is('revoked_at', null).gt('expires_at', new Date().toISOString())
     .lte('next_attempt_at', new Date().toISOString()).order('next_attempt_at').limit(25));
-  const counts = { sent: 0, pending: 0, attention: 0, skipped: 0, failed: 0 };
+  const counts = { sent: 0, suppressed: 0, pending: 0, attention: 0, skipped: 0, failed: 0 };
   const started = Date.now();
   for (const row of rows || []) {
     if (Date.now() - started > 20000) break;

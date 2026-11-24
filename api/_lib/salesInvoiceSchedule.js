@@ -5,6 +5,7 @@ import { productAccountingQueueEnabled, prepareSalesAccountingEnvelope } from '.
 import { resolveAccountingQueueBinding } from './accountingQueueIntegration.js';
 import { getActiveAccountingProvider, getAccountingProviderByName } from './accountingProvider.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { checkSalesAutomaticDelivery } from './salesCommunicationPolicy.js';
 
 export const SALES_SCHEDULE_SOURCE = 'sales_invoice_schedule';
 export const salesScheduleEnabled = () => process.env.SALES_INVOICE_SCHEDULE_ENABLED === 'true'
@@ -166,6 +167,12 @@ export async function deliverSalesSchedule(db, schedule, dependencies = {}) {
   if (!claimed) return { skipped: true };
   let sending = false;
   try {
+    // Avoid provider PDF retrieval for already-suppressed work. Check again
+    // after preparation so a policy edit during that work is also respected.
+    const initialPolicy = await checkSalesAutomaticDelivery(db, {
+      tenantId: schedule.tenant_id, category: 'invoice', id: schedule.id, claim: token,
+    });
+    if (initialPolicy === 'suppressed') return { status: 'suppressed' };
     const link = await result(db.from('sales_accounting_invoice_link').select('*')
       .eq('tenant_id', schedule.tenant_id).eq('schedule_id', schedule.id).maybeSingle());
     if (!link) throw failure('SCHEDULE_LINK_MISSING', 'Verified invoice linkage is missing');
@@ -184,6 +191,10 @@ export async function deliverSalesSchedule(db, schedule, dependencies = {}) {
     if (!branding?.name) throw failure('SCHEDULE_BRANDING_REQUIRED', 'Tenant email branding could not be loaded');
     const color = /^#[0-9a-f]{6}$/i.test(branding.primary_color || '') ? branding.primary_color : '#334155';
     const logo = /^https:\/\//i.test(branding.logo_url || '') ? `<img src="${escape(branding.logo_url)}" alt="${escape(branding.name)}" style="max-height:60px" />` : '';
+    const policy = await checkSalesAutomaticDelivery(db, {
+      tenantId: schedule.tenant_id, category: 'invoice', id: schedule.id, claim: token,
+    });
+    if (policy === 'suppressed') return { status: 'suppressed' };
     sending = true;
     const sent = await boundedOperation(() => (dependencies.send || sendTenantEmail)({
       tenantId: schedule.tenant_id, to: recipient.email,
@@ -206,7 +217,7 @@ export async function deliverSalesSchedule(db, schedule, dependencies = {}) {
 
 export async function runSalesInvoiceSchedule({ db, limit = 40 }, dependencies = {}) {
   const enabled = (dependencies.enabled || salesScheduleEnabled)();
-  const counts = { enabled, examined: 0, queued: 0, blocked: 0, sent: 0, rejected: 0, attention: 0, deferred: 0 };
+  const counts = { enabled, examined: 0, queued: 0, blocked: 0, sent: 0, suppressed: 0, rejected: 0, attention: 0, deferred: 0 };
   const deadline = Date.now() + 50000;
   const rows = await result(db.rpc('due_sales_invoice_schedules', {
     p_limit: Math.min(100, Math.max(1, limit)), p_dispatch: enabled,

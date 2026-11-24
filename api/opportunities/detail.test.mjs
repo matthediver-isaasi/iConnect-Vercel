@@ -82,6 +82,46 @@ test('collaborator can patch ordinary fields with optimistic versioning', async 
   assert.equal(update.update.version, 3);
 });
 
+test('silent mode uses existing edit authority and strict versioned policy command', async () => {
+  for (const principal of ['owner-a','collab-a','outsider']) {
+    const db = fakeDb(principal);
+    const res = response();
+    await handlerFor(principal,db)({ method:'PATCH',query:{ id:'opp-a' },
+      body:{ action:'silent-mode',expectedVersion:2,silentMode:true,automaticCommunications:['invoice'] } },res);
+    if (principal === 'outsider') {
+      assert.equal(res.statusCode,404);
+      assert.equal(db.calls.some(c => c.rpc),false);
+    } else {
+      assert.equal(res.statusCode,200);
+      const call = db.calls.find(c => c.rpc);
+      assert.equal(call.rpc,'set_opportunity_silent_mode');
+      assert.equal(call.args.p_tenant,'tenant-a');
+      assert.equal(call.args.p_opportunity,'opp-a');
+      assert.equal(call.args.p_actor_id,principal);
+      assert.equal(call.args.p_version,2);
+      assert.deepEqual(call.args.p_allowed,['invoice']);
+    }
+  }
+});
+
+test('silent mode rejects invalid inputs and reports concurrent saves without a fallback update', async () => {
+  for (const patch of [
+    {silentMode:'true'}, {automaticCommunications:['unknown']}, {automaticCommunications:['invoice','invoice']},
+    {expectedVersion:1},
+  ]) {
+    const db = fakeDb('owner-a'); const res = response();
+    await handlerFor('owner-a',db)({method:'PATCH',query:{id:'opp-a'},
+      body:{action:'silent-mode',expectedVersion:2,silentMode:true,automaticCommunications:[],...patch}},res);
+    assert.ok([400,409].includes(res.statusCode));
+    assert.equal(db.calls.some(c => c.rpc || c.update),false);
+  }
+  const db = fakeDb('owner-a'); const res = response();
+  db.rpc = async () => ({error:{code:'PT409'}});
+  await handlerFor('owner-a',db)({method:'PATCH',query:{id:'opp-a'},
+    body:{action:'silent-mode',expectedVersion:2,silentMode:true,automaticCommunications:[]}},res);
+  assert.equal(res.statusCode,409);
+});
+
 test('collaborator can perform a versioned stage move', async () => {
   const db = fakeDb('collab-a');
   const res = response();

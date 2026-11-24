@@ -1,4 +1,5 @@
 import BillingPresetSettings from "./BillingPresetSettings";
+import OpportunitySilentMode from "./OpportunitySilentMode";
 import { useEffect, useMemo, useState } from "react";
 import QuoteTaskSettings from "./QuoteTaskSettings";
 import CatalogueVisibilitySettings from "./CatalogueVisibilitySettings";
@@ -527,6 +528,9 @@ function OpportunityDetail() {
           <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={!canEdit} rows={5} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           {canEdit && <div className="sm:col-span-2 flex justify-end"><Button disabled={!form.name.trim() || update.isPending} onClick={() => { const target = stages.find((stage) => idOf(stage) === form.stage_id); if ((target?.is_lost || target?.isLost) && form.stage_id !== (opportunity.stage_id || opportunity.stageId)) setLossDialogOpen(true); else update.mutate(); }}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save changes</Button></div>}
         </CardContent></Card>
+        <OpportunitySilentMode key={id} opportunity={opportunity} canEdit={capabilities.canEdit === true} request={request}
+          onChanged={() => { refresh(); qc.invalidateQueries({ queryKey: ["opportunities"] }); }}
+          onReload={async () => { const result = await detail.refetch(); if (result.error) throw result.error; return normalizeOpportunityDetail(result.data).opportunity; }} />
         <div><h3 className="mb-2 text-lg font-semibold">Collaborators</h3><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="collaborators" items={collections.collaborators} canEdit={canManage} onChanged={refresh} /></div>
       </TabsContent>
       <TabsContent value="contacts"><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="contacts" items={collections.contacts} canEdit={canEdit} onChanged={refresh} /></TabsContent>

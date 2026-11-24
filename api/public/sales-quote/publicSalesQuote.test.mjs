@@ -12,10 +12,14 @@ import originalHandler from './[...path].js';
 
 test('deployment explicitly routes nested public proposal actions to a concrete function', () => {
   const config = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.rewrites[0], {
+  const proposalRoute = config.rewrites.findIndex(route => route.source === '/api/public/sales-quote/:path+');
+  assert.ok(proposalRoute >= 0);
+  assert.deepEqual(config.rewrites[proposalRoute], {
     source: '/api/public/sales-quote/:path+',
     destination: '/api/public/sales-quote-entry?path=:path+',
   });
+  const catchAll = config.rewrites.findIndex(route => ['/api/:path*', '/(.*)', '/:path*'].includes(route.source));
+  assert.ok(catchAll < 0 || proposalRoute < catchAll, 'proposal action route must precede the catch-all');
   assert.equal(entryHandler, originalHandler);
 });
 

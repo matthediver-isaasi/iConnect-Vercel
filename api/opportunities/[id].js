@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { requireSalesContext } from '../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
+import { validateSalesCommunicationPolicy } from '../../shared/salesCommunicationPolicy.js';
 import { collaboratorOptions, validateCollaborator } from '../_lib/opportunityCollaborators.js';
 import { getSalesInvoicePresentation, salesInvoicePermissions } from '../_lib/salesAccounting.js';
 import {
@@ -153,6 +154,19 @@ export function createOpportunityDetailHandler(dependencies = {}) {
         if (!access.permissions.canEdit) throw new OpportunityHttpError(403, 'Opportunity edit access required');
         const body = req.body || {};
         assertExpectedVersion(access.opportunity, body.expectedVersion);
+        if (body.action === 'silent-mode') {
+          let policy;
+          try { policy = validateSalesCommunicationPolicy(body.silentMode, body.automaticCommunications); }
+          catch (error) { throw new OpportunityHttpError(400, error.message); }
+          const { data, error } = await db.rpc('set_opportunity_silent_mode', {
+            p_tenant: context.tenantId, p_opportunity: id, p_version: body.expectedVersion,
+            p_enabled: policy.silentMode, p_allowed: policy.automaticCommunications,
+            p_actor_kind: access.principal.kind, p_actor_id: access.principal.id,
+          });
+          if (error?.code === 'PT409') throw new OpportunityHttpError(409, 'Opportunity was updated by another user', 'STALE_UPDATE');
+          if (error) throw error;
+          return res.status(200).json(data);
+        }
         if (body.owner && !access.permissions.canManage) {
           throw new OpportunityHttpError(403, 'Only the owner can change opportunity ownership');
         }

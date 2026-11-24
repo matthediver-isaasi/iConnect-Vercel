@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { SalesHttpError } from './salesAccess.js';
 import { sendEmail } from './emailService.js';
+import { checkSalesAutomaticDelivery } from './salesCommunicationPolicy.js';
 
 export const hasSalesAgreement = (version) => Boolean(version?.terms_snapshot?.legalHtml?.trim());
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -168,6 +169,11 @@ export async function finalizeAndNotifySalesAgreement(db, envelope, dependencies
         let result;
         try {
           const pdf = await downloadSalesAgreement(db, finalized);
+          const policy = await checkSalesAutomaticDelivery(db, {
+            tenantId: finalized.tenant_id, category: `agreement_${party}`,
+            id: finalized.id, claim: claim.attempts,
+          });
+          if (policy === 'suppressed') { statuses[party] = 'suppressed'; continue; }
           result = await (dependencies.sendEmail || sendEmail)({
             tenantId: finalized.tenant_id, to: claim.recipient_email,
             subject: 'Your signed Sales agreement is complete',
@@ -182,7 +188,7 @@ export async function finalizeAndNotifySalesAgreement(db, envelope, dependencies
           // A failed provider attempt waits at least one minute before retry.
           lease_until: result?.success ? null : new Date(Date.now() + 60000).toISOString(),
           last_error: result?.success ? null : 'Completion email failed; retry finalization.',
-        }).eq('envelope_id', finalized.id).eq('party', party).eq('attempts', claim.attempts));
+        }).eq('envelope_id', finalized.id).eq('party', party).eq('attempts', claim.attempts).eq('status', 'sending'));
         statuses[party] = status;
       } else {
         const notice = checked(await db.from('sales_agreement_completion_notice').select('status')

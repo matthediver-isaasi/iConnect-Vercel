@@ -18,7 +18,7 @@ const frozen = { name: 'Deposit', netMinor: 1000, taxMinor: 200, grossMinor: 120
   paymentTerms: { days: 14 }, recipient: { email: 'accepted@example.test', name: 'Accepted Customer' } };
 const schedule = { id: 'schedule', tenant_id: 'tenant', sale_id: 'sale', quote_version_id: 'version',
   timezone: 'Europe/London', planned_issue_date: '2026-10-01', snapshot: frozen, status: 'pending' };
-function dbFor(tables = {}, rpc = async () => ({ data: true })) {
+function dbFor(tables = {}, rpc = async name => ({ data: name === 'check_sales_automatic_delivery' ? 'permitted' : true })) {
   const calls = [];
   return { calls, rpc: async (name, args) => { calls.push({ name, args }); return rpc(name, args); },
     from(table) {
@@ -236,7 +236,7 @@ for (const outcome of [{ success: true, messageId: 'mail-id' }, { success: false
     });
     assert.equal(sends, 1);
     assert.equal(got.status, outcome.success ? 'sent' : outcome.ambiguousEffect ? 'attention' : 'rejected');
-    assert.equal(db.calls[1].args.p_message, outcome.messageId || null);
+    assert.equal(db.calls.find(c => c.name === 'finish_sales_schedule_delivery').args.p_message, outcome.messageId || null);
   });
 }
 test('lost delivery claim never sends; changed company never sends', async () => {
@@ -257,7 +257,7 @@ test('a transport exception after send begins is held for review, never a defini
     send: async () => { throw new Error('Connection lost after submission'); },
   });
   assert.equal(outcome.status, 'attention');
-  assert.equal(db.calls[1].args.p_status, 'attention');
+  assert.equal(db.calls.find(c => c.name === 'finish_sales_schedule_delivery').args.p_status, 'attention');
 });
 test('disabled worker sweeps owned delivery only and never dispatches new invoices', async () => {
   const db = dbFor({}, async (name, args) => {

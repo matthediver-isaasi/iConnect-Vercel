@@ -80,6 +80,7 @@
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
 - [Sales and Projects policies](sales-project-policy-index.md) — tasks, billing, agreements, catalogue/ticket capacity, bearer safety and exhibition event authority.
+- [Opportunity Silent mode](sales-silent-mode-policy.md) — per-opportunity automatic delivery only; manual sends and OTP stay unchanged, and suppressed occurrences never replay.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
