@@ -9,15 +9,19 @@ Post-install verification found zero grants, consumptions, reservations and
 membership products, with service-only lookup access and no direct grant writes.
 The isolated PostgreSQL suites and 64 focused behaviour/UI tests passed.
 
-**Activation remains blocked on deployment parity.** Vercel's Production target
+**Activation configuration updated by explicit owner override.** On 2026-11-24,
+after being informed of the shared-database mismatch below, the owner requested
+enablement regardless. Vercel's Preview and Production environments now have
+`PROPOSAL_MEMBERSHIP_ENTITLEMENTS_ENABLED=true`, verified through the API.
+No redeployment was initiated, so this does not establish runtime activation.
+
+Vercel's Production target
 was verified as `capacity2` (`7ac6ec86edef7a72121fac029fded34bfb1c6bf3`), which
 lacks the membership integration. Preview `funnel`
 (`f7010ecc345364de82cafe3e2a0d204ae1daf80e`) includes it. Both use the live
-database. The flag `PROPOSAL_MEMBERSHIP_ENTITLEMENTS_ENABLED` was absent and
-was deliberately not added or enabled. Deploy matching readers and writers to
-Production before enabling it across the environments sharing the database;
-environment changes require fresh deployments. No deployment was initiated.
-Catalogue discovery reports rollout pending while the flag remains off.
+database. Matching readers and writers across both environments remain the
+recommended safe rollout. Environment changes require fresh deployments;
+setting this flag cannot add missing integration code to an older deployment.
 
 The approved migration sequence installed was:
 
