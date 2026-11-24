@@ -14,3 +14,12 @@ Speaker voucher origin means the parent event that earned the award, not the eve
 **Why:** The owner explicitly distinguishes award provenance from later spending and prohibits historical inference from voucher codes or descriptions.
 
 **How to apply:** Enrich existing awards only through their actual ledger voucher links and trustworthy source snapshots. Missing provenance is not permission to backfill financial records or reinterpret issued awards.
+
+Read-only voucher provenance compatibility does not authorize installing any
+part of the coordinated agenda-speaker migration set.
+
+**Why:** The owner explicitly separated legacy display repair from the approved
+coordinated rollout; adding the missing snapshot column alone would bypass that boundary.
+
+**How to apply:** Keep display compatibility independent of schema installation.
+Report isolated fixture evidence separately from an authorized deployed-session check.

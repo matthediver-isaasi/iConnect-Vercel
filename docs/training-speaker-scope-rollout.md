@@ -77,6 +77,57 @@ Rolling application code back alone leaves database guards in place: old trainin
 
 ## Reproducible isolated evidence
 
+### Voucher-origin compatibility evidence (2026-11-24)
+
+Task #5803 is a read-only compatibility release, **not installation of the
+agenda-speaker schema**. The six-migration coordinated rollout remains owned by
+task #5675. Do not apply `202701220001` alone to repair voucher display.
+
+The investigation supplied with this task reproduced HTTP 400 / SQLSTATE 42703
+for the grant projection on verified DEST using limit-zero reads (no customer
+rows); the other endpoint projections succeeded. That is prior investigation
+evidence, not a live request replay performed by this change.
+
+The endpoint first selects snapshots. Only SQLSTATE 42703 naming precisely
+`speaker_award_grant.agenda_snapshot` as nonexistent enables a request-local
+legacy projection retry. The retry preserves tenant and voucher filters, ID
+ordering, 200-row pagination and every linked origin. Later requests attempt
+snapshots again, so no process restart or stale capability cache prevents
+snapshot use after rollout. Missing source rows remain nullable metadata;
+unrelated failures and failed legacy retries remain generic HTTP 503 responses.
+
+Server diagnostics use the fixed `[voucher-award-origins]` tag with only
+`stage`, validated `code` (or `UNKNOWN`) and `outcome`. Stages distinguish
+`authorization`, `voucher`, `grants_snapshot`, `grants_legacy`, `speaker`,
+`event` and `complex_event`; outcomes distinguish `legacy_fallback` from
+`failed`. Do not add raw database messages, hints, details, stacks, request
+bodies, identifiers or customer metadata to these logs.
+
+Verification performed:
+
+```sh
+node scripts/run-isolated-tests.mjs node --test --test-concurrency=1 \
+  api/admin/voucher-award-origins.test.mjs api/admin/voucher-members.test.mjs
+# 32 passed; network/database access blocked by the isolated runner.
+npx playwright test --config=tests/voucher-management.task5241.config.mjs
+# 8 passed; intercepted fixture API responses, no customer/provider writes.
+```
+
+The schema-aware endpoint adapter rejects unknown selected columns and returns
+only selected fields. Evidence covers both schema contracts, 202 legacy linked
+origins across pages, missing sources, tenant isolation, authorization, generic
+failure responses and redacted diagnostics. Browser evidence covers list/detail
+display, retry, loading/missing distinctions and tenant changes.
+
+**Deployed verification remains unperformed:** this fork was not published and
+no authorized tenant-admin session was supplied. The unauthenticated local
+preview showed “Tenant not found”; it is not evidence of authenticated voucher
+behavior. After merge/release, use an authorized session on the approved target
+to POST existing organisation voucher IDs to `/api/admin/voucher-award-origins`.
+Record status and safe diagnostic stage/code only, verify cards/details and
+retry behavior without modifying records, and repeat snapshot-title checks
+after the coordinated rollout. Keep this evidence separate from fixture results.
+
 ```sh
 node scripts/run-isolated-tests.mjs --allow-local-postgres node --test --test-concurrency=1 \
   supabase/migrations/trainingSpeakerScope.test.mjs \
