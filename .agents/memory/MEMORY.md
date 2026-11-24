@@ -173,4 +173,4 @@
 - [GFI Heads briefing policy](gfi-heads-briefing-policy.md) — one-time correction only; no future role-driven enrollment or count-semantic changes.
 - [Event funnel purchase policy](event-funnel-policy.md) — same-checkout prerequisites, event-owned registrations, fixed expiry and separate live-operation approval.
 - [QuickBooks tax evidence](quickbooks-tax-evidence.md) — returned percentages may not explain overridden tax; preserve issued amounts and original rate references.
-- [PostgreSQL test adapters](postgres-test-adapters.md) — preserve production JSON result types, or a committed claim can look empty to the worker.
+- [PostgreSQL test adapters](postgres-test-adapters.md) — preserve JSON result types and service-role RLS visibility; fixture mismatches can disguise successful writes or existing rows.

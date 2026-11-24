@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createOpportunityDetailHandler } from './[id].js';
+import { salesPrincipalFixture, unifiedContext, salesResponse } from '../_lib/salesPrincipals.fixture.mjs';
 
 const baseOpportunity = {
   id: 'opp-a', tenant_id: 'tenant-a', organization_id: 'org-a',
@@ -204,4 +205,24 @@ test('admin can change opportunity ownership', async () => {
   assert.equal(res.statusCode, 200);
   const update = db.calls.find((call) => call.table === 'opportunity' && call.update);
   assert.equal(update.update.owner_id, 'new-collab');
+});
+
+test('explicit owner updates and task assignees use the same scoped unified principal checks', async () => {
+  for (const id of ['identity', 'legacy', 'foreign', 'inactive', 'ordinary', 'absent', 'missing-identity']) {
+    for (const action of ['owner', 'assignee']) {
+      const db = salesPrincipalFixture(), res = salesResponse();
+      db.rows.opportunity.push({ id: 'opp', tenant_id: 'tenant-a', organization_id: 'org',
+        stage_id: 'stage', owner_kind: 'tenant_user', owner_id: 'legacy', version: 1 });
+      const handler = createOpportunityDetailHandler({ db, getTenantContext: async () => unifiedContext,
+        requireCapability: async () => {}, hasAdminAccess: async () => true });
+      const principal = { kind: 'tenant_user', id };
+      await handler(action === 'owner'
+        ? { method: 'PATCH', query: { id: 'opp' }, body: { expectedVersion: 1, owner: principal } }
+        : { method: 'POST', query: { id: 'opp', resource: 'tasks' }, body: { title: 'Follow up', assignee: principal } }, res);
+      const valid = ['identity', 'legacy'].includes(id);
+      assert.equal(res.statusCode, valid ? (action === 'owner' ? 200 : 201) : 404, JSON.stringify(res.body));
+      if (valid) assert.equal(res.body[action === 'owner' ? 'owner_id' : 'assignee_id'], id);
+      else assert.equal(db.calls.some(call => call.table === 'opportunity_activity'), false);
+    }
+  }
 });

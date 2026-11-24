@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createOpportunitiesHandler } from './index.js';
+import { salesPrincipalFixture, unifiedContext, salesResponse } from '../_lib/salesPrincipals.fixture.mjs';
 
 function fixture(admin = true, fail = false) {
   const calls = [];
@@ -100,5 +101,53 @@ test('creation accepts every organisation status with an optional contact, but r
       assert.equal(res.statusCode, 404);
       assert.equal(inserted, null);
     }
+  }
+});
+
+test('default creator and owner remain the authenticated Sales principal for both staff forms and members', async () => {
+  for (const context of [unifiedContext, { ...unifiedContext, tenantUserId: 'legacy' },
+    { isAuthenticated: true, tenantId: 'tenant-a', memberId: 'member-user', roleId: 'sales-role' }]) {
+    for (const contactId of [null, 'contact']) {
+      const db = salesPrincipalFixture(), res = salesResponse();
+      const handler = createOpportunitiesHandler({ db, getTenantContext: async () => context,
+        hasFeatureAccess: async () => true, hasAdminAccess: async () => false });
+      await handler({ method: 'POST', body: { name: 'Sale', organizationId: 'org', stageId: 'stage', contactId } }, res);
+      assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+      const kind = context.tenantUserId ? 'tenant_user' : 'member';
+      const id = context.tenantUserId || context.memberId;
+      assert.equal(res.body.owner_kind, kind);
+      assert.equal(res.body.owner_id, id);
+      assert.equal(res.body.created_by_id, id);
+      assert.equal(res.body.created_by_kind, kind);
+      assert.equal(res.body.primary_contact_id, contactId);
+      await handler({ method: 'GET', query: { mine: 'true' } }, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.items.length, 1);
+      assert.equal(res.body.items[0].owner.id, id);
+      assert.equal(res.body.items[0].primaryContact?.id || null, contactId);
+      if (id === 'identity') assert.equal(res.body.items[0].owner.name, 'Unified Admin');
+    }
+  }
+});
+
+test('invalid unified owners and database failures cannot create opportunities', async () => {
+  for (const id of ['foreign', 'inactive', 'ordinary', 'absent', 'missing-identity']) {
+    const db = salesPrincipalFixture(), res = salesResponse();
+    const handler = createOpportunitiesHandler({ db, getTenantContext: async () => unifiedContext,
+      requireCapability: async () => {} });
+    await handler({ method: 'POST', body: { name: 'Sale', organizationId: 'org', stageId: 'stage',
+      contactId: 'contact', owner: { kind: 'tenant_user', id } } }, res);
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error, 'Principal not found in tenant');
+    assert.equal(db.rows.opportunity.length, 0);
+  }
+  for (const table of ['tenant_user', 'tenant_membership', 'tenant_identity']) {
+    const db = salesPrincipalFixture(), res = salesResponse();
+    db.failures.set(table, new Error('database unavailable'));
+    await createOpportunitiesHandler({ db, getTenantContext: async () => unifiedContext,
+      requireCapability: async () => {} })({ method: 'POST',
+      body: { name: 'Sale', organizationId: 'org', stageId: 'stage' } }, res);
+    assert.equal(res.statusCode, 500);
+    assert.equal(db.rows.opportunity.length, 0);
   }
 });

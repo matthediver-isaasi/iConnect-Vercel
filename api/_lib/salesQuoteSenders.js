@@ -1,5 +1,6 @@
 import { SalesHttpError } from './salesAccess.js';
 import { quoteSenderHeaders } from './emailService.js';
+import { resolveSalesTenantUser } from './salesPrincipals.js';
 
 export async function quoteSenderOptions(db, quote, actor) {
   const { data: opportunity, error } = await db.from('opportunity')
@@ -26,14 +27,17 @@ export async function quoteSenderOptions(db, quote, actor) {
     const key = `${principal.kind}:${principal.id}`;
     if (!['member', 'tenant_user'].includes(principal.kind) || !principal.id || seen.has(key)) continue;
     seen.add(key);
-    let query = db.from(principal.kind).select('id,first_name,last_name,email')
-      .eq('tenant_id', actor.tenantId).eq('id', principal.id);
+    let person;
     if (principal.kind === 'member') {
       if (!org) continue;
-      query = query.eq('organization_id', org.id);
+      const { data, error: personError } = await db.from('member')
+        .select('id,first_name,last_name,email').eq('tenant_id', actor.tenantId)
+        .eq('id', principal.id).eq('organization_id', org.id).maybeSingle();
+      if (personError) throw personError;
+      person = data;
+    } else {
+      person = await resolveSalesTenantUser(db, actor.tenantId, principal.id);
     }
-    const { data: person, error: personError } = await query.maybeSingle();
-    if (personError) throw personError;
     if (!person || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(person.email || '')
       || /@deleted\.local$/i.test(person.email)) continue;
     items.push({ ...principal, key, email: person.email,

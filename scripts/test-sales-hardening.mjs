@@ -25,6 +25,12 @@ const groups = [
     files: [
       'api/_lib/salesFoundation.test.mjs',
       'api/_lib/salesFoundation.postgres.test.mjs',
+      'api/_lib/salesPrincipals.test.mjs',
+      'api/_lib/opportunityRules.test.mjs',
+      'api/_lib/opportunityCollaborators.test.mjs',
+      'api/_lib/opportunityPipelineMigration.postgres.test.mjs',
+      'api/opportunities/index.test.mjs',
+      'api/opportunities/detail.test.mjs',
     ],
   },
   {
@@ -41,6 +47,7 @@ const groups = [
     name: '4. delivery and public acceptance',
     files: [
       'api/_lib/salesQuoteDelivery.test.mjs',
+      'api/_lib/salesQuoteSenders.test.mjs',
       'api/public/sales-quote/publicSalesQuote.test.mjs',
       'api/storage/signed-upload-url.test.mjs',
     ],

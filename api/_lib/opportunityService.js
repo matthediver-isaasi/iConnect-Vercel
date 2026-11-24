@@ -1,4 +1,5 @@
 import { hasAdminAccess } from './tenantContext.js';
+import { loadSalesTenantUsers, resolveSalesTenantUser } from './salesPrincipals.js';
 import {
   OpportunityHttpError, principalFromContext, opportunityPermissions,
 } from './opportunityRules.js';
@@ -18,6 +19,12 @@ export async function validatePrincipal(db, tenantId, principal) {
   const table = principal?.kind === 'member' ? 'member'
     : principal?.kind === 'tenant_user' ? 'tenant_user' : null;
   if (!table || !principal.id) throw new OpportunityHttpError(400, 'Invalid principal');
+  if (table === 'tenant_user') {
+    if (!await resolveSalesTenantUser(db, tenantId, principal.id)) {
+      throw new OpportunityHttpError(404, 'Principal not found in tenant');
+    }
+    return;
+  }
   await one(db.from(table).select('id').eq('tenant_id', tenantId).eq('id', principal.id),
     'Principal not found in tenant');
 }
@@ -72,7 +79,7 @@ export async function enrichOpportunities(db, tenantId, opportunities) {
     db.from('organization').select('id,name').eq('tenant_id', tenantId).in('id', orgIds),
     db.from('opportunity_stage').select('id,name,color,probability,is_won,is_lost').eq('tenant_id', tenantId).in('id', stageIds),
     memberOwnerIds.length ? db.from('member').select('id,first_name,last_name,email').eq('tenant_id', tenantId).in('id', memberOwnerIds) : Promise.resolve({ data: [], error: null }),
-    userOwnerIds.length ? db.from('tenant_user').select('id,first_name,last_name,email').eq('tenant_id', tenantId).in('id', userOwnerIds) : Promise.resolve({ data: [], error: null }),
+    loadSalesTenantUsers(db, tenantId, userOwnerIds),
     db.from('opportunity_contact_role').select('opportunity_id,member_id,role,is_primary')
       .eq('tenant_id', tenantId).in('opportunity_id', ids).eq('is_primary', true),
   ]);
