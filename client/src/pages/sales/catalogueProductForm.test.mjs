@@ -55,6 +55,8 @@ test("copy allowlist drops identity/lifecycle/tax snapshots, clears SKU, bounds 
   for (const key of ["id", "isActive", "archivedAt", "taxRateBps", "taxCode"]) assert.equal(key in copy, false);
   assert.deepEqual(productPricesForSaving(copy), { standardPriceMinor: Number.MAX_SAFE_INTEGER, minimumPriceMinor: null, costMinor: 0 });
   assert.deepEqual(copy.capacityMetadata, source.capacityMetadata);
+  assert.equal(copy.eventReference, null);
+  assert.equal(source.eventReference.ticketTypeId, "ticket");
   copy.capacityMetadata.nested.keep = false;
   assert.equal(source.capacityMetadata.nested.keep, true);
   assert.equal(copy.createTaskOnAcceptance, true);

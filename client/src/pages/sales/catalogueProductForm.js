@@ -13,6 +13,7 @@ export function catalogueCopyForEditing(type, source, freshCode) {
   copy.code = freshCode;
   if (type === "products") {
     copy.sku = "";
+    copy.eventReference = null;
     Object.assign(copy, productPricesForEditing(source));
   }
   if (type === "bundles") {

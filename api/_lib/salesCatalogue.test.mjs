@@ -6,9 +6,15 @@ import {
   validateCatalogueBundle, validateCatalogueProduct,
 } from '../../shared/salesContracts.js';
 import {
-  delegateCapacityFromTicket, listCatalogue, listCatalogueEventOptions, resolveEventTicketReference, throwDb,
+  createCatalogueRecord, delegateCapacityFromTicket, listCatalogue, listCatalogueEventOptions, resolveEventTicketReference, throwDb,
 } from './salesCatalogue.js';
 import { createSalesCatalogueHandler } from '../sales/catalogue/[...path].js';
+
+test('new ticket products are rejected before database or accounting calls', async () => {
+  await assert.rejects(createCatalogueRecord({}, 'tenant', {}, 'products', {
+    eventReference: { kind: 'simple', eventId: 'event', ticketTypeId: 'ticket' },
+  }), error => error.status === 400 && /Add tickets directly/.test(error.message));
+});
 
 const product = {
   code: 'EVENT_1', name: 'Delegate place', currency: 'GBP',

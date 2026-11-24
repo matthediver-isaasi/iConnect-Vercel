@@ -20,6 +20,8 @@ const built = await build({
   plugins: [{
     name: "isolated-catalogue-data",
     setup(b) {
+      b.onResolve({ filter: /\/ProductMembershipSchedule$/ }, () => ({ path: "membership", namespace: "membership-fixture" }));
+      b.onLoad({ filter: /.*/, namespace: "membership-fixture" }, () => ({ contents: 'export default function Membership(){return null;}' }));
       b.onResolve({ filter: /\/QuoteLineTicketSelect$/ }, () => ({ path: "ticket-selector", namespace: "ticket-fixture" }));
       b.onLoad({ filter: /.*/, namespace: "ticket-fixture" }, () => ({ resolveDir: process.cwd(), contents: `import React from "react";
         export default function TicketSelect(props) {
@@ -489,22 +491,36 @@ for (const action of ["new", "edit", "copy"]) {
 }
 
 for (const eventReference of [{ kind: "complex" }, { eventId: "event" }, { ticketTypeId: "ticket" }, { kind: "complex", eventId: "event" }]) {
-  test(`partial copied event link ${JSON.stringify(eventReference)} requires correction or removal`, async () => {
+  test(`copied event link ${JSON.stringify(eventReference)} is excluded from new products`, async () => {
     const saved = [];
     await renderFixture(EditDialog, {
       config: { type: "products", copySource: { name: "Partial event", code: "PARTIAL", standardPriceMinor: 29, eventReference, taxCode: { provider: "xero", id: "OUTPUT2" } } },
       categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
     }, async () => {
       await submitForm();
-      assert.equal(saved.length, 0);
-      assert.match(document.querySelector('[role="alert"]').textContent, /Complete the event and ticket type selection, or remove the event link/);
-      await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "Remove event link").click());
-      await submitForm();
+      assert.equal(document.querySelector('select[aria-label="Event"]'), null);
+      assert.equal(document.querySelector('select[aria-label="Ticket type"]'), null);
       assert.equal(saved.length, 1);
       assert.equal(saved[0].eventReference, null);
     });
   });
 }
+
+test("legacy ticket products retain their saved link without editable ticket selectors", async () => {
+  const saved = [];
+  const reference = { kind: "complex", eventId: "old-event", ticketTypeId: "old-ticket" };
+  await renderFixture(EditDialog, {
+    config: { type: "products", row: { id: "legacy", name: "Legacy place", code: "LEGACY", standardPriceMinor: 100, eventReference: reference } },
+    categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
+  }, async () => {
+    assert.match(document.body.textContent, /Legacy ticket product/);
+    assert.equal(document.querySelector('select[aria-label="Event"]'), null);
+    await submitForm();
+    assert.equal(saved.length, 1);
+    assert.equal(Object.hasOwn(saved[0], "eventReference"), false);
+    assert.equal(reference.ticketTypeId, "old-ticket");
+  });
+});
 
 for (const initial of [undefined, false, true]) {
   test(`product automation preserves ${initial ?? "legacy default"} and submits a boolean on edit`, async () => {

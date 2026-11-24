@@ -3,6 +3,15 @@ name: Proposal ticket assignment policy
 description: Owner-approved event eligibility, closure, return access and operational boundaries for Sales tickets.
 ---
 
+New tickets belong directly in bundles or proposal lines, not in newly created
+products. Preserve existing ticket products and their historical links.
+
+**Why:** The user approved retiring the competing ticket-product creation path
+to simplify authoring without changing existing sales evidence.
+
+**How to apply:** Product copies must not create new ticket-linked products;
+complimentary membership remains a product benefit.
+
 New proposal ticket selections require a known future start instant. Draft events
 are selectable by authorised Sales staff; past, undated and waiting-list-mode
 events are not. Purchased draft entitlements do not authorise public discovery.

@@ -217,13 +217,10 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
         setFormError(error.message);
         return;
       }
-      const reference = form.eventReference || {};
-      const hasReference = reference.kind && reference.eventId && reference.ticketTypeId;
-      if ((reference.kind || reference.eventId || reference.ticketTypeId) && !hasReference) {
-        setFormError("Complete the event and ticket type selection, or remove the event link before saving.");
-        return;
-      }
-      data.eventReference = hasReference ? reference : null;
+      // Existing references are retained by the server, including unavailable
+      // historical events. New products (including copies) never link tickets.
+      if (config.row) delete data.eventReference;
+      else data.eventReference = null;
       data.capacityMetadata = form.capacityMetadata || {};
     }
     if (type === "bundles") {
@@ -279,17 +276,12 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
 
 function ProductFields({ form, update, categories, events, existing, taxOptions, selectedTaxId, onTaxChange, showSku }) {
   const eventList = Array.isArray(events.items) ? events.items : [];
-  const ref = form.eventReference || {};
+  const ref = existing?.eventReference || {};
   const selected = eventList.find((item) => String(item.id) === String(ref.eventId));
   const ticket = selected?.ticketOptions?.find((item) => String(item.id) === String(ref.ticketTypeId));
   const taxItems = providerTaxOptions(taxOptions.data);
   const selectedCode = taxItems.find((item) => taxCodeKey(item) === selectedTaxId && item.selectable);
   const savedCode = existing?.taxCode;
-  const patchEvent = (eventId) => {
-    const event = eventList.find((item) => String(item.id) === String(eventId));
-    update("eventReference", { kind: event?.kind || "", eventId, ticketTypeId: "" });
-  };
-  const patchRef = (key, value) => update("eventReference", { ...ref, [key]: value });
   return <>
     <Field label="Category"><ProductSelect aria-label="Category" value={String(form.categoryId || "")} onChange={(e) => update("categoryId", e.target.value)}><option value="">Uncategorised</option>{form.categoryId && !categories.some((item) => String(item.id) === String(form.categoryId)) && <option value={String(form.categoryId)}>Saved category (unavailable)</option>}{categories.filter((item) => item.isActive !== false || String(item.id) === String(form.categoryId)).map((item) => <option key={item.id} value={String(item.id)}>{item.name}{item.isActive === false ? " (archived)" : ""}</option>)}</ProductSelect></Field>
     {showSku && <Field label="SKU"><Input aria-label="SKU" value={form.sku || ""} onChange={(e) => update("sku", e.target.value)} /></Field>}
@@ -316,9 +308,7 @@ function ProductFields({ form, update, categories, events, existing, taxOptions,
     </div>
     <Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field>
     <Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field>
-    <Field label="Event"><ProductSelect aria-label="Event" value={String(ref.eventId || "")} onChange={(e) => patchEvent(e.target.value)}><option value="">Optional event</option>{ref.eventId && !selected && <option value={String(ref.eventId)}>Saved event (unavailable)</option>}{eventList.map((event) => <option key={event.id} value={String(event.id)}>{event.name}</option>)}</ProductSelect>{(ref.kind || ref.eventId || ref.ticketTypeId) && <Button type="button" variant="link" className="h-auto px-0 pt-1 text-xs" onClick={() => update("eventReference", null)}>Remove event link</Button>}</Field>
-    <Field label="Event kind"><Input readOnly value={ref.kind || ""} /></Field>
-    <Field label="Ticket type"><ProductSelect aria-label="Ticket type" value={String(ref.ticketTypeId || "")} onChange={(e) => patchRef("ticketTypeId", e.target.value)} disabled={!selected}><option value="">Optional ticket type</option>{ref.ticketTypeId && !ticket && <option value={String(ref.ticketTypeId)}>Saved ticket (unavailable)</option>}{(selected?.ticketOptions || []).map((ticket) => <option key={ticket.id} value={String(ticket.id)}>{ticket.name} ({ticket.delegateCapacity ?? "Unavailable"} delegate{ticket.delegateCapacity === 1 ? "" : "s"})</option>)}</ProductSelect></Field>
+    {(ref.kind || ref.eventId || ref.ticketTypeId) ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm sm:col-span-2"><p className="font-semibold">Legacy ticket product</p><p>This product’s existing ticket link is preserved. For new ticket sales, add tickets directly to a bundle or proposal.</p><p className="mt-1 text-xs">{selected?.name || "Saved event"} · {ticket?.name || "Saved ticket type"}</p></div> : <p className="text-xs text-slate-500 sm:col-span-2">Tickets are added directly to bundles or proposal line items, not as products.</p>}
     <Field label="Short description" wide><Input value={form.shortDescription || ""} onChange={(e) => update("shortDescription", e.target.value)} /></Field>
     <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 sm:col-span-2">

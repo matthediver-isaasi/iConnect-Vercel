@@ -338,6 +338,9 @@ async function audit(db, tenantId, actor, action, type, id, before, after) {
 export async function createCatalogueRecord(db, tenantId, actor, type, value, options = {}) {
   let eventReference;
   if (type === 'products') {
+    if (value.eventReference?.kind || value.eventReference?.eventId || value.eventReference?.ticketTypeId) {
+      throw new SalesHttpError(400, 'Add tickets directly to a bundle or proposal instead of creating a ticket product.');
+    }
     await resolveProposalMembershipSchedule(db, tenantId, value.membershipScheduleId);
     const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode, options);
     value = { ...value, taxCode, taxRateBps: taxCode.rateBps };
