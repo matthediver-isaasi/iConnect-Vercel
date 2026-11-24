@@ -173,7 +173,15 @@ no anonymous/authenticated access. The mutation/read RPCs are service-role-only.
 
 ## Rollout requirements
 
-**This task does not apply migrations to production or perform customer writes.**
+**DEST installation completed on 2026-11-24 with explicit owner approval.**
+The focused source migration was installed through the managed connection as
+deployment version `20261124170540`. See
+[schema rollout evidence](../docs/project-discussions-schema-rollout.md) for
+the source hash, PITR confirmation, rollback rehearsal and read-only verification.
+Do not replay it. Customer actions and application deployment were not performed;
+the exact originally reported board request remains uncaptured.
+
+For any separately approved future environment, the installation requirements are:
 
 1. Back up the destination schema and inspect installed migration contracts.
 2. Confirm the existing project management tables, mention inbox migration
