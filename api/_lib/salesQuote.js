@@ -11,6 +11,8 @@ import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 import { resolveEventTicketReference } from './salesCatalogue.js';
 import { assertSalesTicketEventSelectable } from './salesTicketEventOptions.js';
 import { prepareExhibitionLine, exhibitionError } from './salesExhibition.js';
+import { resolveProposalMembershipSchedule } from './proposalMembershipCatalogue.js';
+import { collectProposalMembershipBenefits, membershipBenefitLabel } from '../../shared/proposalMembershipEntitlements.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
 
@@ -53,6 +55,9 @@ async function snapshotReferences(db, tenantId, actor, draft, previousSalesperso
 }
 
 export async function freezeQuoteTicketProduct(db, tenantId, product, reference, quantity, previousSnapshot) {
+  const membershipBenefit = previousSnapshot?.membershipBenefit
+    || await resolveProposalMembershipSchedule(db, tenantId, product.membership_schedule_id);
+  if (membershipBenefit && (reference || product.space_requirement_id)) throw new SalesHttpError(400, 'A membership product cannot also be a ticket or exhibition space.');
   if (reference && (!['simple', 'complex'].includes(reference.kind) || !reference.eventId || !reference.ticketTypeId)) {
     throw new SalesHttpError(400, 'Select an event and ticket type for the product line');
   }
@@ -66,7 +71,7 @@ export async function freezeQuoteTicketProduct(db, tenantId, product, reference,
     || Number(quantity) * delegateCapacity > 2147483647)) {
     throw new SalesHttpError(400, 'Ticket quantity must be a positive whole number of tickets');
   }
-  return { ...product, event_reference_kind: resolved?.kind || null,
+  return { ...product, ...(membershipBenefit ? { membershipBenefit } : {}), event_reference_kind: resolved?.kind || null,
     event_id: resolved?.eventId || null, ticket_type_id: resolved?.ticketTypeId || null,
     ...(resolved?.eventTitle ? { event_title: sameReference ? previousSnapshot.event_title || resolved.eventTitle : resolved.eventTitle } : {}),
     ...(resolved?.ticketName ? { ticket_name: sameReference ? previousSnapshot.ticket_name || resolved.ticketName : resolved.ticketName } : {}),
@@ -216,6 +221,15 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
   const lines = await Promise.all(expanded.map(async (line, index) => ({ ...await resolveLine(
     db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id), categories,
   ), sourceLineId: line.id })));
+  let membershipBenefits;
+  try { membershipBenefits = collectProposalMembershipBenefits(lines, snapshots.organisationSnapshot, tenantId); }
+  catch (error) { throw new SalesHttpError(400, error.message); }
+  // Descriptions reach editor previews, public proposals, accepted versions and
+  // PDFs without depending on a renderer knowing the new snapshot property.
+  for (const { lineIndex, benefit } of membershipBenefits) {
+    const label = membershipBenefitLabel(benefit);
+    if (!lines[lineIndex].description.includes(label)) lines[lineIndex].description += `\n${label}`;
+  }
   let billingSchedule = null;
   if (draft.scheduledBilling === true) {
     const [settings, tenant] = await Promise.all([

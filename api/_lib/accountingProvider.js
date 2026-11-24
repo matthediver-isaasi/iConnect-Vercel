@@ -353,6 +353,7 @@ function makeXeroProvider() {
     },
 
     async createMembershipInvoice(args) {
+      if ((await import('./proposalMembershipRollout.js')).proposalMembershipEnabled()) await (await import('./proposalMembershipEntitlements.js')).assertProposalMembershipInvoice(supabase, args.appTenantId, args.accountingSource, args.finalCost);
       if (args?.accountingSource) {
         const queued = await queueMembershipInvoice({ db: supabase, provider: PROVIDER_XERO, args });
         if (queued !== undefined) return queued;
@@ -472,6 +473,7 @@ function makeQuickBooksProvider() {
     },
 
     async createMembershipInvoice(args) {
+      if ((await import('./proposalMembershipRollout.js')).proposalMembershipEnabled()) await (await import('./proposalMembershipEntitlements.js')).assertProposalMembershipInvoice(supabase, args.appTenantId, args.accountingSource, args.finalCost);
       const { xeroProjectCode: ignoredXeroProjectCode, ...providerArgs } = args || {};
       args = providerArgs;
       if (args?.accountingSource) {

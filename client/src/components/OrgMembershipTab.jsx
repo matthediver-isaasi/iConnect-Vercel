@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { getMembershipHistoryLifecycle } from "@/lib/membershipHistoryLifecycle";
+import ProposalMembershipEntitlements from "@/components/ProposalMembershipEntitlements";
 import MembershipInvoiceAvailability from "./membership/MembershipInvoiceAvailability";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
@@ -768,6 +769,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   };
 
   const joinFormCard = (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
@@ -779,6 +781,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
         <MemberJoinLinkSection organizationId={organizationId} showHeading={false} />
       </CardContent>
     </Card>
+    <ProposalMembershipEntitlements organizationId={organizationId} />
+    </>
   );
 
   const { data, isLoading, error } = useQuery({
@@ -1764,6 +1768,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                       <td className="p-3 font-medium">{record.membership_year}</td>
                       <td className="p-3">
                         <HistoricalStructureLabel record={record} />
+                        {record.proposal_membership && <p className="text-xs text-green-700">Proposal coverage: {record.proposal_membership.scheduleName}.
+                          Original base {(record.proposal_membership.originalBaseNetMinor / 100).toFixed(2)};
+                          complimentary adjustment −{(record.proposal_membership.originalBaseNetMinor / 100).toFixed(2)}.</p>}
                       </td>
                       <td className="p-3 text-right">{record.field_value?.toLocaleString() ?? '-'}</td>
                       <td className="p-3 text-right">{formatCost(record.annual_cost, record.currency)}</td>
@@ -1788,7 +1795,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                           <Badge variant={lifecycle.variant} data-testid={`badge-lifecycle-${lifecycle.key}`}>
                             {lifecycle.label}
                           </Badge>
-                          <PaymentStatusBadge paymentStatus={record.payment_status} />
+                          {record.proposal_membership && Number(record.total_with_vat ?? record.final_cost) === 0
+                            ? <Badge variant="outline">Complimentary — no payment required</Badge>
+                            : <PaymentStatusBadge paymentStatus={record.payment_status} />}
                         </div>
                       </td>
                       <td className="p-3">

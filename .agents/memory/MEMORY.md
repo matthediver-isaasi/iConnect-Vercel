@@ -53,6 +53,7 @@
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
 - [Membership payment topics](membership-payment-topics.md) — payment reconciliation, settlement, card plans, direct debit, arrears, and activation.
 - [Admin membership waivers](admin-membership-waiver-policy.md) — No charge applies only to the purchased period; preserve normal future pricing and explicit historical evidence.
+- [Proposal membership benefits](proposal-membership-entitlement-policy.md) — one exact-schedule period, base fee only; acceptance is eligibility, not payment evidence.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Auto Archive policy](auto-archive-policy.md) — tenant-configurable lifecycle rules must reuse existing RBAC; permanent deletion remains manual and administrator-approved.
 - [Merge migration boundary](merge-migration-boundary.md) — routine merge setup must not replay historical live migrations; installation and approval remain separate.

@@ -5,6 +5,10 @@ import { createHash } from 'node:crypto';
 import { formVoucherHistoryFields } from './formMembershipVouchers.js';
 
 export async function createGuardedPortalMembershipIntent(db, stripe, owner, payload) {
+  if (owner.token?.cost_breakdown?.proposalMembership) {
+    const reserved = await db.rpc('reserve_proposal_membership_fee_token', { p_tenant: owner.tenantId, p_token: owner.token.id });
+    if (reserved.error) throw new Error(`Proposal membership reservation failed: ${reserved.error.message}`);
+  }
   const sourceKey = owner.sourceKey || `portal:${owner.memberId ? 'member' : 'organization'}:${owner.memberId || owner.organizationId}:${owner.membershipYear}`;
   if (owner.token) await claimMembershipFeePayment(db, owner.token, 'create_payment');
   const guard = await claimMembershipTermPayment(db, { ...owner, sourceKey, rail: 'create_payment' });

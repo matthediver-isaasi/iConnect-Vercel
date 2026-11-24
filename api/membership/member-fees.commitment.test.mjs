@@ -40,7 +40,7 @@ test('portal callbacks discard supplied identity/year and use saved original own
   assert.deepEqual(retry, first);
 });
 
-test('concurrent portal preparation uses the shared owner reservation and identical Stripe intent', async () => {
+test('concurrent proposal-covered portal preparation uses the shared owner reservation and identical Stripe intent', async () => {
   let stored;
   let creates = 0;
   const providerIntents = new Map();
@@ -62,10 +62,11 @@ test('concurrent portal preparation uses the shared owner reservation and identi
   const delegate = async (req) => {
     assert.equal(req.membershipPaymentContext.source, 'member-portal');
     const snapshot = snapshotFormMembershipPayment({
+      proposalMembership: { entitlementId: 'grant', scheduleId: 'cfg', originalBaseNetMinor: 10000, originalBaseVatMinor: 0 },
       config: { id: 'cfg', start_mode: 'immediate', billing_period: 'quarterly', currency: 'GBP' },
       membershipYear: { label: 'rolling:2026-09-15', start: '2026-09-15' },
-      annualCost: 60, finalCost: 60, vatAmount: 0, totalWithVat: 60, currency: 'GBP',
-    });
+      annualCost: 100, finalCost: 0, vatAmount: 0, totalWithVat: 0, currency: 'GBP',
+    }, [{ description: 'Approved add-on', quantity: 1, unit_amount: 60, line_total: 60, vat_rate: { effectiveRate: 0 } }]);
     snapshot.paymentIntentParams = { amount: 6000, currency: 'gbp', metadata: { member_id: req.body.memberId } };
     const reservation = await saveFormMembershipPaymentQuote(db, { tenantId: 'tenant', memberId: req.body.memberId, snapshot });
     return createReservedFormMembershipIntent(db, stripe, reservation, '2026-09-15');
@@ -74,6 +75,7 @@ test('concurrent portal preparation uses the shared owner reservation and identi
   const result = await Promise.all([1, 2].map(() => handlePortalUpfrontPayment(request, {}, { id: 'member' }, delegate)));
   assert.equal(result[0].id, result[1].id);
   assert.equal(creates, 1);
+  assert.equal(stored.quote.simResult.proposal_membership.entitlementId, 'grant');
   assert.equal(stored.quote.simResult.commitment.membership_renewal_date, '2026-12-15');
 });
 

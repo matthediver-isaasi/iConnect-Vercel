@@ -1,5 +1,19 @@
 # Membership Schedules — How Pricing Works
 
+## Proposal organisational membership benefits
+
+A Sales product can include one newly created period of an exact organisational
+schedule, directly or within a bundle. Acceptance grants eligibility; it does
+not create membership or prove invoice payment. Only the base fee and its VAT
+are complimentary. Approved add-ons and subsequent renewals remain payable.
+Product and bundle quantities must be one, and a schedule may appear only once
+in an accepted proposal. Existing history is never converted retrospectively.
+
+The organisation membership tab shows pending and consumed benefits, original
+base fees and proposal invoice references subject to Sales permissions.
+See [the entitlement contract and rollout guide](../docs/proposal-membership-entitlement-implementation-status.md)
+for migration order, checkout ownership and safe-rollout requirements.
+
 This document explains how membership schedules calculate fees, apply discounts, handle new joiners, and transition between membership years.
 
 ---

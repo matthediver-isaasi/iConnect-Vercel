@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { proposalMembershipHistoryFields } from './proposalMembershipEntitlements.js';
 
 // Freeze joining incentive evidence separately from dated commitment metadata.
 // Only the rolling/DD commitment builder may populate commitment_snapshot.
@@ -6,8 +7,9 @@ import { isDeepStrictEqual } from 'node:util';
 // must never be used to reconstruct an original new-member entitlement.
 export function membershipIncentiveSnapshot(sim) {
   const incentiveConfig = sim.incentiveConfig || sim.config;
-  if (sim.previewOnly || sim.yearNumber !== 1 || !incentiveConfig) return {};
+  if (sim.previewOnly || sim.yearNumber !== 1 || !incentiveConfig) return proposalMembershipHistoryFields(sim);
   return {
+    ...proposalMembershipHistoryFields(sim),
     incentive_snapshot: {
       config: structuredClone(incentiveConfig),
       amounts: { annual_cost: sim.annualCost },
@@ -21,7 +23,8 @@ export function incentiveFieldsFromSavedQuote(quote) {
   const review = () => { throw new Error('Saved membership incentive evidence is ambiguous; administrator review required'); };
   const saved = quote?.incentive_snapshot;
   const legacy = quote?.commitment_snapshot;
-  const fields = saved == null ? {} : { incentive_snapshot: structuredClone(saved) };
+  const fields = { ...(saved == null ? {} : { incentive_snapshot: structuredClone(saved) }),
+    ...(quote?.proposal_membership ? { proposal_membership: structuredClone(quote.proposal_membership) } : {}) };
   if (legacy == null) return fields;
   if (legacy?.start_mode === 'immediate' || legacy?.start_mode === 'fixed_date') {
     const term = quote.term_key ? quote : quote.commitment;

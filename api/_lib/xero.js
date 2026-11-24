@@ -600,6 +600,7 @@ export async function createXeroMembershipInvoice({
   if (!database) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
+  if ((await import('./proposalMembershipRollout.js')).proposalMembershipEnabled()) await (await import('./proposalMembershipEntitlements.js')).assertProposalMembershipInvoice(database, appTenantId, accountingSource, finalCost);
   if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
     throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
   }

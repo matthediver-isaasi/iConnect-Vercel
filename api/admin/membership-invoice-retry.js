@@ -255,7 +255,19 @@ export default async function handler(req, res) {
 
   try {
     const provider = await getAccountingProvider(appTenantId);
+    let proposalAddons = null;
+    if (isOrg && row.proposal_membership) {
+      const { loadAddonLines, computeAddonTotals, buildExtraLineItems } = await import('../_lib/membershipAddons.js');
+      const lines = await loadAddonLines(appTenantId, row.organization_id, row.membership_year);
+      const total = computeAddonTotals(lines);
+      if (Math.round(total.total * 100) !== Math.round(Number(row.total_with_vat ?? row.final_cost) * 100)) {
+        return res.status(409).json({ error: 'Approved add-ons changed since proposal coverage was applied. Review the original membership amount before invoicing.' });
+      }
+      if (total.total === 0) return res.status(409).json({ error: 'The proposal covers this membership; no membership invoice is required.' });
+      proposalAddons = buildExtraLineItems(lines);
+    }
     const invoice = await provider.createMembershipInvoice({
+      ...(row.proposal_membership ? { accountingSource: { sourceType: table, sourceId: row.id } } : {}),
       appTenantId,
       organizationId: isOrg ? row.organization_id : undefined,
       organizationName: contactName,
@@ -263,7 +275,8 @@ export default async function handler(req, res) {
       invoicingAddress: invoicingAddress || undefined,
       membershipYear: row.membership_year,
       tierLabel: row.tier_label,
-      finalCost: parseFloat(row.final_cost),
+      finalCost: row.proposal_membership ? 0 : parseFloat(row.final_cost),
+      ...(proposalAddons ? { extraLineItems: proposalAddons } : {}),
       currency: row.currency || 'GBP',
       reference,
       // The row doesn't store the band's VAT shape, so fall back to the

@@ -27,10 +27,10 @@ before(async () => {
   await cp(new URL('../../shared/unverifiedMembershipHistory.js', import.meta.url), path.join(temporaryRoot, 'shared', 'unverifiedMembershipHistory.js'));
   // The simulator also imports the date-term branch even when these fixtures
   // exercise rolling terms. Copy its pure dependencies, retaining DB stubs.
-  for (const file of ['memberDateMembershipTerm.js', 'membershipFlatCost.js']) {
+  for (const file of ['memberDateMembershipTerm.js', 'membershipFlatCost.js', 'proposalMembershipEntitlements.js', 'salesContracts.js', 'salesNaming.js', 'salesBillingConfiguration.js']) {
     await cp(new URL(`../../shared/${file}`, import.meta.url), path.join(temporaryRoot, 'shared', file));
   }
-  for (const file of ['memberDateTermSimulation.js', 'memberDateTermPolicy.js', 'membershipRenewalExceptions.js']) {
+  for (const file of ['memberDateTermSimulation.js', 'memberDateTermPolicy.js', 'membershipRenewalExceptions.js', 'proposalMembershipEntitlements.js', 'proposalMembershipRollout.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   await cp(new URL('memberMonthlyEntitlement.js', import.meta.url), path.join(lib, 'memberMonthlyEntitlement.js'));

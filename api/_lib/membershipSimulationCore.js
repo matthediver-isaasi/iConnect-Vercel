@@ -14,6 +14,7 @@ import { resolveMemberAmendmentReadOverlay, effectiveMemberEntitlement } from '.
 import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 import { simulateMemberDateTerm } from './memberDateTermSimulation.js';
 import { assertRenewalCategory } from './membershipRenewalExceptions.js';
+import { applyProposalMembershipPreview } from './proposalMembershipEntitlements.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -128,7 +129,7 @@ function calculateIncentiveRolloverAmounts({ original, goLiveDate, annualCost, o
   return result;
 }
 
-export function createMembershipSimulator(supabase, clock = () => new Date()) {
+export function createMembershipSimulator(supabase, clock = () => new Date(), { proposalMemberships = false } = {}) {
 const { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } = createDiscountHelper(supabase);
 const { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } = createVatOverrideHelper(supabase);
 const { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel, resolveRollingSuccessorConfig } = createMembershipConfigResolver(supabase);
@@ -1046,7 +1047,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   const rolloverDiscount = (yearNumber === 2 && !isPriceOverride) ? freeDiscount : 0;
   const year1FreeDiscount = (yearNumber === 1 && !isPriceOverride) ? freeDiscount : 0;
 
-  return {
+  const simulation = {
     success: true,
     ...(prospectiveYear2 ? { previewOnly: true, previewAssumedJoinDate: goLiveDate ? null : assumedGoLiveDate } : {}),
     org,
@@ -1099,6 +1100,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     vatOverrideDetail,
     steps,
   };
+  return proposalMemberships ? applyProposalMembershipPreview(supabase, tenantId, simulation) : simulation;
 }
 
 function formatDate(date, includeTime = false) {

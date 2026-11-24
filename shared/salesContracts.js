@@ -452,10 +452,12 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
   const allowed = new Set([
     'code', 'sku', 'name', 'shortDescription', 'description', 'categoryId', 'currency', 'standardPriceMinor',
     'minimumPriceMinor', 'costMinor', 'taxTreatment', 'taxRateBps', 'taxCode', 'availableFrom',
-    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder', 'createTaskOnAcceptance', 'spaceRequirementId',
+    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder', 'createTaskOnAcceptance', 'spaceRequirementId', 'membershipScheduleId',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown product field: ${key}`);
   if (value.spaceRequirementId != null && !UUID_RE.test(value.spaceRequirementId)) errors.push('spaceRequirementId must be a UUID or null');
+  if (value.membershipScheduleId != null && !UUID_RE.test(value.membershipScheduleId)) errors.push('membershipScheduleId must be a UUID or null');
+  if (value.membershipScheduleId && (value.eventReference || value.spaceRequirementId)) errors.push('A membership product cannot also be a ticket or exhibition space.');
   if ('createTaskOnAcceptance' in value && typeof value.createTaskOnAcceptance !== 'boolean') {
     errors.push('createTaskOnAcceptance must be a boolean');
   }

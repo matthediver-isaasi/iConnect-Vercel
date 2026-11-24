@@ -314,7 +314,8 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           invoicingAddress: invoicingAddress || undefined,
           membershipYear: quote.membership_year,
           tierLabel: quote.tier_label,
-          finalCost: quote.final_cost,
+          finalCost: quote.proposal_membership ? 0 : quote.final_cost,
+          ...(quote.proposal_membership ? { extraLineItems: (await import('./membershipAddons.js')).buildExtraLineItems(quote.addon_lines || []) } : {}),
           currency: quote.currency || 'GBP',
           reference: `Membership ${quote.membership_year}`,
           vatRate: quote.tax_type || null,
@@ -662,6 +663,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     const paidAtIso = new Date().toISOString();
     const insertData = {
       ...savedIncentiveFields,
+      ...(quote.proposal_membership ? { proposal_membership: { ...quote.proposal_membership, submissionId: submission.id } } : {}),
       ...commitmentFromQuote(quote),
       tenant_id: tenantId,
       [historyIdCol]: entityId,

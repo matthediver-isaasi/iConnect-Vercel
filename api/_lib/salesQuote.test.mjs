@@ -336,6 +336,10 @@ test('quote detail route accepts the scalar catch-all shape emitted by the devel
         return { select() { return this; }, eq() { return this; },
           maybeSingle: async () => ({ data: { name: 'Example', footer_config: { legalText: 'Registered company 123' } }, error: null }) };
       }
+      if (table === 'sales_quote_delivery_token') {
+        return { select() { return this; }, eq() { return this; }, not() { return this; },
+          is() { return this; }, gt() { return this; }, limit: async () => ({ data: [], error: null }) };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };

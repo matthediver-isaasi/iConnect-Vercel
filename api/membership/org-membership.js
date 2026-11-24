@@ -1,7 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { attachMembershipInvoiceAvailability } from '../_lib/membershipInvoiceAvailability.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { listOrganisationProposalMemberships } from '../_lib/proposalMembershipEntitlements.js';
+import { proposalMembershipEnabled } from '../_lib/proposalMembershipRollout.js';
+import { requireSalesContext, SalesHttpError } from '../_lib/salesAccess.js';
+import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
 import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
@@ -27,6 +31,17 @@ export default async function handler(req, res) {
 
     const { tenantId } = tenantContext;
 
+    if (req.method === 'GET' && req.query.action === 'proposal-entitlements') {
+      if (!await hasAdminAccess(tenantContext)) return res.status(403).json({ error: 'Administrator access required' });
+      res.setHeader('Cache-Control', 'private, no-store');
+      if (!proposalMembershipEnabled()) return res.json({ items: [], enabled: false });
+      const organizationId = req.query.organizationId;
+      if (!/^[0-9a-f-]{36}$/i.test(organizationId || '')) return res.status(400).json({ error: 'Organisation is required' });
+      let canViewSales = false;
+      try { await requireSalesContext(tenantContext, SALES_CAPABILITIES.VIEW); canViewSales = true; }
+      catch (error) { if (!(error instanceof SalesHttpError) || error.status !== 403) throw error; }
+      return res.json(await listOrganisationProposalMemberships(supabase, tenantId, organizationId, canViewSales));
+    }
     if (req.method === 'GET') {
       return await handleGet(req, res, tenantId);
     } else if (req.method === 'PUT') {
@@ -204,6 +219,7 @@ function determineMembershipYearNumber(goLiveDate, targetYear, config) {
 
 function mapSimResultToYearData(sim, startDate) {
   return {
+    proposalMembership: sim.proposalMembership || null,
     membershipYear: sim.membershipYear?.label || null,
     yearNumber: sim.yearNumber,
     startDate,
@@ -477,6 +493,7 @@ async function handleGet(req, res, tenantId) {
   // attaches display metadata; VAT/total are recomputed from finalCost via
   // recomputeVatForYear so the card is always internally consistent.
   async function applyOverrideToYear(yearData, override) {
+    if (yearData?.proposalMembership) return;
     if (!override || !yearData) return;
     if (override.override_type === 'price' && override.manual_price !== null) {
       yearData.overrideType = 'price';

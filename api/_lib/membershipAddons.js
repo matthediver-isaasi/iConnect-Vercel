@@ -161,20 +161,20 @@ export function validateAddonLines(rawLines, settings) {
  * Load stored, approved add-on lines for an org/year. Returns [] when none.
  */
 export async function loadAddonLines(tenantId, organizationId, membershipYear) {
-  if (!supabase) return [];
+  if (!supabase) throw new Error('Database unavailable while checking membership add-ons');
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organisation_membership_invoicing')
       .select('addon_lines, fees_approved')
       .eq('tenant_id', tenantId)
       .eq('organization_id', organizationId)
       .eq('membership_year', membershipYear)
       .maybeSingle();
+    if (error) throw error;
     if (!data?.fees_approved || !Array.isArray(data.addon_lines)) return [];
     return data.addon_lines;
   } catch (err) {
-    console.error('[membershipAddons] Failed to load addon lines (non-fatal):', err.message);
-    return [];
+    throw new Error(`Could not verify approved membership add-ons: ${err.message}`);
   }
 }
 

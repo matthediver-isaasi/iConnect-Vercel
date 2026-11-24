@@ -159,6 +159,7 @@ export async function reserveRollingFeePayment(client, token) {
   const amounts = commitment.commitment_snapshot.amounts;
   const record = {
     ...commitment,
+    ...(token.cost_breakdown?.proposalMembership ? { proposal_membership: { ...token.cost_breakdown.proposalMembership, feeTokenId: token.id } } : {}),
     tenant_id: token.tenant_id,
     [column]: token.member_id || token.organization_id,
     membership_year: commitment.term_key,

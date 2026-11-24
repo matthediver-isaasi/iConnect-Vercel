@@ -25,6 +25,7 @@ import { bundleItemLabel, groupsForEditing, groupsForSaving } from "@/components
 import ExhibitionInventory from "./ExhibitionInventory";
 import ProductSpaceRequirement from "@/components/sales/ProductSpaceRequirement";
 import BundleStockDialog from "./BundleStockDialog";
+import ProductMembershipSchedule from "@/components/sales/ProductMembershipSchedule";
 
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
@@ -257,6 +258,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
      {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} showSku={showSku} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={(value) => { copyTaxInitialized.current = true; setSelectedTaxId(value); }} />}
     {type === "products" && <ProductSpaceRequirement value={form.spaceRequirementId} onChange={value => update("spaceRequirementId", value)} />}
+    {type === "products" && <ProductMembershipSchedule value={form.membershipScheduleId} onChange={value => update("membershipScheduleId", value)} />}
      {type === "bundles" && <>
        <Field label="Bundle category">
          <ProductSelect aria-label="Bundle category" value={form.categoryId || ""} onChange={event => update("categoryId", event.target.value)}>

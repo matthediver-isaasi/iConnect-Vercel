@@ -244,6 +244,9 @@ export function toMinorUnits(amount) {
  * not offered (config disabled, no stored monthly amount, or org-scoped).
  */
 export function resolveDdOffer(simResult) {
+  // Coverage applies to the whole term, not the first instalment. Add-ons can
+  // use the upfront/invoice path; do not establish a recurring base-fee plan.
+  if (simResult?.proposalMembership) return null;
   return resolveDdOfferCore(simResult);
 }
 

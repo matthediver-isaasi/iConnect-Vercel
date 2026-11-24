@@ -6,6 +6,7 @@ import { getSalesSettings } from './salesFoundation.js';
 import { bundleBillingGroupErrors, resolveBillingGroups } from '../../shared/salesBillingConfiguration.js';
 import { formCartReady } from './formCart.js';
 import { assertSalesTicketEventSelectable } from './salesTicketEventOptions.js';
+import { resolveProposalMembershipSchedule } from './proposalMembershipCatalogue.js';
 
 const TABLES = {
   categories: 'sales_catalogue_category',
@@ -78,6 +79,7 @@ const mapCategory = (row) => ({
   createdAt: row.created_at, updatedAt: row.updated_at,
 });
 const mapProduct = (row) => ({
+  membershipScheduleId: row.membership_schedule_id || null,
   spaceRequirementId: row.space_requirement_id || null,
   createTaskOnAcceptance: row.create_task_on_acceptance === true,
   id: row.id, categoryId: row.category_id, code: row.code, sku: row.sku, name: row.name,
@@ -266,6 +268,7 @@ const categoryRow = (value) => ({
   ...(value.displayOrder !== undefined ? { display_order: value.displayOrder } : {}),
 });
 const productRow = (value) => ({
+  ...('membershipScheduleId' in value ? { membership_schedule_id: value.membershipScheduleId } : {}),
   ...('spaceRequirementId' in value ? { space_requirement_id: value.spaceRequirementId } : {}),
   ...('createTaskOnAcceptance' in value ? { create_task_on_acceptance: value.createTaskOnAcceptance } : {}),
   ...('taxCode' in value ? { tax_code: value.taxCode } : {}),
@@ -335,6 +338,7 @@ async function audit(db, tenantId, actor, action, type, id, before, after) {
 export async function createCatalogueRecord(db, tenantId, actor, type, value, options = {}) {
   let eventReference;
   if (type === 'products') {
+    await resolveProposalMembershipSchedule(db, tenantId, value.membershipScheduleId);
     const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode, options);
     value = { ...value, taxCode, taxRateBps: taxCode.rateBps };
     await ensureCategory(db, tenantId, value.categoryId);
@@ -391,6 +395,11 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
   throwDb(current.error);
   if (!current.data) throw new SalesHttpError(404, 'Catalogue record not found');
   if (type === 'products') {
+    const membershipId = 'membershipScheduleId' in value ? value.membershipScheduleId : current.data.membership_schedule_id;
+    const event = 'eventReference' in value ? value.eventReference : current.data.event_reference_kind;
+    const space = 'spaceRequirementId' in value ? value.spaceRequirementId : current.data.space_requirement_id;
+    if (membershipId && (event || space)) throw new SalesHttpError(400, 'A membership product cannot also be a ticket or exhibition space.');
+    if ('membershipScheduleId' in value) await resolveProposalMembershipSchedule(db, tenantId, membershipId);
     if ('taxCode' in value) {
       const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode);
       value = { ...value, taxCode, taxRateBps: taxCode.rateBps };

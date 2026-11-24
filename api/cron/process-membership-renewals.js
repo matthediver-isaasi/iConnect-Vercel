@@ -184,6 +184,7 @@ async function processAnnualOwnerRows(tenantId, scope, results) {
   for await (const setting of rows) {
     try {
       await runAnnualOwnerRow({ db: supabase, tenantId, scope, setting, now,
+        simulator: { simulateMembershipForOrg, simulateMembershipForMember },
         effects: annualOwnerEffects(results),
         trace: stage => {
           if (stage.status === 'skipped') results.skipped++;

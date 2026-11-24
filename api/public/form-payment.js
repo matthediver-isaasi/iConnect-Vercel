@@ -615,6 +615,15 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
         return { error: { status: 400, body: { error: `A membership record for ${simResult.membershipYear?.label} already exists for this organisation`, code: 'MEMBERSHIP_EXISTS' } } };
       }
       quote = quoteFromSimulationResult(simResult, 'organization');
+      if (simResult.proposalMembership) {
+        const { loadAddonLines, computeAddonTotals } = await import('../_lib/membershipAddons.js');
+        const lines = await loadAddonLines(tenantData.id, organizationId, quote.membership_year);
+        const totals = computeAddonTotals(lines);
+        quote.addon_lines = lines;
+        quote.final_cost = totals.subtotal;
+        quote.vat_amount = totals.vat;
+        quote.total_with_vat = totals.total;
+      }
     } else {
       // New applicant (member- or organisation-scoped): detached quote from
       // the form answers alone. A member-scoped structure keeps this path

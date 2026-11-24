@@ -52,6 +52,10 @@ test('atomic catalogue create: ordered components, rollback, reference locks, pe
     const migration = readFileSync('supabase/migrations/202610130002_sales_catalogue_atomic_create.sql', 'utf8');
     await sql(migration);
     await sql(migration); // Forward migration is replay-safe.
+    await sql(`CREATE TABLE membership_tier_config(id uuid PRIMARY KEY,tenant_id uuid,structure_scope_type text,is_active boolean);
+      ALTER TABLE sales_catalogue_product ADD COLUMN space_requirement_id uuid;
+      INSERT INTO membership_tier_config VALUES('00000000-0000-4000-8000-000000000005','${tenant}','organization',true);`);
+    await sql(readFileSync('supabase/migrations/202701240002_proposal_membership_catalogue.sql', 'utf8'));
     for (const role of ['anon', 'authenticated']) {
       assert.equal((await sql(`SELECT has_function_privilege('${role}',
         'public.create_sales_catalogue_record(uuid,text,jsonb,jsonb,text,text)','EXECUTE') AS allowed`))[0].allowed, false);

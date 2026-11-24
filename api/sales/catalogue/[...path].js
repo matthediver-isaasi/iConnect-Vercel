@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { listProposalMembershipSchedules } from '../../_lib/proposalMembershipCatalogue.js';
 import { listQuoteEventOptions } from '../../_lib/salesQuoteEventOptions.js';
 import { listSalesTicketEventOptions } from '../../_lib/salesTicketEventOptions.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
@@ -29,7 +30,7 @@ export function createSalesCatalogueHandler(dependencies = {}) {
       if (!db) throw new SalesHttpError(503, 'Database not configured');
       const path = Array.isArray(req.query?.path) ? req.query.path : String(req.query?.path || '').split('/').filter(Boolean);
       const [type, id, action] = path;
-      if (!validators[type] && type !== 'event-options') throw new SalesHttpError(404, 'Catalogue endpoint not found');
+      if (!validators[type] && !['event-options', 'membership-options'].includes(type)) throw new SalesHttpError(404, 'Catalogue endpoint not found');
       const isEventOptions = type === 'event-options' && !id;
       const isRead = req.method === 'GET' && (!id || isEventOptions);
       const actor = await requireSalesContext(
@@ -37,6 +38,11 @@ export function createSalesCatalogueHandler(dependencies = {}) {
         isRead ? SALES_CAPABILITIES.VIEW : SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES,
         dependencies,
       );
+      if (type === 'membership-options' && !id && req.method === 'GET') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(await listProposalMembershipSchedules(db, actor.tenantId));
+      }
+      if (type === 'membership-options') return res.status(405).json({ error: 'Method not allowed' });
       if (isEventOptions) {
         res.setHeader('Cache-Control', 'private, no-store');
         if (req.method !== 'GET') {

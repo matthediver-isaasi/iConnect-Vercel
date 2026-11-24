@@ -106,6 +106,7 @@ function isFinitePlanBillingBoundary({ billingAnchor, candidate, instalmentCount
  * Returns null when not offered (config disabled, no monthly amount, org-scoped).
  */
 export function resolveCardMonthlyOffer(simResult) {
+  if (simResult?.proposalMembership) return null;
   if (!simResult?.success) return null;
   const config = simResult.config;
   if (!config?.card_monthly_enabled) return null;

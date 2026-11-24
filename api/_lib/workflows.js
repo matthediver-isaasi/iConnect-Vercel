@@ -1857,7 +1857,8 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       addonLines = await loadAddonLines(tenantId, organizationId, targetYearLabel);
       addonTotals = computeAddonTotals(addonLines);
     } catch (addonErr) {
-      console.error(`[Workflows] Failed to load add-on lines for org ${organizationId} (non-fatal):`, addonErr.message);
+      return { action_type: 'create_membership', status: 'failed',
+        error: `Approved add-ons could not be verified: ${addonErr.message}` };
     }
 
     const zeroDue = isZeroDueMembership(simResult, addonTotals);
@@ -1945,6 +1946,11 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     }
     if (addonLines.length > 0) {
       record.notes += `. ${addonLines.length} add-on line(s) invoiced.`;
+    }
+    if (simResult.proposalMembership) {
+      record.final_cost = addonTotals?.subtotal || 0;
+      record.vat_amount = addonTotals?.vat || 0;
+      record.total_with_vat = addonTotals?.total || 0;
     }
 
     const { data: inserted, error: insertError } = await supabase
