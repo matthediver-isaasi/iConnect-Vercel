@@ -25,7 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 
 const HIDE_PAID_STORAGE_KEY = 'pendingPOReport.hidePaidInvoices';
-const organizationDisplayName = (record) => record?.organization_display_name || 'Unknown Organisation';
+const organizationDisplayName = (record) => record?.organization_display_name || 'Purchaser details unavailable';
 
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Sun' },
@@ -319,7 +319,7 @@ export default function PendingPurchaseOrdersReport() {
   }, [filteredAndSortedData, currentPage]);
 
   const handleExportCSV = () => {
-    const headers = ['Organisation', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
+    const headers = ['Organisation / Booker', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
     const rows = filteredAndSortedData.map(r => {
       return [
         organizationDisplayName(r),
@@ -901,8 +901,8 @@ export default function PendingPurchaseOrdersReport() {
               <SelectContent>
                 <SelectItem value="date_desc">Newest First</SelectItem>
                 <SelectItem value="date_asc">Oldest First</SelectItem>
-                <SelectItem value="org_asc">Organisation A-Z</SelectItem>
-                <SelectItem value="org_desc">Organisation Z-A</SelectItem>
+                <SelectItem value="org_asc">Organisation / booker A-Z</SelectItem>
+                <SelectItem value="org_desc">Organisation / booker Z-A</SelectItem>
                 <SelectItem value="invoice_asc">Invoice # A-Z</SelectItem>
                 <SelectItem value="invoice_desc">Invoice # Z-A</SelectItem>
               </SelectContent>
@@ -1231,7 +1231,7 @@ export default function PendingPurchaseOrdersReport() {
           {editingRecord && (
             <div className="space-y-4 py-4">
               <div className="text-sm text-muted-foreground">
-                <p><strong>Organisation:</strong> {organizationDisplayName(editingRecord)}</p>
+                <p><strong>Organisation / booker:</strong> {organizationDisplayName(editingRecord)}</p>
                 <p><strong>Invoice:</strong> {editingRecord.xero_invoice_number}</p>
                 <p><strong>{editingRecord.source_type}:</strong> {editingRecord.source_name}</p>
               </div>
@@ -1282,7 +1282,7 @@ export default function PendingPurchaseOrdersReport() {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-x-2">
-                  <span className="text-muted-foreground">Organisation:</span>
+                  <span className="text-muted-foreground">Organisation / booker:</span>
                   <span className="font-medium" data-testid="text-preview-org">
                     {reminderPreview.orgName}
                   </span>

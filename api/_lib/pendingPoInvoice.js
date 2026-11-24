@@ -1157,7 +1157,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   const bookingsWithOrg = tenantOrgIds.length > 0
     ? await fetchAllPages('booking (with org)', () => client
       .from('booking')
-      .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+      .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
       .in('organization_id', tenantOrgIds)
       .neq('status', 'cancelled')
       .or('payment_method.eq.account,po_to_follow.eq.true')
@@ -1168,7 +1168,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   const membersInTenant = await fetchAllPages('member (tenant org members)', () => client
       .from('member')
-      .select('id, email, organization_id, organization_group_id')
+      .select('id, email, first_name, last_name, organization_id, organization_group_id')
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true }));
 
@@ -1199,7 +1199,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         const memberChunk = memberIdsInTenant.slice(i, i + MEMBER_CHUNK);
         const chunkRows = await fetchAllPages(`booking (null org, member chunk ${i / MEMBER_CHUNK})`, () => client
           .from('booking')
-          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
           .is('organization_id', null)
           .in('member_id', memberChunk)
           .neq('status', 'cancelled')
@@ -1257,17 +1257,24 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     }
     return name.trim();
   };
-  const memberDisplay = (member) => {
+  const bookerDisplay = (details) => {
+    const text = value => typeof value === 'string' ? value.trim() : '';
+    const name = [text(details?.first_name), text(details?.last_name)].filter(Boolean).join(' ');
+    const email = text(details?.email);
+    return name && email ? `${name} (${email})` : name || email || null;
+  };
+  const memberDisplay = (member, purchaserDetails) => {
     if (member.organization_id) return requireName(orgMap, member.organization_id, 'member organisation');
     if (member.organization_group_id) return requireName(groupMap, member.organization_group_id, 'member organisation group');
-    return 'Unknown Organisation';
+    return bookerDisplay(purchaserDetails) || bookerDisplay(member) || 'Booker details unavailable';
   };
-  const displayName = (memberId, organizationId) => {
+  const displayName = (memberId, organizationId, purchaserDetails) => {
     if (memberId) {
       if (!memberMap[memberId]) throw new Error('Failed to resolve tenant member for pending PO display');
-      return memberDisplay(memberMap[memberId]);
+      return memberDisplay(memberMap[memberId], purchaserDetails);
     }
-    return organizationId ? requireName(orgMap, organizationId, 'billing organisation') : 'Unknown Organisation';
+    return organizationId ? requireName(orgMap, organizationId, 'billing organisation')
+      : bookerDisplay(purchaserDetails) || 'Booker details unavailable';
   };
 
   const records = [];
@@ -1314,7 +1321,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         id: b.id,
         entityType: 'booking',
         organization_id: orgId,
-        organization_display_name: displayName(b.member_id, b.organization_id),
+        organization_display_name: displayName(b.member_id, b.organization_id, b.purchaser_context?.details),
         source_name: eventMap[b.event_id] || 'Event',
         source_type: 'Event',
         xero_invoice_id: b.xero_invoice_id,

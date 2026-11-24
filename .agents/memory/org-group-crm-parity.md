@@ -13,11 +13,15 @@ description: Pattern for giving another entity the org-style CRM record treatmen
 
 For the pending purchase order report's organisation label, always use the
 member's Organisation if present. Otherwise use their direct Organisation
-Group. If they have neither, display exactly "Unknown Organisation".
-Do not substitute the individual's name for that fallback.
+Group. If they have neither, display the booker's name and email instead of
+"Unknown Organisation". Prefer original purchaser details when recorded,
+otherwise the linked booking member's details, not another attendee's identity.
 
-**Why:** The user explicitly confirmed this precedence and fallback.
+**Why:** The owner subsequently requested meaningful booker details for
+organisation-less purchases. Legacy account bookings may lack purchaser
+snapshots, so their appearance alone does not prove they were public purchases.
 
 **How to apply:** Check direct group associations in customer/report resolution.
 Keep affiliation display separate from historical invoice ownership; inspect
 the original billing evidence before changing an existing provider invoice.
+Display changes must not redirect reminders or alter purchaser records.

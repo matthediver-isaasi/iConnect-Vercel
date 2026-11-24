@@ -189,6 +189,31 @@ function createPendingPoClient({
   };
 }
 
+test('organisation-less event invoices show original booker details, not the attendee identity', async () => {
+  const client = createPendingPoClient({
+    strictFilters: true,
+    organizations: [],
+    members: [
+      tenantRow({ id: 'booker', first_name: 'Booking', last_name: 'Contact', email: 'buyer@example.org', organization_id: null, organization_group_id: null }),
+      tenantRow({ id: 'email-only', email: 'email-only@example.org', organization_id: null, organization_group_id: null }),
+    ],
+    bookings: [
+      { ...displayBooking('legacy', 'booker'), attendee_email: 'delegate@example.org' },
+      { ...displayBooking('snapshot', 'booker'), attendee_email: 'delegate@example.org',
+        purchaser_context: { classification: 'public_non_member', details: { first_name: 'Original', last_name: 'Booker', email: 'original@example.org' } } },
+      displayBooking('email-only', 'email-only'),
+    ],
+  });
+  const { records } = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+  const byId = Object.fromEntries(records.map(row => [row.id, row]));
+  assert.equal(byId['num:legacy'].organization_display_name, 'Booking Contact (buyer@example.org)');
+  assert.equal(byId['num:snapshot'].organization_display_name, 'Original Booker (original@example.org)');
+  assert.equal(byId['num:email-only'].organization_display_name, 'email-only@example.org');
+  assert.equal(byId['num:legacy'].member_email, 'delegate@example.org');
+  assert.equal(byId['num:snapshot'].organization_id, null);
+  assert.equal(client.calls.some(call => call.operation !== 'select'), false);
+});
+
 test('extractPoFromReference extracts PO from our membership reference convention', () => {
   assert.equal(extractPoFromReference('Membership 2025/2026 - PO: test2407'), 'test2407');
   assert.equal(extractPoFromReference('Membership 2026/27 - PO: PO-00123'), 'PO-00123');
@@ -203,7 +228,7 @@ const displayBooking = (id, memberId, organizationId = null, invoice = id) => ({
 const tenantRow = (row) => ({ tenant_id: 'tenant-1', ...row });
 const bedfordshire = 'Bedfordshire Hospitals NHS Foundation Trust';
 
-test('compute display uses member organisation, then direct group, then exact unknown without changing ownership', async () => {
+test('compute display uses organisation, then direct group, then booker without changing ownership', async () => {
   const client = createPendingPoClient({
     strictFilters: true,
     organizations: [
@@ -229,7 +254,7 @@ test('compute display uses member organisation, then direct group, then exact un
   assert.equal(byId['num:group'].organization_id, null);
   assert.equal(byId['num:both'].organization_display_name, 'Member Organisation');
   assert.equal(byId['num:both'].organization_id, 'billing');
-  assert.equal(byId['num:neither'].organization_display_name, 'Unknown Organisation');
+  assert.equal(byId['num:neither'].organization_display_name, 'Individual');
   assert.equal(byId['num:billing'].organization_display_name, 'Billing Organisation');
   assert.equal(byId['num:billing'].organization_id, 'billing');
   assert.equal(client.calls.some((c) => c.operation !== 'select'), false);
@@ -330,7 +355,7 @@ test('consolidation displays all distinct associations deterministically, includ
     });
     const { records } = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
     assert.equal(records.length, 1);
-    assert.equal(records[0].organization_display_name, `${bedfordshire}; Member Organisation; Unknown Organisation`);
+    assert.equal(records[0].organization_display_name, `${bedfordshire}; Booker details unavailable; Member Organisation`);
     assert.equal(records[0].quantity, 4);
     assert.equal(records[0].total_cost, 100);
   }
@@ -708,7 +733,7 @@ test('organisation-less tenant member membership invoices remain visible and rem
   const computed = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
   assert.equal(computed.records.length, 1);
   assert.equal(computed.records[0].organization_id, null);
-  assert.equal(computed.records[0].organization_display_name, 'Unknown Organisation');
+  assert.equal(computed.records[0].organization_display_name, 'Individual Member (individual@example.org)');
   assert.equal(computed.records[0].member_email, 'individual@example.org');
 
   const prepared = await prepareReminderForInvoice({
