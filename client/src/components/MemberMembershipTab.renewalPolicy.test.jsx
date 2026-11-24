@@ -121,6 +121,71 @@ test('personal and organisation-sourced ledger rows separate classification from
   }
 });
 
+test('organisational history shows saved invoice references without changing individual or monthly rows', async () => {
+  await mounted({ dataOverrides: { history: [
+    { id: 'org-generic', membership_source: 'organisation', accounting_invoice_id: 'accounting-id',
+      accounting_invoice_number: 'INV-ORG-42', xero_invoice_number: 'OLD-42' },
+    { id: 'org-legacy', membership_source: 'organisation', xero_invoice_id: 'xero-id',
+      xero_invoice_number: 'XERO-43' },
+    { id: 'org-unnumbered', membership_source: 'organisation', accounting_invoice_id: 'private-database-id' },
+    { id: 'org-unlinked', membership_source: 'organisation' },
+    { id: 'org-unverified', membership_source: 'organisation', payment_status: 'unverified',
+      accounting_invoice_id: 'hidden-id', accounting_invoice_number: 'HIDDEN-44' },
+    { id: 'org-queued', membership_source: 'organisation', start_invoice_state: 'pending' },
+    { id: 'personal-invoice', membership_source: 'personal', accounting_invoice_id: 'personal-id',
+      accounting_invoice_number: 'PERSONAL-45' },
+    { id: 'org-monthly', membership_source: 'organisation', payment_method: 'stripe_monthly_card',
+      billing_agreement_id: 'monthly-agreement',
+      accounting_invoice_id: 'monthly-id', accounting_invoice_number: 'MONTHLY-46' },
+  ] } }, container => {
+    const cell = id => container.querySelector(`[data-testid="row-member-history-${id}"]`).lastElementChild;
+    assert.equal(cell('org-generic').querySelector('p').textContent, 'INV-ORG-42');
+    assert.doesNotMatch(cell('org-generic').textContent, /OLD-42/);
+    assert.equal(cell('org-legacy').querySelector('p').textContent, 'XERO-43');
+    assert.equal(cell('org-unnumbered').querySelector('p'), null);
+    assert.doesNotMatch(cell('org-unnumbered').textContent, /undefined|private-database-id/);
+    assert.ok(cell('org-unnumbered').querySelector('[data-testid="button-view-invoice-org-unnumbered"]'));
+    assert.equal(cell('org-unlinked').textContent, '-');
+    assert.equal(cell('org-unverified').textContent, 'Payment evidence unavailable');
+    assert.match(cell('org-queued').textContent, /Invoice creation queued/);
+    for (const [id, number] of [['personal-invoice', 'PERSONAL-45'], ['org-monthly', 'MONTHLY-46']]) {
+      assert.doesNotMatch(cell(id).textContent, new RegExp(number));
+      assert.equal(cell(id).querySelector(`[data-testid="button-view-invoice-${id}"]`).title, `View invoice ${number}`);
+    }
+  });
+});
+
+test('organisational invoice view and download preserve membership source and history identity', async () => {
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  const originalClick = dom.window.HTMLAnchorElement.prototype.click;
+  const downloads = [];
+  URL.createObjectURL = () => 'blob:invoice-preview';
+  URL.revokeObjectURL = () => {};
+  dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push(this.download); };
+  try {
+    await mounted({ invoiceResponses: true, dataOverrides: { history: [
+      { id: 'org-history', membership_source: 'organisation', accounting_invoice_id: 'not-the-record-id',
+        accounting_invoice_number: 'INV-ORG-42' },
+    ] } }, async (container, calls) => {
+      await act(async () => container.querySelector('[data-testid="button-view-invoice-org-history"]').click());
+      assert.equal(document.querySelector('[data-testid="text-invoice-modal-title"]').textContent, 'Invoice INV-ORG-42');
+      assert.match(document.querySelector('[data-testid="iframe-invoice-pdf"]').src, /^blob:invoice-preview#/);
+      await act(async () => container.querySelector('[data-testid="button-download-invoice-org-history"]').click());
+      assert.deepEqual(calls.map(call => call.url), [
+        '/api/membership-invoice/org-history?inline=true&source=organisation',
+        '/api/membership-invoice/org-history?source=organisation',
+      ]);
+      assert.ok(calls.every(call => call.options.credentials === 'include'));
+      assert.deepEqual(downloads, ['membership-invoice-INV-ORG-42.pdf']);
+    });
+  } finally {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+    dom.window.HTMLAnchorElement.prototype.click = originalClick;
+  }
+});
+
 test('history displays the saved structure and tier together without substituting current pricing', async () => {
   await mounted({ dataOverrides: { history: [
     { id: 'manual', tier_label: 'Flat Rate', commitment_snapshot: { config: { name: '2026-2027 Full member with NMC' } } },
@@ -197,7 +262,7 @@ const historical = {
   status: "active", currency: "GBP",
 };
 
-async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {}, memberTenantId = null, selectedTenantId = null } = {}, callback) {
+async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {}, memberTenantId = null, selectedTenantId = null, invoiceResponses = false } = {}, callback) {
   setActiveTenantId(selectedTenantId);
   const tenantId = selectedTenantId || memberTenantId || null;
   const client = new QueryClient({ defaultOptions: {
@@ -238,6 +303,9 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
       return new Response(JSON.stringify({ records: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     calls.push({ url, options });
+    if (invoiceResponses && String(url).startsWith('/api/membership-invoice/')) {
+      return new Response('synthetic invoice PDF', { status: 200, headers: { 'Content-Type': 'application/pdf' } });
+    }
     throw new Error(`Unexpected network request: ${url}`);
   };
   try {

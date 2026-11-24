@@ -1933,6 +1933,9 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                             </div>
                           ) : invoiceId ? (
                             <div className="flex flex-col items-center gap-1">
+                              {membershipSource === 'organisation' && !isMonthlyRecord && invoiceNumber && (
+                                <p className="text-xs text-muted-foreground">{invoiceNumber}</p>
+                              )}
                               {record.accounting_progress ? (
                                 <MembershipAccountingStatus progress={record.accounting_progress} recordId={record.id} />
                               ) : (record.accounting_sync_status || record.accounting_sync_error) && (
