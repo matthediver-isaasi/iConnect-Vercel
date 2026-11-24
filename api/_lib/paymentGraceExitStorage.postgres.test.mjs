@@ -170,6 +170,29 @@ test('payment-grace evidence is disabled, immutable, scoped and never rewrites f
     assert.equal((await db.query('SELECT role_id FROM member')).rows[0].role_id,oldRole,'failed exit rolls back role assignment');
     assert.equal((await db.query('SELECT count(*)::int n FROM membership_arrears_role_action')).rows[0].n,0);
     await db.query("UPDATE gocardless_mandates SET status='cancelled'");
+    // The live imported cohort also has its own immutable-consent trigger.
+    await db.query(`
+      CREATE TABLE bnms_dd_alpha_adoption(id uuid,tenant_id uuid,member_id uuid,
+        history_id uuid,agreement_id uuid,plan_id uuid,mandate_id text,customer_id text);
+      CREATE TABLE bnms_dd_alpha_release(adoption_id uuid);
+      ALTER TABLE member_membership_history ADD COLUMN paid_at timestamptz;
+      ALTER TABLE gocardless_payments ADD COLUMN charge_date date;
+      CREATE TABLE gocardless_collection_reservations(gocardless_payment_id text,
+        tenant_id uuid,plan_id uuid,billing_agreement_id uuid,collection_number int);
+    `);
+    await db.query('INSERT INTO bnms_dd_alpha_adoption(id,tenant_id,member_id,history_id,agreement_id,plan_id) VALUES($1,$2,$3,$4,$5,$6)',
+      [id(50),tenant,member,history,agreement,plan]);
+    await db.query('INSERT INTO bnms_dd_alpha_release VALUES($1)',[id(50)]);
+    const alphaSql=await readFile(new URL('../../supabase/migrations/20261117_bnms_dd_alpha_scheduled_release.sql',import.meta.url),'utf8');
+    await db.query(alphaSql.slice(alphaSql.indexOf('CREATE FUNCTION public.bnms_dd_alpha_canonical_guard()'),
+      alphaSql.indexOf('CREATE FUNCTION public.bnms_dd_alpha_protect_payment()')));
+    await db.query(`CREATE TRIGGER bnms_dd_alpha_history_hold BEFORE UPDATE OR DELETE ON member_membership_history
+      FOR EACH ROW EXECUTE FUNCTION bnms_dd_alpha_canonical_guard()`);
+    await assert.rejects(db.query('SELECT apply_membership_payment_grace_exit($1,$2)',[tenant,plan]),/financial\/dated terms are immutable/);
+    assert.equal((await db.query('SELECT role_id FROM member')).rows[0].role_id,oldRole);
+    await db.query(await readFile(new URL('../../supabase/migrations/202701250005_payment_grace_exit_alpha_compatibility.sql',import.meta.url),'utf8'));
+    await assert.rejects(db.query('UPDATE member_membership_history SET payment_grace_exit_id=$1',[id(99)]),
+      /bound immutable audit/);
     const result = (await db.query('SELECT apply_membership_payment_grace_exit($1,$2) AS id',[tenant,plan])).rows[0].id;
     assert.equal((await db.query('SELECT apply_membership_payment_grace_exit($1,$2) AS id',[tenant,plan])).rows[0].id,result);
     const exited = await snapshot();
@@ -190,9 +213,9 @@ test('payment-grace evidence is disabled, immutable, scoped and never rewrites f
     assert.equal(evidence.id,result);
     assert.equal((await db.query('SELECT membership_payment_grace_exit_evidence($1,$2,$3) AS data',
       [tenant,id(99),history])).rows[0].data,null);
-    await assert.rejects(db.query('UPDATE member_membership_history SET payment_grace_exit_id=null'),/cannot be removed/);
-    await assert.rejects(db.query("UPDATE member_membership_history SET status='active'"),/cannot be removed/);
-    await assert.rejects(db.query("UPDATE member_membership_history SET term_end_date='2027-11-01'"),/cannot be removed/);
+    await assert.rejects(db.query('UPDATE member_membership_history SET payment_grace_exit_id=null'),/cannot be removed|bound immutable audit/);
+    await assert.rejects(db.query("UPDATE member_membership_history SET status='active'"),/cannot be removed|requires confirmed first managed payment/);
+    await assert.rejects(db.query("UPDATE member_membership_history SET term_end_date='2027-11-01'"),/cannot be removed|financial\/dated/);
     await db.query(`INSERT INTO member_membership_history
       (id,tenant_id,member_id,term_key,term_start_date,term_end_date,membership_renewal_date,status,payment_status)
       VALUES($1,$2,$3,'rolling:2026-11-24','2026-11-24','2027-11-23','2027-11-24','pending','unpaid')`,
