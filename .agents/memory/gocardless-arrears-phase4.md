@@ -12,6 +12,9 @@ description: Durable invariants for DD arrears handling and admin-console authz 
   **Why:** checking eligibility only before provider reads leaves a window where cancellation can complete and a retry can still collect.
   **How to apply:** every new collection-retry or cancellation path must participate in the shared claim protocol; automatic and manual attempt sequences remain separate.
 - **Arrears policy must not be applied twice** when cron and webhook processing race; `keep_active` must not silently become access restriction. Do not assume historical bookkeeping-only limitations still apply: inspect current policy enforcement before diagnosing an access issue.
+- **Use the membership schedule's existing fallback-role mechanism for post-grace restriction; do not add a separate privilege mechanism or hardcoded role.**
+  **Why:** The owner explicitly selected role-based restriction with portal login retained so members can resolve payment, and required reuse of schedule settings.
+  **How to apply:** Keep payment recovery accessible through the configured tenant role. Distinguish payment-grace and annual-renewal settings before changing policy; this decision does not itself authorise bulk live role changes.
 - **Admin money-moving actions need server-side feature RBAC, not just `hasAdminAccess` + client gating.** Pattern: tenant-user dashboard sessions (no roleId) pass; member-role admins need the console feature key, and refunds additionally need the finance feature key.
 - **Approved payment-method corrections can supersede an import relationship without erasing its audit ledger.**
   **Why:** A verified upfront correction detached a membership from its cancelled Direct Debit agreement; treating the retained adoption reference as a current relationship blocked the whole console.
