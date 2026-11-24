@@ -44,6 +44,8 @@ import { voucherSettingsForm, voucherSettingsPayload } from '@/lib/voucherSettin
 import { useQueryClient } from '@tanstack/react-query';
 import { memberRecordPreferencesKey } from '@/hooks/useMemberBalancesVisibility';
 import { memberBalancesVisible } from '@shared/memberBalancesVisibility.js';
+import { memberCpdPresentation } from '@shared/memberCpdPresentation.js';
+import MemberCpdPresentationSettings from '@/components/admin/MemberCpdPresentationSettings';
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -112,6 +114,7 @@ export default function AdminSettings() {
       email_from_address: '',
       member_portal_login_enabled: true,
       show_member_balances_tab: true,
+      ...memberCpdPresentation({}),
       member_google_login_enabled: true,
       allow_search_indexing: false
     }
@@ -174,6 +177,7 @@ export default function AdminSettings() {
                 email_from_address: emailDomain.from_email || settings.welcome_email_from_address || '',
                 member_portal_login_enabled: settings.member_portal_login_enabled !== false,
                 show_member_balances_tab: memberBalancesVisible(settings),
+                ...memberCpdPresentation(settings),
                 member_google_login_enabled: settings.member_google_login_enabled !== false,
                 allow_search_indexing: settings.allow_search_indexing === true
               }
@@ -326,7 +330,7 @@ export default function AdminSettings() {
           favicon_url: formData.favicon_url,
           settings: formData.settings
         })
-      });
+      }, tenant.id);
 
       if (response.ok) {
         const data = await response.json();
@@ -339,6 +343,7 @@ export default function AdminSettings() {
             ...prev,
             settings: {
               ...prev.settings,
+              ...memberCpdPresentation(settings),
               email_from_name: emailDomain.from_name || prev.settings.email_from_name,
               email_from_address: emailDomain.from_email || prev.settings.email_from_address
             }
@@ -1093,6 +1098,11 @@ export default function AdminSettings() {
                   }))}
                 />
               </div>
+              <MemberCpdPresentationSettings settings={formData.settings}
+                disabled={saving || !['owner', 'admin', 'super_admin'].includes(tenantUser?.role)}
+                onChange={updates => setFormData(prev => ({
+                  ...prev, settings: { ...prev.settings, ...updates }
+                }))} />
               {!formData.settings.member_portal_login_enabled && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />

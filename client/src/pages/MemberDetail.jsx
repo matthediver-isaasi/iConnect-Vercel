@@ -9,8 +9,7 @@ import { MemberDocumentUpload, MemberNoteDocuments } from "@/components/MemberNo
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
-import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
-import SpeakerAwardsHistory from "@/components/SpeakerAwardsHistory";
+import MemberRecordCpdContent from "@/components/MemberRecordCpdContent";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -1730,7 +1729,7 @@ export default function MemberDetail() {
           </TabsTrigger>
           <TabsTrigger value="cpd-points" className="gap-1" data-testid="tab-member-cpd-points">
             <Trophy className="w-4 h-4" />
-            CPD points
+            {balancesPreference.cpdTabLabel}
           </TabsTrigger>
           <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
             <FolderTree className="w-4 h-4" />
@@ -2236,18 +2235,11 @@ export default function MemberDetail() {
         </TabsContent>
 
         <TabsContent value="cpd-points" className="space-y-6">
-          <MemberCpdPointsTab
+          <MemberRecordCpdContent
             memberId={id}
-            certificates
+            preferences={balancesPreference}
             enabled={isAccessReady && activeTab === 'cpd-points'}
             canCorrect={isAccessReady && isFeatureExcluded && !isFeatureExcluded('cpd.points-corrections')}
-          />
-          <SpeakerAwardsHistory
-            key={id}
-            endpoint={`/api/members/${encodeURIComponent(id)}/speaker-awards`}
-            certificateEndpoint={`/api/members/${encodeURIComponent(id)}/speaker-certificate`}
-            enabled={isAccessReady && activeTab === 'cpd-points'}
-            showEmpty
           />
         </TabsContent>
 

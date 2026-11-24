@@ -56,12 +56,15 @@ async function mounted(run) {
 test("member CPD tab preserves existing history and adds independently gated speaker history", () => {
   const source = readFileSync(new URL("../pages/MemberDetail.jsx", import.meta.url), "utf8");
   const cpd = source.split('<TabsContent value="cpd-points"')[1].split("</TabsContent>")[0];
-  assert.match(cpd, /<MemberCpdPointsTab[\s\S]*certificates/);
-  const speaker = cpd.split("<SpeakerAwardsHistory")[1];
-  assert.match(speaker, /key=\{id\}/);
-  assert.match(speaker, /\/api\/members\/\$\{encodeURIComponent\(id\)\}\/speaker-awards/);
-  assert.match(speaker, /\/api\/members\/\$\{encodeURIComponent\(id\)\}\/speaker-certificate/);
-  assert.match(speaker, /enabled=\{isAccessReady && activeTab === 'cpd-points'\}/);
+  assert.match(cpd, /<MemberRecordCpdContent/);
+  assert.match(cpd, /enabled=\{isAccessReady && activeTab === 'cpd-points'\}/);
+  const content = readFileSync(new URL("./MemberRecordCpdContent.jsx", import.meta.url), "utf8");
+  assert.match(content, /preferences.resolved && preferences.cpdVisible && <MemberCpdPointsTab/);
+  const speaker = content.split("<SpeakerAwardsHistory")[1];
+  assert.match(speaker, /key=\{`speaker-\$\{memberId\}`\}/);
+  assert.match(speaker, /\/api\/members\/\$\{encodeURIComponent\(memberId\)\}\/speaker-awards/);
+  assert.match(speaker, /\/api\/members\/\$\{encodeURIComponent\(memberId\)\}\/speaker-certificate/);
+  assert.match(speaker, /enabled=\{enabled\}/);
   assert.match(speaker, /showEmpty/);
 });
 

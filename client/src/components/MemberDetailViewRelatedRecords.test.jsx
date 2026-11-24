@@ -5,6 +5,7 @@ import { build } from "esbuild";
 import { pathToFileURL } from "node:url";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
+import { memberCpdPresentation } from '../../../shared/memberCpdPresentation.js';
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "https://tenant.example.test/members/member-1",
@@ -44,6 +45,7 @@ await build({
       export { default as MemberDetail } from "./client/src/pages/MemberDetail.jsx";
       export { default as AdminSettings } from "./client/src/pages/admin/AdminSettings.jsx";
       export { useMemberBalancesVisibility } from "./client/src/hooks/useMemberBalancesVisibility.js";
+      export { default as MemberRecordCpdContent } from "./client/src/components/MemberRecordCpdContent.jsx";
     `,
     resolveDir: process.cwd(),
     loader: "jsx",
@@ -134,6 +136,11 @@ async function settle(delay = 20) {
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve, delay));
   });
+}
+
+async function waitFor(predicate) {
+  for (let i = 0; i < 50 && !predicate(); i++) await settle(10);
+  assert.ok(predicate(), 'Expected UI state did not resolve');
 }
 
 async function mount(child, initialEntries = ['/']) {
@@ -344,17 +351,17 @@ for (const standalone of [false, true]) {
 
 function PreferenceProbe({ tenantId }) {
   const preference = bundled.useMemberBalancesVisibility(tenantId);
-  return <output data-testid="preference">{String(preference.visible)}</output>;
+  return <output data-testid="preference">{String(preference.visible)}:{String(preference.cpdVisible)}:{preference.cpdTabLabel}</output>;
 }
 
 test('preference caches never reuse another tenant, even during failed loads', async () => {
   globalThis.fetch = async (_url, options) => options.headers.get('X-Tenant-Id') === 'tenant-1'
-    ? json({ tenantId: 'tenant-1', show_member_balances_tab: true })
+    ? json({ tenantId: 'tenant-1', show_member_balances_tab: true, show_member_cpd_points: true, member_cpd_tab_label: 'Awards' })
     : json({ error: 'unavailable' }, 503);
   const view = await mount(<PreferenceProbe tenantId="tenant-1" />);
-  assert.equal(view.container.textContent, 'true');
+  assert.equal(view.container.textContent, 'true:true:Awards');
   await view.render(<PreferenceProbe tenantId="tenant-2" />);
-  assert.equal(view.container.textContent, 'false');
+  assert.equal(view.container.textContent, 'false:false:CPD points');
   await view.cleanup();
 });
 
@@ -371,7 +378,7 @@ test('settings switch saves, invalidates the member preference, and reloads the 
     if (path === '/api/admin/tenant') {
       if (failSave) return json({ error: 'unavailable' }, 503);
       writes.push(JSON.parse(options.body));
-      settings = { ...settings, ...writes.at(-1).settings };
+      settings = { ...settings, ...writes.at(-1).settings, ...memberCpdPresentation(writes.at(-1).settings) };
       return json({ tenant: { id: 'tenant-1', settings } });
     }
     return unrelatedResponse(path);
@@ -380,23 +387,202 @@ test('settings switch saves, invalidates the member preference, and reloads the 
   let control = view.container.querySelector('#show-member-balances-tab');
   assert.ok(control);
   assert.equal(control.getAttribute('aria-checked'), 'true');
+  const cpdControl = view.container.querySelector('#show-member-cpd-points');
+  assert.equal(cpdControl.getAttribute('aria-checked'), 'true');
+  assert.equal(view.container.querySelector('#member-cpd-tab-label').value, 'CPD points');
+  await act(async () => cpdControl.click());
+  await act(async () => {
+    const input = view.container.querySelector('#member-cpd-tab-label');
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, 'Learning awards');
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
   view.client.setQueryDefaults(['member-record-preferences', 'tenant-1'], { gcTime: Infinity });
   view.client.setQueryData(['member-record-preferences', 'tenant-1'], { tenantId: 'tenant-1', show_member_balances_tab: true });
   await act(async () => control.click());
   await act(async () => view.container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
   await settle();
   assert.equal(writes.at(-1).settings.show_member_balances_tab, false);
+  assert.equal(writes.at(-1).settings.show_member_cpd_points, false);
+  assert.equal(writes.at(-1).settings.member_cpd_tab_label, 'Learning awards');
   assert.equal(view.client.getQueryState(['member-record-preferences', 'tenant-1']).isInvalidated, true);
   await view.cleanup();
   view = await mount(<bundled.AdminSettings />);
   control = view.container.querySelector('#show-member-balances-tab');
   assert.equal(control.getAttribute('aria-checked'), 'false');
+  assert.equal(view.container.querySelector('#show-member-cpd-points').getAttribute('aria-checked'), 'false');
+  assert.equal(view.container.querySelector('#member-cpd-tab-label').value, 'Learning awards');
   failSave = true;
   await act(async () => control.click());
   await act(async () => view.container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
   await settle();
   assert.equal(settings.show_member_balances_tab, false);
+  failSave = false;
+  await act(async () => {
+    const input = view.container.querySelector('#member-cpd-tab-label');
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '   ');
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  await act(async () => view.container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+  await settle();
+  assert.equal(view.container.querySelector('#member-cpd-tab-label').value, 'CPD points');
+  assert.equal(settings.member_cpd_tab_label, 'CPD points');
   await view.cleanup();
+});
+
+test('member CPD deep link keeps Speaker Awards and plain-text custom label while hiding all points requests', async t => {
+  const calls = [];
+  let visible = false;
+  globalThis.fetch = async url => {
+    const path = String(url);
+    calls.push(path);
+    if (path.includes('/api/member-record-preferences')) return json({
+      tenantId: 'tenant-1', show_member_balances_tab: true,
+      show_member_cpd_points: visible, member_cpd_tab_label: '<b>Learning</b>',
+    });
+    if (/\/api\/entities\/Member\/member-1/.test(path)) return json(member('member-1'));
+    if (path.includes('/core/relationship-definitions')) return json({ data: [], total: 0 });
+    if (path.includes('/speaker-awards')) return json({ awards: [], pagination: { total: 0 } });
+    if (path.includes('/cpd-points')) return json({ balance: 12, items: [], total: 0 });
+    return unrelatedResponse(path);
+  };
+  const view = await mount(<><Routes><Route path="/members/:id" element={<bundled.MemberDetail />} /></Routes><LocationProbe /></>,
+    ['/members/member-1?tab=cpd-points&keep=one%26two']);
+  t.after(() => view.cleanup());
+  await waitFor(() => view.container.textContent.includes('No speaker awards recorded yet'));
+  const tab = view.container.querySelector('[data-testid="tab-member-cpd-points"]');
+  assert.equal(tab.getAttribute('data-state'), 'active');
+  assert.equal(tab.textContent, '<b>Learning</b>');
+  assert.equal(tab.querySelector('b'), null);
+  assert.match(view.container.textContent, /Speaker Awards.*No speaker awards recorded yet/);
+  assert.equal(view.container.querySelector('[data-testid="member-cpd-points-balance"]'), null);
+  assert.equal(calls.some(path => /cpd-points|cpd-certificate|manual-cpd-awards/.test(path)), false);
+  assert.equal(calls.filter(path => path.includes('/member-record-preferences')).length, 1);
+  visible = true;
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+  await waitFor(() => view.container.querySelector('[data-testid="member-cpd-points-balance"]'));
+  assert.equal(view.container.querySelector('[data-testid="member-cpd-points-balance"]').textContent, '12');
+  assert.match(view.container.textContent, /Points history/);
+  assert.equal(new URLSearchParams(view.container.querySelector('[data-testid="location"]').textContent).get('tab'), 'cpd-points');
+  visible = false;
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+  await settle();
+  assert.equal(view.container.querySelector('[data-testid="member-cpd-points-balance"]'), null);
+  assert.match(view.container.textContent, /No speaker awards recorded yet/);
+});
+
+function CpdPreferenceProbe({ tenantId }) {
+  const preferences = bundled.useMemberBalancesVisibility(tenantId);
+  return <>
+    <output>{preferences.cpdTabLabel}</output>
+    <bundled.MemberRecordCpdContent memberId={`${tenantId}-member`} preferences={preferences} enabled canCorrect />
+    <PreferenceProbe tenantId={tenantId} />
+  </>;
+}
+
+test('CPD pending, failed and switched-tenant preferences never mount hidden controls or query the ledger', async t => {
+  const calls = [];
+  let pending = deferred();
+  let mode = 'pending';
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    calls.push(path);
+    if (path.includes('/member-record-preferences')) {
+      if (mode === 'pending') return pending.promise;
+      if (mode === 'error') return json({ error: 'offline' }, 503);
+      const tenantId = options.headers.get('X-Tenant-Id');
+      if (mode === 'wrong-tenant') return json({ tenantId: 'wrong', show_member_balances_tab: true, show_member_cpd_points: true, member_cpd_tab_label: 'Wrong' });
+      return json({ tenantId, show_member_balances_tab: true, show_member_cpd_points: mode === 'show', member_cpd_tab_label: `Awards ${tenantId}` });
+    }
+    if (path.includes('/speaker-awards')) return json({ awards: [{
+      id: 'speaker-award', event_title: 'Speaker forum', status: 'granted',
+      certificate: { available: true, status: 'issued' },
+    }], pagination: { total: 1, total_pages: 1 } });
+    if (path.includes('/cpd-certificate')) return json({ certificates: { award: { available: true } } });
+    if (path.includes('/api/admin/member-cpd-points')) return json({ entries: [] });
+    if (path.includes('/cpd-points')) return json({ balance: 3, total: 1, items: [{
+      id: 'award', entry_kind: 'event_award', points_value: 3, event_name: 'Learning forum',
+    }] });
+    assert.fail(`Unexpected request: ${path}`);
+  };
+  const view = await mount(<CpdPreferenceProbe tenantId="a" />, ['/members/a-member?tab=cpd-points']);
+  t.after(() => view.cleanup());
+  const assertNoPoints = () => {
+    assert.equal(view.container.querySelector('[data-testid="member-cpd-points-balance"]'), null);
+    assert.doesNotMatch(view.container.textContent, /Points history|Award manual CPD|Adjust/);
+  };
+  assertNoPoints();
+  await waitFor(() => view.container.textContent.includes('Speaker forum'));
+  assert.match(view.container.textContent, /Speaker forum/);
+  assert.ok([...view.container.querySelectorAll('button')].some(button => button.textContent === 'Preview'));
+  assert.equal(calls.filter(path => path.includes('/member-record-preferences')).length, 1, 'two consumers share one pending request');
+  pending.resolve(json({ error: 'offline' }, 503));
+  await settle();
+  assertNoPoints();
+  assert.match(view.container.textContent, /Could not load member record preferences/);
+  mode = 'hide';
+  await act(async () => [...view.container.querySelectorAll('button')].find(button => button.textContent === 'Retry preferences').click());
+  await settle();
+  assertNoPoints();
+  assert.match(view.container.textContent, /Awards a/);
+  assert.equal(calls.some(path => /cpd-points|cpd-certificate|manual-cpd-awards/.test(path)), false);
+  mode = 'show';
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+  await waitFor(() => view.container.querySelector('[data-testid="member-cpd-points-balance"]'));
+  await waitFor(() => calls.some(path => path.includes('/cpd-certificate')));
+  assert.ok(view.container.querySelector('[data-testid="member-cpd-points-balance"]'));
+  assert.ok(calls.some(path => path.includes('/api/admin/member-cpd-points')));
+  assert.ok(calls.some(path => path.includes('/cpd-certificate')));
+  mode = 'pending';
+  pending = deferred();
+  const beforeSwitch = calls.length;
+  await view.render(<CpdPreferenceProbe tenantId="b" />);
+  assertNoPoints();
+  assert.doesNotMatch(view.container.textContent, /Awards a|Learning forum/);
+  mode = 'hide';
+  pending.resolve(json({ tenantId: 'b', show_member_balances_tab: true, show_member_cpd_points: false, member_cpd_tab_label: 'Awards b' }));
+  await settle();
+  assertNoPoints();
+  assert.equal(calls.slice(beforeSwitch).some(path => /cpd-points|cpd-certificate|manual-cpd-awards/.test(path)), false);
+  mode = 'wrong-tenant';
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences', 'b'] }); });
+  await settle();
+  assertNoPoints();
+  assert.doesNotMatch(view.container.textContent, /Wrong|Awards a/);
+});
+
+test('a late preference response cannot restore the previous tenant CPD display', async t => {
+  const oldResponse = deferred();
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    calls.push(path);
+    if (path.includes('/member-record-preferences')) {
+      if (options.headers.get('X-Tenant-Id') === 'a') return oldResponse.promise;
+      return json({ tenantId: 'b', show_member_balances_tab: true, show_member_cpd_points: false, member_cpd_tab_label: 'B awards' });
+    }
+    if (path.includes('/speaker-awards')) return json({ awards: [], pagination: { total: 0 } });
+    assert.fail(`Unexpected request: ${path}`);
+  };
+  const view = await mount(<CpdPreferenceProbe tenantId="a" />);
+  t.after(() => view.cleanup());
+  await view.render(<CpdPreferenceProbe tenantId="b" />);
+  await waitFor(() => view.container.textContent.includes('B awards'));
+  oldResponse.resolve(json({ tenantId: 'a', show_member_balances_tab: true, show_member_cpd_points: true, member_cpd_tab_label: 'A points' }));
+  await settle();
+  assert.doesNotMatch(view.container.textContent, /A points|Points history/);
+  assert.equal(view.container.querySelector('[data-testid="member-cpd-points-balance"]'), null);
+  assert.equal(calls.some(path => /cpd-points|cpd-certificate|manual-cpd-awards/.test(path)), false);
+});
+
+test('non-admin settings viewers cannot edit either CPD presentation control', async t => {
+  globalThis.fetch = async url => String(url).includes('/api/auth/tenant-user-me') ? json({
+    authenticated: true, tenantUser: { role: 'viewer' },
+    tenant: { id: 'tenant-1', name: 'Fixture', settings: {} },
+  }) : unrelatedResponse(String(url));
+  const view = await mount(<bundled.AdminSettings />);
+  t.after(() => view.cleanup());
+  assert.equal(view.container.querySelector('#show-member-cpd-points').disabled, true);
+  assert.equal(view.container.querySelector('#member-cpd-tab-label').disabled, true);
 });
 
 for (const standalone of [false, true]) {
@@ -408,7 +594,7 @@ for (const standalone of [false, true]) {
       if (path.includes('/api/member-record-preferences')) {
         if (mode === 'pending') return pending.promise;
         if (mode === 'error') return json({ error: 'unavailable' }, 503);
-        return json({ tenantId: 'tenant-1', show_member_balances_tab: mode === 'true' });
+        return json({ tenantId: 'tenant-1', show_member_balances_tab: mode === 'true', show_member_cpd_points: true, member_cpd_tab_label: 'CPD points' });
       }
       if (/\/api\/entities\/Member\/member-1/.test(path)) return json({
         ...member('member-1'), opening_balances: { eventsAttended: 42 },

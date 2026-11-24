@@ -32,7 +32,7 @@ test("Activity retains member since and timeline but no CPD; dedicated tab keeps
   const cpd = source.split('<TabsContent value="cpd-points"')[1].split("</TabsContent>")[0];
   assert.match(cpd, /enabled=\{isAccessReady && activeTab === 'cpd-points'\}/);
   assert.match(cpd, /canCorrect=\{isAccessReady && isFeatureExcluded && !isFeatureExcluded\('cpd.points-corrections'\)\}/);
-  assert.match(cpd, /\s+certificates\s/);
+   assert.match(cpd, /preferences=\{balancesPreference\}/);
   assert.doesNotMatch(cpd, /cpd\.member_cpd/);
 });
 

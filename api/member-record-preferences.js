@@ -1,6 +1,7 @@
 import { supabase } from './_lib/database.js';
 import { getTenantContext } from './_lib/tenantContext.js';
 import { memberBalancesVisible } from '../shared/memberBalancesVisibility.js';
+import { memberCpdPresentation } from '../shared/memberCpdPresentation.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -19,6 +20,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       tenantId: context.tenantId,
       show_member_balances_tab: memberBalancesVisible(data.settings ?? {}),
+      ...memberCpdPresentation(data.settings),
     });
   } catch {
     return res.status(503).json({ error: 'Member record preferences unavailable' });

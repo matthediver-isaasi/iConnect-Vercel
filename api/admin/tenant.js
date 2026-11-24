@@ -3,6 +3,7 @@ import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
 import { clearTenantEmailCache } from '../_lib/emailService.js';
 import { validateMemberAiAssistant } from '../_lib/tenantAiAssistant.js';
+import { validateMemberCpdPresentation } from '../../shared/memberCpdPresentation.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -82,6 +83,16 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'settings must be an object' });
         }
         let assistantUpdates;
+        if (['show_member_cpd_points', 'member_cpd_tab_label'].some(key => Object.hasOwn(updates.settings, key))) {
+          if (!['owner', 'admin', 'super_admin'].includes(tenantUser.role)) {
+            return res.status(403).json({ error: 'Tenant administrator access required' });
+          }
+          try {
+            Object.assign(updates.settings, validateMemberCpdPresentation(updates.settings));
+          } catch (error) {
+            return res.status(400).json({ error: error.message });
+          }
+        }
         if (Object.prototype.hasOwnProperty.call(updates.settings, 'show_member_balances_tab')) {
           if (!['owner', 'admin', 'super_admin'].includes(tenantUser.role)) {
             return res.status(403).json({ error: 'Tenant administrator access required' });

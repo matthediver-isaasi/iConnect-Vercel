@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { memberBalancesVisible } from '../shared/memberBalancesVisibility.js';
+import { memberCpdPresentation, validateMemberCpdPresentation, MEMBER_CPD_LABEL_MAX_LENGTH } from '../shared/memberCpdPresentation.js';
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8')
   .replace(/^import .*;$/gm, '').replace('export default async function handler', 'async function handler');
@@ -25,11 +26,11 @@ function fixture() {
     };
   } };
   const getUser = async () => state.tenantId ? { tenant_id: state.tenantId, role: state.role } : null;
-  const patch = new Function('getSessionTenantUser', 'supabase', 'clearTenantCache', 'clearTenantEmailCache', 'validateMemberAiAssistant',
-    `${source('./admin/tenant.js')}; return handler;`)(getUser, db, () => {}, () => {}, () => {});
-  const read = new Function('supabase', 'getTenantContext', 'memberBalancesVisible',
+  const patch = new Function('getSessionTenantUser', 'supabase', 'clearTenantCache', 'clearTenantEmailCache', 'validateMemberAiAssistant', 'validateMemberCpdPresentation',
+    `${source('./admin/tenant.js')}; return handler;`)(getUser, db, () => {}, () => {}, () => {}, validateMemberCpdPresentation);
+  const read = new Function('supabase', 'getTenantContext', 'memberBalancesVisible', 'memberCpdPresentation',
     `${source('./member-record-preferences.js')}; return handler;`)(
-    db, async () => ({ isAuthenticated: !!state.tenantId, tenantId: state.tenantId, tenantMismatch: state.mismatch }), memberBalancesVisible);
+    db, async () => ({ isAuthenticated: !!state.tenantId, tenantId: state.tenantId, tenantMismatch: state.mismatch }), memberBalancesVisible, memberCpdPresentation);
   async function call(handler, body, headers = {}) {
     const res = response();
     await handler({ method: handler === patch ? 'PATCH' : 'GET', headers, body }, res);
@@ -45,7 +46,7 @@ test('visible only for a loaded absent or true preference', () => {
 });
 test('save and reload false/true, preserve unrelated settings and isolate tenants', async () => {
   const f = fixture();
-  assert.deepEqual((await f.read()).body, { tenantId: 'a', show_member_balances_tab: true });
+  assert.deepEqual((await f.read()).body, { tenantId: 'a', show_member_balances_tab: true, ...memberCpdPresentation({}) });
   for (const value of [false, true]) {
     assert.equal((await f.patch({ show_member_balances_tab: value })).statusCode, 200);
     assert.equal((await f.read()).body.show_member_balances_tab, value);
@@ -54,6 +55,47 @@ test('save and reload false/true, preserve unrelated settings and isolate tenant
   }
   f.state.tenantId = 'b';
   assert.equal((await f.read()).body.show_member_balances_tab, false);
+});
+test('CPD preferences default, normalize, save/reload and remain tenant scoped without changing balances', async () => {
+  const f = fixture();
+  assert.deepEqual(memberCpdPresentation(null), { show_member_cpd_points: true, member_cpd_tab_label: 'CPD points' });
+  for (const role of ['owner', 'admin', 'super_admin']) {
+    f.state.role = role;
+    for (const visible of [false, true]) {
+      const saved = await f.patch({ show_member_cpd_points: visible, member_cpd_tab_label: '  Learning & awards  ' });
+      assert.equal(saved.statusCode, 200);
+      const loaded = (await f.read()).body;
+      assert.equal(loaded.show_member_cpd_points, visible);
+      assert.equal(loaded.member_cpd_tab_label, 'Learning & awards');
+      assert.equal(loaded.show_member_balances_tab, true);
+      assert.equal(f.state.rows.a.unrelated, 123);
+    }
+  }
+  for (const blank of ['', ' \t\n ']) {
+    assert.equal((await f.patch({ member_cpd_tab_label: blank })).statusCode, 200);
+    assert.equal((await f.read()).body.member_cpd_tab_label, 'CPD points');
+  }
+  assert.equal((await f.patch({ member_cpd_tab_label: '<b>Awards</b>' })).statusCode, 200);
+  assert.equal((await f.read()).body.member_cpd_tab_label, '<b>Awards</b>');
+  f.state.tenantId = 'b';
+  assert.deepEqual((await f.read()).body, { tenantId: 'b', show_member_balances_tab: false, ...memberCpdPresentation({}) });
+  assert.equal(f.state.rows.a.member_cpd_tab_label, '<b>Awards</b>');
+});
+test('CPD writes reject invalid types, long labels, non-admins and cross-tenant headers without changing settings', async () => {
+  const f = fixture();
+  for (const key of ['show_member_cpd_points', 'member_cpd_tab_label']) {
+    const invalid = key === 'show_member_cpd_points' ? [null, 0, 'false', {}, []] : [null, false, 42, {}, [], 'x'.repeat(MEMBER_CPD_LABEL_MAX_LENGTH + 1)];
+    for (const value of invalid) {
+      assert.equal((await f.patch({ [key]: value })).statusCode, 400);
+      assert.deepEqual(f.state.rows.a, { unrelated: 123 });
+    }
+    f.state.role = 'viewer';
+    assert.equal((await f.patch({ [key]: key === 'show_member_cpd_points' ? false : 'Awards' })).statusCode, 403);
+    f.state.role = 'admin';
+    assert.equal((await f.patch({ [key]: key === 'show_member_cpd_points' ? false : 'Awards' }, { 'x-tenant-id': 'b' })).statusCode, 409);
+    assert.deepEqual(f.state.rows.a, { unrelated: 123 });
+  }
+  assert.equal((await f.patch({ member_cpd_tab_label: 'x'.repeat(MEMBER_CPD_LABEL_MAX_LENGTH) })).statusCode, 200);
 });
 test('invalid values, non-admin writes, unauthenticated reads and stale tenants fail closed', async () => {
   const f = fixture();
