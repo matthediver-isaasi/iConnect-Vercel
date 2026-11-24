@@ -49,13 +49,14 @@ export async function getSalesSchedules(db, tenantId, saleId) {
     const link = links?.find(item => item.schedule_id === row.id);
     const request = requests?.find(item => item.id === row.accounting_request_id);
     return { ...presentation, invoice: link ? mapSalesInvoiceLink(link) : null,
+      ...(row.manual_invoice_number ? { can_refresh: false } : {}),
       accounting_state: request?.state || null, last_error: row.last_error || request?.last_error || null,
       retry_at: row.status === 'invoiced' && row.delivery_status === 'rejected' ? row.next_attempt_at : null,
-      can_retry: (request?.state === 'review' && request.preparation_status === 'pending' && request.invoice_status === 'pending')
+      can_retry: !row.manual_invoice_number && ((request?.state === 'review' && request.preparation_status === 'pending' && request.invoice_status === 'pending')
         || (row.status === 'invoiced' && row.delivery_status === 'rejected'
           && (!row.next_attempt_at || Date.parse(row.next_attempt_at) <= Date.now()))
         || (salesScheduleEnabled() && !row.accounting_request_id && ['pending', 'blocked'].includes(row.status)
-          && row.planned_issue_date <= scheduleLocalDate(row.timezone)),
+          && row.planned_issue_date <= scheduleLocalDate(row.timezone))),
     };
   });
 }

@@ -4,8 +4,9 @@ import { useSalesSettings } from "./useSalesSettings";
 import { BillingPresetSelect } from "./BundleBillingGroups";
 import { Input } from "@/components/ui/input";
 import { percentageInstalmentsForSaving, presetSnapshot } from "./billingGroups";
+import HistoricalInvoices from "./HistoricalInvoices";
 
-export default function QuoteBillingSettings({ form, setForm, readOnly }) {
+export default function QuoteBillingSettings({ form, setForm, readOnly, quoteId, canManageAccounting, hasUnsavedEdits, historicalDisabled, savedRevision }) {
   const query = useSalesSettings();
   const presetsReady = query.ready && !query.isError && !query.error && !query.isFetching;
   const terms = presetsReady ? query.data?.billingPresets?.paymentTerms || [] : [];
@@ -66,5 +67,6 @@ export default function QuoteBillingSettings({ form, setForm, readOnly }) {
       {!form.remainderPaymentTermsId && <p className="text-sm text-slate-500">Choose terms if this version includes standalone or ungrouped lines. Recalculation checks whether a remainder is required.</p>}
     </div>}
     {!form.scheduledBilling && query.error && <p role="alert" className="text-sm text-destructive">Billing presets could not be loaded. Reload them before selecting scheduled billing. <Button type="button" variant="link" onClick={() => query.refetch()}>Retry payment terms</Button></p>}
+    <HistoricalInvoices quoteId={quoteId} canManageAccounting={canManageAccounting} hasUnsavedEdits={hasUnsavedEdits} disabled={historicalDisabled} savedRevision={savedRevision} />
   </CardContent></Card>;
 }

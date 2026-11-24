@@ -17,6 +17,7 @@ import { hasSalesAgreement, prepareSalesAgreement, getSalesAgreement, agreementD
 import { listSigningRequests, requestSalesAgreementSignature, validateSigningRequest } from '../../_lib/salesAgreementSigningRequests.js';
 import { canonicalQuoteBaseUrl, sendQuote, previewQuoteEmail, validateQuoteEmail } from '../../_lib/salesQuoteDelivery.js';
 import { hasActiveQuoteLink, scopeActiveQuoteLinks } from '../../_lib/salesQuoteActiveLink.js';
+import { getHistoricalInvoiceStages, recordHistoricalInvoice } from '../../_lib/salesHistoricalInvoices.js';
 import {
   createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
   salesInvoicePermissions,
@@ -56,7 +57,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
       const actor = await requireSalesContext(context,
         read
           ? SALES_CAPABILITIES.VIEW
-          : ['create-invoice', 'refresh-invoice-status'].includes(action)
+          : ['create-invoice', 'refresh-invoice-status', 'historical-invoices'].includes(action)
             ? SALES_CAPABILITIES.MANAGE_ACCOUNTING
           : action === 'confirm-sale'
             ? SALES_CAPABILITIES.MANAGE_ALLOCATIONS
@@ -72,6 +73,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
         }
       };
 
+      if (id && action === 'historical-invoices') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        if (read) return res.status(200).json(await getHistoricalInvoiceStages(db, actor.tenantId, id));
+        if (req.method === 'POST') return res.status(200).json(await recordHistoricalInvoice(db, actor, id, req.body));
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
       if (read && !id && action === 'salesperson-options') {
         await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
         res.setHeader('Cache-Control', 'private, no-store');

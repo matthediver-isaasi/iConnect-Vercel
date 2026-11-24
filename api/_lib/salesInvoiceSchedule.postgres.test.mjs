@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import pg from 'pg';
 import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
+import { verifyHistoricalStageInvoices } from '../../scripts/test-support/sales-historical-invoices.mjs';
 
 test('isolated schedule SQL: atomic queue identity, tenant authority, dates, multiple invoices and durable delivery fencing', { timeout: 120000 }, async () => {
   const h = await createLocalPostgresHarness('sales-schedule-accounting-');
@@ -141,6 +142,7 @@ test('isolated schedule SQL: atomic queue identity, tenant authority, dates, mul
     await admin.query("UPDATE sales_invoice_schedule SET delivery_status='sending',delivery_claimed_at=now()-interval '1 hour' WHERE id=$1", [second]);
     await a.query('SELECT * FROM due_sales_invoice_schedules(40)');
     assert.equal((await admin.query('SELECT delivery_status FROM sales_invoice_schedule WHERE id=$1', [second])).rows[0].delivery_status, 'attention');
+    await verifyHistoricalStageInvoices({ admin, a, b, tenant });
     await admin.query('SET ROLE authenticated');
     await assert.rejects(admin.query('SELECT * FROM due_sales_invoice_schedules(40)'), /permission denied/);
   } finally {

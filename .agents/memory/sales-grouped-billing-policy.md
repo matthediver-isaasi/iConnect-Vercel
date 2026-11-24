@@ -27,3 +27,14 @@ not authorize live scheduler activation, invoices or customer emails.
 Keep invoice issue delays and payment terms separate for each instalment, require
 percentages to total 100%, and disable the manual payment-terms field in either
 scheduled mode. Never change accepted schedules retroactively.
+
+Proposals may enter the pipeline partway through billing. Staff need to record
+existing invoice numbers per stage and treat those stages as already invoiced,
+without issuing duplicates.
+
+**Why:** The user explicitly requires historical invoice completion for
+in-progress proposals imported into the pipeline.
+
+**How to apply:** Documentary invoice completion is not proof of payment or a
+provider-verified invoice identity. Preserve the stage's financial commitment,
+audit the staff action, and serialize it against automated invoice dispatch.
