@@ -33,7 +33,7 @@ const compiled = await build({
         scope: 'export const useSalesSettingsScope=()=>({scopeKey:"tenant-test",ready:true}); export const useQuoteNaming=()=>({singular:"proposal",plural:"proposals"});',
         router: 'import React from "react"; export const useParams=()=>({id:"quote"}); export const useLocation=()=>({search:""}); export const useNavigate=()=>()=>{}; export const Link=({children})=><span>{children}</span>;',
         tax: 'export const useCatalogueTaxOptions=()=>({data:{items:[]},isPending:false,isError:false});',
-        opportunity: 'export const useQuoteOpportunity=()=>({ready:true,contacts:[]}); export const opportunityContacts=()=>[]; export const clearOpportunityContacts=(form)=>form;',
+        opportunity: 'export const useQuoteOpportunity=()=>globalThis.quoteExhibitionFixture.opportunity || {ready:true,contacts:[]}; export const opportunityContacts=()=>[]; export const clearOpportunityContacts=(form)=>form;',
         api: 'export const base44={_apiRequest:(...args)=>globalThis.quoteExhibitionFixture.json(...args)};',
         toast: 'export const useToast=()=>({toast:(value)=>globalThis.quoteExhibitionFixture.toasts.push(value)});',
         event: 'import React from "react"; export default function Event({disabled}){return <button disabled={disabled} aria-label="Event">Event</button>}',
@@ -389,5 +389,110 @@ test("bundle survives ordinary-line removal and subsequent saves use reloaded li
     assert.equal(fixture.state.commands[1].expectedVersion, 8);
     assert.equal(fixture.state.commands[1].lines[0].id, reloadedId);
     assert.equal(fixture.state.quote.currentVersion.lines[0].sales_quote_bundle_component.length, 1);
+  } finally { await fixture.close(); }
+});
+
+function billingAddressQuote(status = "draft") {
+  const quote = freshQuote();
+  quote.status = status;
+  quote.currentVersion.status = status;
+  quote.currentVersion.address = {
+    addressee: "Existing organisation",
+    line1: "Old address line",
+    line2: "Old suite",
+    city: "Oldtown",
+    region: "Oldshire",
+    postalCode: "OT1 2AB",
+    country: "United Kingdom",
+  };
+  return quote;
+}
+
+const structuredBillingOrganization = {
+  id: "organization", name: "Northbank Members",
+  invoicing_address_line1: "28 Willow Quay",
+  invoicing_address_line2: "Floor 3",
+  invoicing_city: "Bristol",
+  invoicing_region: "Avon",
+  invoicing_postal_code: "BS1 4QX",
+  invoicing_country: "United Kingdom",
+};
+
+test("confirmed organisation invoice address replaces structured draft fields locally without saving", async () => {
+  const quote = billingAddressQuote();
+  const fixture = await mount({
+    quote,
+    opportunity: { ready: true, isSuccess: true, isPending: false, isFetching: false, data: { organization: structuredBillingOrganization }, contacts: [] },
+  });
+  const originalConfirm = dom.window.confirm;
+  dom.window.confirm = message => {
+    assert.match(message, /Replace this draft’s billing address/);
+    assert.match(message, /local draft/);
+    return true;
+  };
+  try {
+    await click(button(fixture.host, "Use organisation invoice address")); await settle();
+    assert.equal(fixture.host.querySelector('[aria-label="Addressee"]').value, "Northbank Members");
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').value, "28 Willow Quay");
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 2"]').value, "Floor 3");
+    assert.equal(fixture.host.querySelector('[aria-label="City"]').value, "Bristol");
+    assert.equal(fixture.host.querySelector('[aria-label="County / region"]').value, "Avon");
+    assert.equal(fixture.host.querySelector('[aria-label="Postcode"]').value, "BS1 4QX");
+    assert.equal(fixture.host.querySelector('[aria-label="Country"]').value, "United Kingdom");
+    assert.equal(fixture.state.commands.length, 0);
+  } finally { dom.window.confirm = originalConfirm; await fixture.close(); }
+});
+
+test("cancelling organisation address replacement leaves the local snapshot unchanged", async () => {
+  const fixture = await mount({
+    quote: billingAddressQuote(),
+    opportunity: { ready: true, isSuccess: true, isPending: false, isFetching: false, data: { organization: structuredBillingOrganization }, contacts: [] },
+  });
+  const originalConfirm = dom.window.confirm;
+  dom.window.confirm = () => false;
+  try {
+    await click(button(fixture.host, "Use organisation invoice address")); await settle();
+    assert.equal(fixture.host.querySelector('[aria-label="Addressee"]').value, "Existing organisation");
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').value, "Old address line");
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 2"]').value, "Old suite");
+    assert.equal(fixture.host.querySelector('[aria-label="City"]').value, "Oldtown");
+    assert.equal(fixture.host.querySelector('[aria-label="County / region"]').value, "Oldshire");
+    assert.equal(fixture.host.querySelector('[aria-label="Postcode"]').value, "OT1 2AB");
+    assert.equal(fixture.host.querySelector('[aria-label="Country"]').value, "United Kingdom");
+    assert.equal(fixture.state.commands.length, 0);
+  } finally { dom.window.confirm = originalConfirm; await fixture.close(); }
+});
+
+test("issued read-only proposal cannot reload its billing address from the organisation", async () => {
+  const fixture = await mount({
+    quote: billingAddressQuote("issued"),
+    opportunity: { ready: true, isSuccess: true, isPending: false, isFetching: false, data: { organization: structuredBillingOrganization }, contacts: [] },
+  });
+  try {
+    assert.equal(button(fixture.host, "Use organisation invoice address"), undefined);
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').disabled, true);
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').value, "Old address line");
+    assert.equal(fixture.state.commands.length, 0);
+  } finally { await fixture.close(); }
+});
+
+test("failed opportunity detail keeps the saved address and offers retry without saving or blanking it", async () => {
+  let retries = 0;
+  const fixture = await mount({
+    quote: billingAddressQuote(),
+    opportunity: {
+      ready: false, isSuccess: false, isPending: false, isFetching: false, isError: true,
+      error: new Error("Opportunity access denied"), refetch: () => { retries += 1; return Promise.resolve(); },
+      contacts: [],
+    },
+  });
+  try {
+    assert.equal(button(fixture.host, "Use organisation invoice address").disabled, true);
+    assert.match(fixture.host.textContent, /Could not load the opportunity’s organisation invoice details: Opportunity access denied/);
+    assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').value, "Old address line");
+    assert.equal(fixture.host.querySelector('[aria-label="City"]').value, "Oldtown");
+    await click(button(fixture.host, "Retry loading"));
+    assert.equal(retries, 1);
+    assert.equal(fixture.state.commands.length, 0);
   } finally { await fixture.close(); }
 });

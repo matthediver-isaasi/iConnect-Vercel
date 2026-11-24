@@ -3,6 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { requireSalesContext } from '../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
 import { validateSalesCommunicationPolicy } from '../../shared/salesCommunicationPolicy.js';
+import { loadOpportunityBillingOrganization } from '../_lib/salesOpportunityBilling.js';
 import { collaboratorOptions, validateCollaborator } from '../_lib/opportunityCollaborators.js';
 import { getSalesInvoicePresentation, salesInvoicePermissions } from '../_lib/salesAccounting.js';
 import {
@@ -36,11 +37,9 @@ async function fullDetail(db, access, accountingAccess, dependencies = {}) {
   const [opportunity] = await enrichOpportunities(db, access.opportunity.tenant_id, [access.opportunity]);
   // Only expose billing defaults on the already-authorised detail endpoint,
   // not in opportunity search/list responses.
-  const { data: billingOrg, error: billingError } = await db.from('organization')
-    .select('invoicing_address').eq('tenant_id', access.opportunity.tenant_id)
-    .eq('id', access.opportunity.organization_id).maybeSingle();
-  if (billingError) throw billingError;
-  if (opportunity.organization) opportunity.organization = { ...opportunity.organization, invoicing_address: billingOrg?.invoicing_address || '' };
+  const billingOrg = await loadOpportunityBillingOrganization(db,
+    access.opportunity.tenant_id, access.opportunity.organization_id);
+  if (opportunity.organization) opportunity.organization = { ...opportunity.organization, ...billingOrg };
   const children = Object.fromEntries(entries);
   const collaboratorIds = [...new Set((children.collaborators || [])
     .filter(item => item.principal_kind === 'member').map(item => item.principal_id))];

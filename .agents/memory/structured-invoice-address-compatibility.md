@@ -40,6 +40,18 @@ invoicing addresses using a common provider-neutral structure.
 **How to apply:** Never inherit or write an associated entity's address as a
 side effect of editing a record's own address.
 
+Proposal invoice addresses must preserve the CRM's individual invoicing fields
+one-to-one, rather than folding city/postcode into a remaining-address field.
+Legacy-only addresses must not be treated as structured data by guessing lines.
+
+**Why:** The owner explicitly requires provider-style individual address fields;
+legacy multiline text cannot establish reliable city/postcode boundaries.
+
+**How to apply:** Prefer the organisation's protected structured invoicing
+address, preserving blank optional fields. Keep saved proposal snapshots and
+manual overrides independent; replacing an existing draft address is explicit,
+not a side effect of loading or refreshing organisation data.
+
 The owner approved selecting the invoice address before Stripe: personal
 address editable with an explicit save choice; organisation address selectable
 but read-only for the purchasing member. The selected transaction snapshot

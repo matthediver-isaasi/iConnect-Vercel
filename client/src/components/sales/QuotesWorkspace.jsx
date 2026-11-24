@@ -34,7 +34,7 @@ import { legalHtmlOf } from "./agreementSignature";
 import AcceptQuoteButton from "./AcceptQuoteButton";
 import { refreshSavedQuoteDraft } from "./quoteDraftRefresh";
 import QuoteVersionDocuments, { uniqueQuoteVersions } from "./QuoteVersionDocuments";
-import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
+import { organizationBillingAddress, quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 import { persistedLineAmounts, persistedQuoteAmounts } from "./quoteDisplayAmounts";
@@ -456,6 +456,11 @@ function QuoteEditor() {
     return value === undefined ? fallback : Boolean(value);
   };
   const readOnly = !isNew && (status !== "draft" || !allowed(["canEdit", "can_edit", "edit"], false));
+  const organization = opportunity.data?.organization;
+  const organizationInvoiceLine1 = organization?.invoicing_address_line1;
+  const hasStructuredOrganizationInvoiceAddress = Boolean(String(organizationInvoiceLine1 || "").trim());
+  const hasLegacyOrganizationInvoiceAddress = !hasStructuredOrganizationInvoiceAddress
+    && Boolean(String(organization?.invoicing_address || "").trim());
   // Price overrides are sensitive: absence of an explicit capability is denial.
   const canOverride = allowed(["canOverridePrices", "canOverridePrice", "can_override_prices", "can_override_price", "canDiscount", "can_discount", "override"], false);
   const savedContacts = opportunityContacts(detail.data?.opportunity || { contacts: detail.data?.contacts || [] });
@@ -669,7 +674,7 @@ function QuoteEditor() {
     {!isNew && form.legalHtml && ["accepted", "converted"].includes(status) && <AgreementFinalizationPanel agreement={quote.agreement || detail.data?.agreement} onFinalize={() => request(`/api/sales/quotes/${id}?action=finalize-agreement`, { method: "POST", body: JSON.stringify({ version: quote.versionNumber || quote.version_number }) })} onRefresh={() => detail.refetch()} onDownload={() => pdf.mutate({ preview: false })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel scheduledBilling={quote.scheduledBilling || Boolean(quote.billingSchedule)} saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this {naming.singular}.</div>}
-    {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
+    {isNew && form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
     {isNew && form.opportunityId && !opportunity.ready && !opportunity.isError && <p role="status" className="animate-pulse rounded-lg bg-slate-100 p-3 text-sm text-slate-500">Loading the selected opportunity’s customer details…</p>}
     <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">{naming.singular}</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">
@@ -687,9 +692,24 @@ function QuoteEditor() {
           <Field label="Payment terms"><Input disabled={readOnly || form.scheduledBilling} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} />{form.scheduledBilling && <p className="mt-1 text-xs text-slate-500">Scheduled invoices use their own payment terms. This manual value is preserved for use if scheduled billing is turned off.</p>}</Field>
           <Field label="Internal / customer notes" wide><Textarea disabled={readOnly} rows={3} value={form.notes} onChange={(e) => patch("notes", e.target.value)} /></Field>
         </CardContent></Card>
-        <Card><CardHeader><CardTitle>Billing address snapshot</CardTitle><p className="text-sm text-slate-500">New {naming.plural} start with the organisation’s invoicing address, where available. You can change it here without changing the organisation. Free-text address lines are copied as saved; check the city, postcode and country before issuing.</p></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["addressee", "Addressee"], ["line1", "Address line 1"], ["line2", "Address line 2 / remaining address"], ["city", "City"], ["region", "County / region"], ["postalCode", "Postcode"], ["country", "Country"]].map(([key, label]) => {
-          const AddressInput = key === "line2" ? Textarea : Input;
-          return <Field key={key} label={label}><AddressInput aria-label={label} disabled={readOnly || (isNew && !opportunity.ready)} value={form.address[key]} onChange={(e) => setForm((old) => ({ ...old, address: { ...old.address, [key]: e.target.value } }))} /></Field>;
+        <Card><CardHeader><CardTitle>Billing address snapshot</CardTitle><p className="text-sm text-slate-500">This address is a snapshot on the draft. Local edits do not change the organisation.</p>
+          {isNew && <p className="text-sm text-slate-500">New {naming.plural} are prefilled from the selected opportunity when its organisation details are available.</p>}
+          {!isNew && status === "draft" && <div className="mt-2 flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" size="sm" disabled={readOnly || opportunity.isPending || opportunity.isFetching || !opportunity.isSuccess || !organization || editorBusy || reloadRequired} onClick={() => {
+              if (!organization || !window.confirm("Replace this draft’s billing address with the organisation’s invoice address? This changes only the local draft; save the draft to keep the change.")) return;
+              setForm((old) => ({ ...old, address: organizationBillingAddress(organization) }));
+            }}>Use organisation invoice address</Button>
+            {hasStructuredOrganizationInvoiceAddress && <p className="text-xs text-slate-500">Organisation structured invoicing fields map directly to the matching address fields. The addressee remains the organisation name.</p>}
+            {hasLegacyOrganizationInvoiceAddress && <p className="text-xs text-amber-800">The organisation has only a legacy free-text invoicing address. City and postcode cannot be separated reliably; complete the structured invoicing fields in the CRM or fill this draft manually.</p>}
+            {form.opportunityId && (opportunity.isPending || opportunity.isFetching) && <p role="status" className="text-xs text-slate-500">Loading organisation invoice details…</p>}
+            {form.opportunityId && opportunity.isError && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-rose-700"><span>Could not load the opportunity’s organisation invoice details: {opportunity.error?.message || "Please retry."}</span><Button type="button" variant="outline" size="sm" disabled={opportunity.isFetching} onClick={() => opportunity.refetch()}><RefreshCw className="mr-2 h-3.5 w-3.5" />{opportunity.isFetching ? "Reloading…" : "Retry loading"}</Button></div>}
+            {form.opportunityId && opportunity.isSuccess && !organization && <p role="alert" className="text-sm text-amber-800">The opportunity’s organisation details are unavailable. You can complete this draft address manually.</p>}
+            {!form.opportunityId && <p role="status" className="text-sm text-amber-800">No opportunity is linked to this draft. Complete the billing address manually.</p>}
+          </div>}
+        </CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["addressee", "Addressee"], ["line1", "Address line 1"], ["line2", "Address line 2"], ["city", "City"], ["region", "County / region"], ["postalCode", "Postcode"], ["country", "Country"]].map(([key, label]) => {
+          const multilineLine2 = key === "line2" && (hasLegacyOrganizationInvoiceAddress || /\r?\n/.test(form.address.line2 || ""));
+          const AddressInput = multilineLine2 ? Textarea : Input;
+          return <Field key={key} label={label}><AddressInput aria-label={label} {...(multilineLine2 ? { rows: 3 } : {})} disabled={readOnly || (isNew && !opportunity.ready)} value={form.address[key]} onChange={(e) => setForm((old) => ({ ...old, address: { ...old.address, [key]: e.target.value } }))} /></Field>;
         })}</CardContent></Card>
         <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} exhibitionDisabled={exhibitionDisabled} onExhibitionSelect={selectExhibition} onDeleteHeldLine={deleteHeldLine} />
         <QuoteBillingSettings form={form} setForm={setForm} readOnly={readOnly} quoteId={isNew ? null : id} canManageAccounting={quote.permissions?.canManageAccounting === true} hasUnsavedEdits={isDirty} historicalDisabled={editorBusy || reloadRequired || detail.isFetching || detail.isError} savedRevision={`${quote.versionNumber || ""}-${quote.rowVersion || ""}`} />

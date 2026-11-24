@@ -28,3 +28,26 @@ test("free-text organisation address is preserved completely without geographic 
   assert.equal(address.postalCode, "");
   assert.ok(Object.values(organizationBillingAddress({})).every(value => value === ""));
 });
+
+test("structured CRM invoicing fields map one-to-one, without legacy contamination", () => {
+  const source = {
+    name: "Example", invoicing_address: "Old address\nOld city\nOld postcode",
+    invoicing_address_line1: " 10 Finance Road ", invoicing_address_line2: "Building 2",
+    invoicing_city: "Leeds", invoicing_region: "West Yorkshire",
+    invoicing_postal_code: "LS1 1AA", invoicing_country: "United Kingdom",
+  };
+  const snapshot = organizationBillingAddress(source);
+  assert.deepEqual(snapshot, {
+    addressee: "Example", line1: "10 Finance Road", line2: "Building 2",
+    city: "Leeds", region: "West Yorkshire", postalCode: "LS1 1AA", country: "United Kingdom",
+  });
+  assert.equal(source.invoicing_address_line1, " 10 Finance Road ");
+  assert.equal(organizationBillingAddress({ ...source, invoicing_address_line2: "" }).line2, "");
+});
+
+test("partial structured addresses do not invent or mix geographic values", () => {
+  assert.deepEqual(organizationBillingAddress({ name: "Example", invoicing_address_line1: "One street" }), {
+    addressee: "Example", line1: "One street", line2: "", city: "", region: "", postalCode: "", country: "",
+  });
+  assert.throws(() => organizationBillingAddress({ invoicing_city: {} }), /must be text/);
+});
