@@ -2,13 +2,24 @@
 
 ## Rollout status
 
-Application integration and migrations are prepared. **Nothing has been applied
-to a live database or enabled in a live environment.** The release flag
-`PROPOSAL_MEMBERSHIP_ENTITLEMENTS_ENABLED` defaults off. Catalogue discovery
-explicitly reports that rollout is pending while it is off.
+On 2026-11-24, the six migrations below were applied atomically to the approved
+live Supabase project `lvmzliemqnieeoruhkik`, recorded as
+`proposal_membership_complete_contract_rollout`. Do not reapply them separately.
+Post-install verification found zero grants, consumptions, reservations and
+membership products, with service-only lookup access and no direct grant writes.
+The isolated PostgreSQL suites and 64 focused behaviour/UI tests passed.
 
-Apply the following reviewed migrations in order, against the approved target,
-only after separate rollout approval:
+**Activation remains blocked on deployment parity.** Vercel's Production target
+was verified as `capacity2` (`7ac6ec86edef7a72121fac029fded34bfb1c6bf3`), which
+lacks the membership integration. Preview `funnel`
+(`f7010ecc345364de82cafe3e2a0d204ae1daf80e`) includes it. Both use the live
+database. The flag `PROPOSAL_MEMBERSHIP_ENTITLEMENTS_ENABLED` was absent and
+was deliberately not added or enabled. Deploy matching readers and writers to
+Production before enabling it across the environments sharing the database;
+environment changes require fresh deployments. No deployment was initiated.
+Catalogue discovery reports rollout pending while the flag remains off.
+
+The approved migration sequence installed was:
 
 1. `202701240001_proposal_membership_entitlement_contract.sql`
 2. `202701240002_proposal_membership_catalogue.sql`

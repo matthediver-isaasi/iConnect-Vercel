@@ -22,6 +22,15 @@ The shared membership simulator also runs behind capability-only dry-run
 adapters. Pass rollout decisions into its runtime composition rather than
 reading environment variables inside its dependency graph.
 
+Enabling complimentary membership requires matching readers and writers in
+every serving environment sharing its database, not just the authoring Preview.
+
+**Why:** Preview can grant a benefit which an older Production billing path does
+not understand. Database installation alone is not safe activation.
+
+**How to apply:** Verify deployed commits and feature flags across the shared
+database's serving environments before enabling authoring.
+
 **Why:** A runtime feature flag introduced through a history-snapshot helper
 can otherwise give dry runs ambient authority and violate their isolation.
 **How to apply:** Keep feature configuration outside the pure simulator and
