@@ -1,6 +1,12 @@
 // Training awards have an agenda identity; they must never enter the legacy
 // event-wide grant loop. The database serialises effects with source edits.
-export async function processTrainingSpeakerAwards(db, { tenantId, eventId, assignment = false }) {
+import { withSpeakerRolloutOperation } from './speakerRolloutControl.js';
+
+export function processTrainingSpeakerAwards(db, input) {
+  return withSpeakerRolloutOperation(db, 'training-speaker-awards', () => processTrainingSpeakerAwardsImpl(db, input));
+}
+
+async function processTrainingSpeakerAwardsImpl(db, { tenantId, eventId, assignment = false }) {
   const { data, error } = await db.rpc('process_training_speaker_awards', {
     p_tenant: tenantId, p_event: eventId, p_assignment: assignment,
   });

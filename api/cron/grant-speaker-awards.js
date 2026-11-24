@@ -13,6 +13,7 @@ import { grantSpeakerAwardsForEvent, normalizeSpeakerAwardConfig } from '../_lib
 import { sendPendingSpeakerAwardNotifications } from '../_lib/speakerAwardEmails.js';
 import { processSpeakerRecognition } from '../_lib/speakerRecognition.js';
 import { processTrainingSpeakerAwards, loadTrainingSpeakerIds } from '../_lib/trainingSpeakerAwards.js';
+import { withSpeakerRolloutOperation } from '../_lib/speakerRolloutControl.js';
 
 const MAX_EVENTS_PER_RUN = 20;
 
@@ -73,6 +74,7 @@ export function createGrantSpeakerAwardsHandler({
   grantAwards = grantSpeakerAwardsForEvent,
   sendNotifications = sendPendingSpeakerAwardNotifications,
   processRecognition = processSpeakerRecognition,
+  runOperation = withSpeakerRolloutOperation,
   now = () => new Date(),
 } = {}) {
   return async function handler(req, res) {
@@ -92,6 +94,8 @@ export function createGrantSpeakerAwardsHandler({
     return res.status(500).json({ error: 'Database not configured' });
   }
 
+  try {
+  return await runOperation(db, 'speaker-award-cron', async () => {
   const nowIso = now().toISOString();
   const summary = { processed: 0, granted: 0, skipped: 0, notified: 0, errors: [] };
 
@@ -197,6 +201,16 @@ export function createGrantSpeakerAwardsHandler({
     try { summary.recognition = await processRecognition(db, { now: now() }); }
     catch (error) { summary.errors.push({ error: `Speaker recognition: ${error.message}` }); }
     return res.status(500).json({ error: err.message, ...summary });
+  }
+  });
+  } catch (error) {
+    if (res.headersSent) {
+      console.error('[Speaker rollout] Cron completion remains unresolved');
+      return;
+    }
+    return res.status(error.status || 503).json({
+      error: error.message, code: error.code || 'SPEAKER_ROLLOUT_UNAVAILABLE',
+    });
   }
   };
 }

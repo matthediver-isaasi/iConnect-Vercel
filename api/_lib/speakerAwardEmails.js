@@ -63,7 +63,14 @@ const GRANT_COLUMNS = 'id, tenant_id, event_type, event_id, agenda_item_id, agen
 // Sweep ALL granted-but-unnotified rows (regardless of whether their event is
 // still in the grant queue) and send the owed notification emails.
 // Never throws: returns { notified, failed } and logs failures.
-export async function sendPendingSpeakerAwardNotifications({
+import { withSpeakerRolloutOperation } from './speakerRolloutControl.js';
+
+export function sendPendingSpeakerAwardNotifications(options = {}) {
+  return withSpeakerRolloutOperation(options.db || defaultSupabase, 'speaker-notifications',
+    () => sendPendingSpeakerAwardNotificationsImpl(options));
+}
+
+async function sendPendingSpeakerAwardNotificationsImpl({
   db = defaultSupabase,
   send = sendTenantEmail,
   limit = SWEEP_LIMIT,

@@ -24,6 +24,21 @@ function childDb(rows, error = null) {
   };
 }
 
+test('pause rejection occurs outside the fallback recognition sweep', async () => {
+  let work = 0;
+  const handler = createGrantSpeakerAwardsHandler({
+    db: {}, getCronSecret: () => 'fixture',
+    runOperation: async () => { throw Object.assign(new Error('Paused'), { status:503, code:'SPEAKER_ROLLOUT_PAUSED' }); },
+    grantAwards: async () => { work++; },
+    sendNotifications: async () => { work++; },
+    processRecognition: async () => { work++; },
+  });
+  const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+  await handler({ headers: { authorization:'Bearer fixture' } }, res);
+  assert.equal(res.code, 503);
+  assert.equal(work, 0);
+});
+
 test('simple events merge and deduplicate event-level and training-agenda speakers', async () => {
   const db = childDb([{ speaker_ids: ['s2', 's3'] }, { speaker_ids: ['s3', 's4'] }, { speaker_ids: null }]);
   assert.deepEqual(await collectSpeakerIds(db, 'event', { id: 'e1', tenant_id: 't1', speaker_ids: ['s1', 's2', 's1'] }), ['s1', 's2', 's3', 's4']);

@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { getZoomAccessTokenForTenant } from './zoomClient.js';
 import { reconcileZoomSpeakers, resolveCreatedZoomPanelist } from './zoomSpeakerSync.js';
+import { withSpeakerRolloutOperation } from './speakerRolloutControl.js';
 
 // Link persistence must not be reported as failed when Zoom is unavailable.
 export async function syncAttachedWebinarSpeakers(tenantId, webinarId) {
@@ -16,7 +17,12 @@ export async function syncAttachedWebinarSpeakers(tenantId, webinarId) {
   } catch (error) { return { status:'attention', last_error:error.message }; }
 }
 
-export async function runZoomSpeakerSync({ tenantId = null, webinarId = null, db = supabase, deadlineAt = Date.now() + 20000 } = {}) {
+export function runZoomSpeakerSync(options = {}) {
+  return withSpeakerRolloutOperation(options.db || supabase, 'zoom-speaker-sync',
+    () => runZoomSpeakerSyncImpl(options));
+}
+
+async function runZoomSpeakerSyncImpl({ tenantId = null, webinarId = null, db = supabase, deadlineAt = Date.now() + 20000 } = {}) {
   const { data: job, error } = await db.rpc('claim_zoom_speaker_sync', { p_tenant: tenantId, p_webinar: webinarId });
   if (error) throw new Error('Speaker synchronisation database setup is unavailable');
   if (!job) return false;

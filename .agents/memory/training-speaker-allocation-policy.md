@@ -23,3 +23,14 @@ coordinated rollout; adding the missing snapshot column alone would bypass that 
 
 **How to apply:** Keep display compatibility independent of schema installation.
 Report isolated fixture evidence separately from an authorized deployed-session check.
+
+Rollout drain evidence must include every deployment sharing the database and
+provider work already in flight; aged leases and zero active SQL queries alone
+are not sufficient.
+
+**Why:** Preview and production can share the live database, and a worker can
+await an external send or upload after its SQL transaction has finished.
+
+**How to apply:** Keep local control preparation separate from installation,
+deployment and pause approval. Never expire unresolved operation records merely
+to unblock a rollout; verify termination and external outcomes first.

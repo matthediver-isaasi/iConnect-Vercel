@@ -44,7 +44,19 @@ export function speakerCertificateFields(fields, values) {
   });
 }
 
-export async function syncSpeakerRecognition(db, { tenantId, eventType, eventId }) {
+import { withSpeakerRolloutOperation } from './speakerRolloutControl.js';
+
+export function syncSpeakerRecognition(db, input) {
+  return withSpeakerRolloutOperation(db, 'speaker-recognition-sync', () => syncSpeakerRecognitionImpl(db, input));
+}
+export function issueSpeakerCertificate(db, row, options) {
+  return withSpeakerRolloutOperation(db, 'speaker-certificate', () => issueSpeakerCertificateImpl(db, row, options));
+}
+export function processSpeakerRecognition(db, options) {
+  return withSpeakerRolloutOperation(db, 'speaker-recognition-sweep', () => processSpeakerRecognitionImpl(db, options));
+}
+
+async function syncSpeakerRecognitionImpl(db, { tenantId, eventType, eventId }) {
   const { error } = await db.rpc('sync_speaker_recognition', {
     p_tenant: tenantId, p_type: eventType, p_event: eventId,
   });
@@ -53,7 +65,7 @@ export async function syncSpeakerRecognition(db, { tenantId, eventType, eventId 
 
 // Uploads are create-only at a deterministic key. A crash after upload recovers
 // the original bytes, never renders over or replaces an issued artifact.
-export async function issueSpeakerCertificate(db, row, { render = renderCpdCertificatePdf } = {}) {
+async function issueSpeakerCertificateImpl(db, row, { render = renderCpdCertificatePdf } = {}) {
   if (row.status !== 'active' || !['pending', 'error'].includes(row.certificate_status) || !row.certificate_template_id) return false;
   const path = `${row.tenant_id}/${row.id}.pdf`;
   const bucket = db.storage.from(SPEAKER_CERTIFICATE_BUCKET);
@@ -113,7 +125,7 @@ export async function issueSpeakerCertificate(db, row, { render = renderCpdCerti
 // Independent sweep: completed member badge/voucher event markers never
 // suppress certificate retries. The deployment cutoff forbids retrospective
 // issuance for events that had already started when this feature was enabled.
-export async function processSpeakerRecognition(db, { limit = 20, now = new Date() } = {}) {
+async function processSpeakerRecognitionImpl(db, { limit = 20, now = new Date() } = {}) {
   const summary = { events: 0, issued: 0, errors: [] };
   const policy = await db.from('speaker_recognition_policy').select('starts_at').eq('singleton', true).single();
   if (policy.error || !policy.data) throw new Error('Speaker recognition migration/policy unavailable');

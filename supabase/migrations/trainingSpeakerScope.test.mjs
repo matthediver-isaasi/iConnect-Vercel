@@ -14,7 +14,7 @@ const migrations = [
   '202701220003_training_speaker_lifecycle.sql','202701220004_training_speaker_atomic_save.sql',
   '202701220005_training_speaker_consumers.sql','202701220006_training_speaker_deletion.sql',
 ];
-async function fixture(t, arrayType) {
+async function fixture(t, arrayType, rolloutControls = false) {
   const root = await mkdtemp(join(tmpdir(),'training-speaker-scope-'));
   execFileSync('initdb',['-D',join(root,'data'),'-A','trust','-U','postgres'],{stdio:'ignore'});
   execFileSync('pg_ctl',['-D',join(root,'data'),'-o',`-F -k ${root} -c listen_addresses=''`,'-w','start'],{stdio:'ignore'});
@@ -59,7 +59,15 @@ async function fixture(t, arrayType) {
     ALTER TABLE member_badge DROP CONSTRAINT member_badge_badge_id_member_id_key;
     CREATE UNIQUE INDEX member_badge_active ON member_badge(badge_id,member_id) WHERE revoked_at IS NULL;`);
   await c.query('ALTER TABLE speaker_award_grant ADD COLUMN notified_at timestamptz');
-  for (const file of migrations.slice(1)) await c.query(await readFile(new URL(`./${file}`,import.meta.url),'utf8'));
+  for (const file of migrations.slice(1)) {
+    if (rolloutControls && file === '202701220001_training_speaker_scope.sql') {
+      await c.query(await readFile(new URL('./202701230001_training_speaker_rollout_control.sql',import.meta.url),'utf8'));
+      await c.query(`SELECT set_speaker_rollout_phase('draining',0,'isolated fixture coverage verified');
+        SELECT set_speaker_rollout_phase('paused',1,'isolated fixture drain verified');`);
+    }
+    await c.query(await readFile(new URL(`./${file}`,import.meta.url),'utf8'));
+  }
+  if (rolloutControls) await c.query(`SELECT set_speaker_rollout_phase('open',2,'isolated fixture schema installed')`);
   await c.query(`INSERT INTO tenant VALUES('${id(1)}'),('${id(2)}');
     INSERT INTO organization VALUES('${id(3)}','${id(1)}','Organisation');
     INSERT INTO member VALUES('${id(4)}','${id(1)}','${id(3)}','speaker@example.test');
@@ -71,6 +79,12 @@ async function fixture(t, arrayType) {
   const cfg = value => ({enabled:true,badge_timing:'on_assignment',default:{badge_id:id(6),voucher_value:value,voucher_expiry:'2032-01-01',certificate_template_id:id(7)},overrides:{}});
   return {c,connect,refs,cfg};
 }
+
+test('the six feature migrations install while separate rollout controls are paused', async t => {
+  const { c } = await fixture(t, 'uuid[]', true);
+  assert.equal((await c.query('SELECT phase FROM speaker_rollout_control')).rows[0].phase, 'open');
+  assert.equal((await c.query('SELECT count(*)::int n FROM training_speaker_scope_policy')).rows[0].n, 1);
+});
 
 for (const type of ['uuid[]','jsonb']) test(`scoped training identities, transactions and provenance (${type})`,async t => {
   const {c,connect,refs,cfg}=await fixture(t,type);

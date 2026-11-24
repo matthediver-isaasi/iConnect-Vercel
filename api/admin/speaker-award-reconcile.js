@@ -9,6 +9,7 @@ import { collectSpeakerIds } from '../cron/grant-speaker-awards.js';
 import { reconcileAssignmentSpeakerBadges } from '../_lib/speakerAwards.js';
 import { syncSpeakerRecognition } from '../_lib/speakerRecognition.js';
 import { processTrainingSpeakerAwards } from '../_lib/trainingSpeakerAwards.js';
+import { withSpeakerRolloutOperation } from '../_lib/speakerRolloutControl.js';
 
 export function createSpeakerAwardReconcileHandler({
   db = supabase,
@@ -17,6 +18,7 @@ export function createSpeakerAwardReconcileHandler({
   reconcile = reconcileAssignmentSpeakerBadges,
   collectIds = collectSpeakerIds,
   syncRecognition = syncSpeakerRecognition,
+  runOperation = withSpeakerRolloutOperation,
 } = {}) {
   return async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -37,6 +39,7 @@ export function createSpeakerAwardReconcileHandler({
     if (body.revoke_removed !== undefined && typeof body.revoke_removed !== 'boolean') return res.status(400).json({ error: 'revoke_removed must be a boolean' });
     if (body.revoke_badge !== undefined && typeof body.revoke_badge !== 'boolean') return res.status(400).json({ error: 'revoke_badge must be a boolean' });
     try {
+      return await runOperation(db, 'speaker-admin-reconcile', async () => {
       const table = eventType === 'event' ? 'event' : 'complex_event';
       const { data: event, error: eventError } = await db.from(table)
         .select('*')
@@ -70,8 +73,11 @@ export function createSpeakerAwardReconcileHandler({
       // and this never sends badge/certificate email to external speakers.
       await syncRecognition(db, { tenantId: ctx.tenantId, eventType, eventId });
       return res.status(200).json({ ok: true, ...summary });
+      });
     } catch (err) {
       console.error('[admin/speaker-award-reconcile]', err.message);
+      if (res.headersSent) return;
+      if (err.status === 503) return res.status(503).json({ error: err.message, code: err.code });
       return res.status(500).json({ error: 'Failed to reconcile speaker awards' });
     }
   };
