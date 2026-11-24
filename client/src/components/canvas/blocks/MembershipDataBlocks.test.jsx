@@ -29,6 +29,20 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
+test('cancelled Direct Debit warning remains visible with recognised active membership', () => {
+  for (const type of ['payment-details', 'membership-details']) {
+    const html = renderToStaticMarkup(<MembershipDataView type={type} block={{}} result={{
+      status: 'ready', data: {
+        membership: { state: 'active' },
+        payment: { state: 'paused', warning: { code: 'cancelled_after_grace', message: 'untrusted copy' } },
+        renewal: { eligible: false },
+      },
+    }} />);
+    assert.match(html, /membership-payment-warning/);
+    assert.match(html, /payment grace period has ended/);
+    assert.doesNotMatch(html, /untrusted copy|membership-renewal-cta/);
+  }
+});
 test('first membership action keeps the empty payment card visible and uses only the joining route', () => {
   const result = {status:'ready',data:{membership:{state:'none'},payment:{state:'none'},
     joining:{eligible:true,entryHref:'/FormView?slug=getting-started-with-bnms'}}};

@@ -1496,6 +1496,12 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                 Billing dates and payment status are unchanged. Membership recognition does not release collections.
               </p>
             )}
+            {commitment.paymentWarning && (
+              <p role="alert" className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                data-testid={`membership-payment-warning-${commitment.id}`}>
+                {commitment.paymentWarning.message}
+              </p>
+            )}
             {commitment.mandatePresentation && (
               <p className="mb-3 text-sm text-muted-foreground" data-testid={`text-commitment-mandate-${commitment.id}`}>
                 Existing Direct Debit mandate active.

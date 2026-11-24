@@ -1,3 +1,4 @@
+import { membershipPaymentWarning } from '../../shared/membershipPaymentWarning.js';
 import { supabase } from '../_lib/database.js';
 import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
@@ -310,7 +311,7 @@ export async function matchingBillingEvidence(db, selected, tenantId, memberId) 
   if ((key && selectedKey && key !== selectedKey) || (start && selected.start && start !== selected.start)) return null;
   if (!(key && selectedKey === key) && !(start && start === selected.start)) return null;
   const { data: plans, error: planError } = await db.from('membership_payment_plans')
-    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, environment, gocardless_mandate_id, gocardless_subscription_id, interval_unit, membership_year, next_charge_date, dynamic_next_collection_date, last_payment_status, collection_stopped_at, amount_minor, currency, metadata')
+    .select('id, tenant_id, member_id, organization_id, billing_agreement_id, provider, status, environment, gocardless_mandate_id, gocardless_subscription_id, interval_unit, membership_year, next_charge_date, dynamic_next_collection_date, last_payment_status, grace_expires_at, collection_stopped_at, amount_minor, currency, metadata')
     .eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('billing_agreement_id', agreement.id)
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
@@ -550,6 +551,8 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const summary = buildCanvasSummary({
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
       });
+      const paymentWarning = membershipPaymentWarning({ agreement: billing?.agreement, plan });
+      if (paymentWarning) summary.payment.warning = paymentWarning;
       if (hidesRollingDirectDebitTermEnd(selected, billing?.agreement, summary.payment.method)) {
         summary.payment.hideTermEndDate = true;
       }

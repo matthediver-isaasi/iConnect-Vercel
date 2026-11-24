@@ -236,6 +236,8 @@ export function MembershipDataView({
           {summary.membership.grace ? 'In grace period — renewal due' : copy.status}
         </span>}
       </div>
+      {ready && summary.payment.warning && <p role="alert" {...role('supporting', { marginTop: 16 })}
+        data-testid="membership-payment-warning">{summary.payment.warning.message}</p>}
       {ready && summary.membership.grace && <div data-testid="membership-grace-notice"
         style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 16 }}>
         <TriangleAlert size={18} aria-hidden="true" style={{ color: '#a16b13', flexShrink: 0, marginTop: 4 }} />

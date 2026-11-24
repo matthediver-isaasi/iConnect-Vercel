@@ -1,3 +1,4 @@
+import { membershipPaymentWarning } from '../../shared/membershipPaymentWarning.js';
 import { supabase } from '../_lib/database.js';
 import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { handleManualCardApproval } from '../_lib/manualCardMembershipApproval.js';
@@ -332,6 +333,7 @@ export async function enrichDirectDebitCommitments({
       if (planResult.data && !planMatchesAgreement(planResult.data, agreement, record)) {
         throw new Error('Plan ownership does not match');
       }
+      commitment.paymentWarning = membershipPaymentWarning({ agreement, plan: planResult.data });
       const terms = agreement.metadata?.dd || {};
       let evidencedPlan = planResult.data;
       if (planResult.data) {

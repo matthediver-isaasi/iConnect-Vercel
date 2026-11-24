@@ -1,3 +1,4 @@
+import { MEMBERSHIP_PAYMENT_WARNINGS } from '../../../shared/membershipPaymentWarning.js';
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
@@ -300,6 +301,8 @@ export function normalizeCanvasMembershipSummary(value) {
     },
     payment: {
       state: MEMBERSHIP_PAYMENT_STATES.includes(payment.state) ? payment.state : 'unavailable',
+      warning: Object.hasOwn(MEMBERSHIP_PAYMENT_WARNINGS, payment.warning?.code)
+        ? { code: payment.warning.code, message: MEMBERSHIP_PAYMENT_WARNINGS[payment.warning.code] } : null,
       ...(payment.hideTermEndDate === true && payment.method === 'monthly_direct_debit'
         ? { hideTermEndDate: true } : {}),
       ...(payment.state === 'bank_setup_pending' && Number.isFinite(payment.expectedMonthlyPrice?.amount)
