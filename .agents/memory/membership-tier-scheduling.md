@@ -7,6 +7,12 @@ description: Version activation, fixed membership-year boundaries and preserving
 
 Version activation dates are independent of the fixed membership-year cycle. Retiring a pricing version never authorizes changing purchased terms, prices, invoices, mandates or payment commitments.
 
+Organisation immediate-start presentation changes must not change individual-scoped memberships or fixed-year organisation behaviour.
+
+**Why:** The owner explicitly limited the immediate-start organisation membership-tab correction to that schedule/owner combination.
+
+**How to apply:** Keep the owner-and-start-mode gate explicit. Undated historical paid records are evidence of the fee, not proof of commencement or anniversary; do not manufacture dates from year labels or record creation.
+
 **Why:** GFI explicitly required automatic structure handover while retaining its 1 August–31 July membership year and all existing financial commitments.
 
 **How to apply:** Correct only version schedule boundaries. Never use a version's activation day as a replacement annual anchor or as authority to reprice saved purchases.

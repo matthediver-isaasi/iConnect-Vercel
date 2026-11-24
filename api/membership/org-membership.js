@@ -10,6 +10,7 @@ import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/member
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
 import { matchBand } from '../_lib/tierBandMatcher.js';
+import { organisationImmediateMembershipView } from '../_lib/organisationImmediateMembershipView.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 import { computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
 import {
@@ -351,6 +352,7 @@ async function handleGet(req, res, tenantId) {
   let nextYearPreview = null;
   let currentYearCost = null;
   const previewWarnings = { currentYear: null, nextYear: null };
+  const immediateMembership = organisationImmediateMembershipView(config, historyRecords || []);
 
   // Only calculations are recoverable here. Context/auth/history loads above
   // must still fail the request rather than appearing as empty membership.
@@ -380,6 +382,7 @@ async function handleGet(req, res, tenantId) {
   }
 
   {
+    if (!immediateMembership) {
     const yearStartMidnight = new Date(currentYear.start);
     yearStartMidnight.setHours(0, 0, 0, 0);
     const yearEndMidnight = new Date(currentYear.end);
@@ -465,6 +468,7 @@ async function handleGet(req, res, tenantId) {
     nextYearPreview = await preview('nextYear', nextYear, nextYearStartDate, {
       asOfDate: nextYearStartDate,
     });
+    }
   }
 
   const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
@@ -582,6 +586,7 @@ async function handleGet(req, res, tenantId) {
       end: currentYear.end.toISOString().split('T')[0],
     },
     nextYearPreview,
+    immediateMembership,
     currentYearCost,
     previewWarnings,
     isNewOrg,

@@ -41,6 +41,7 @@ import ProposalMembershipEntitlements from "@/components/ProposalMembershipEntit
 import MembershipInvoiceAvailability from "./membership/MembershipInvoiceAvailability";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
+import OrganisationImmediateMembershipCards from "@/components/membership/OrganisationImmediateMembershipCards";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -1544,7 +1545,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {data.immediateMembership ? <OrganisationImmediateMembershipCards view={data.immediateMembership} /> : <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -1719,7 +1720,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
             )}
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1755,7 +1756,15 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
                     const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
                     const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
-                    const lifecycle = getMembershipHistoryLifecycle(record, currentYear?.label);
+                    const immediate = data.immediateMembership;
+                    const lifecycle = !immediate ? getMembershipHistoryLifecycle(record, currentYear?.label)
+                      : immediate.current?.id === record.id && immediate.state === 'current'
+                        ? { label: 'Current', variant: 'secondary' }
+                        : (immediate.scheduled?.id === record.id || (immediate.current?.id === record.id && immediate.state === 'scheduled'))
+                          ? { label: 'Scheduled', variant: 'outline' }
+                          : !record.term_start_date || !record.term_end_date
+                            ? { label: 'Dates not recorded', variant: 'outline' }
+                            : { label: 'Historical', variant: 'outline' };
                     const canInspectSettlement = !!invoiceId
                       && record.payment_method === 'stripe'
                       && record.payment_status === 'paid'

@@ -7,7 +7,6 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http:
 Object.assign(globalThis, {
   window: dom.window,
   document: dom.window.document,
-  navigator: dom.window.navigator,
   localStorage: dom.window.localStorage,
   sessionStorage: dom.window.sessionStorage,
   HTMLElement: dom.window.HTMLElement,
@@ -24,6 +23,7 @@ Object.assign(globalThis, {
   getComputedStyle: dom.window.getComputedStyle,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
+Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 
 const React = (await import("react")).default;
 globalThis.React = React;
@@ -63,6 +63,23 @@ const current = year("2026/2027", 1, 123.45);
 const next = year("2027/2028", 2, 678.90);
 const warning = (membershipYear, message) => ({
   membershipYear, code: "new_member_incentive_review_required", message,
+});
+
+test('immediate organisation membership shows recorded payment and missing dates without calendar warnings', async () => {
+  await mounted({
+    immediateMembership:{state:'dates_missing',current:{id:'legacy',structureName:'Partner',
+      currency:'GBP',finalCost:750,paymentStatus:'paid',startDate:null,endDate:null},scheduled:null},
+    currentYearCost:null,nextYearPreview:null,
+    history:[{id:'legacy',membership_year:'2026/2027',final_cost:750,payment_status:'paid'}],
+  },({container,calls})=>{
+    assert.match(container.textContent,/Recorded fee: £750\.00 · Paid/);
+    assert.match(container.textContent,/no recorded term dates/);
+    assert.match(container.textContent,/Dates not recorded/);
+    assert.doesNotMatch(container.textContent,/Fees cannot yet be verified|rolling:|No tier matched/);
+    assert.ok(container.querySelector('[data-testid="text-annual-cost"]'),'flat schedule cost is visible');
+    assert.equal(container.querySelector('[data-testid="section-current-year"]'),null);
+    assert.deepEqual(calls,[]);
+  });
 });
 
 async function mounted(data, callback) {
