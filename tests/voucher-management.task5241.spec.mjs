@@ -11,7 +11,7 @@ async function fixture(page, { withOrg = true, adminSettings = false } = {}) {
     sessionRole: { status: 'ready', member_id: ids.member, tenant_id: ids.tenant, role_id: ids.role, session_key: 'voucher-fixture', role } };
   const organization = { id: ids.org, tenant_id: ids.tenant, name: 'Fixture Organisation', training_fund_balance: 0, program_ticket_balances: {} };
   const state = {
-    tenant: ids.tenant, writes: [], blocked: [], reads: [],
+    tenant: ids.tenant, writes: [], blocked: [], reads: [], origins: {}, originRequests: [], originFailure: false,
     settings: [
       { id: 'enabled', setting_key: 'individual_vouchers_enabled', setting_value: 'true' },
       { id: 'org-label', setting_key: 'organization_voucher_display_name', setting_value: 'Team Credit' },
@@ -37,6 +37,13 @@ async function fixture(page, { withOrg = true, adminSettings = false } = {}) {
     if (url.origin !== origin) return route.abort();
     state.reads.push({ path, method, tenant: request.headers()['x-tenant-id'] });
     if (path === '/api/functions/getProgramEntitlements' && method === 'POST') return json({ entitlements: [] });
+    if (path === '/api/admin/voucher-award-origins' && method === 'POST') {
+      const body = request.postDataJSON();
+      state.originRequests.push({ ...body, tenant: request.headers()['x-tenant-id'] });
+      if (state.originGate) await state.originGate;
+      return state.originFailure ? json({ error: 'Fixture metadata unavailable' }, 503)
+        : json({ origins: Object.fromEntries(body.voucher_ids.filter(id => state.origins[id]).map(id => [id, state.origins[id]])) });
+    }
     if (path.startsWith('/api/entities/SystemSettings') && ['POST', 'PUT', 'PATCH'].includes(method)) {
       const body = request.postDataJSON();
       const id = path.split('/')[4] || `setting-${state.writes.length}`;
@@ -171,6 +178,83 @@ test('personal balances and history remain visible without an organisation when 
   await page.goto('/VoucherManagement');
   await page.getByTestId('button-create-voucher').click();
   await expect(page.getByRole('dialog').getByPlaceholder('Search members by name or email')).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+  expect(state.blocked).toEqual([]);
+});
+
+test('speaker origins display on existing organisation cards and detail, not unrelated or personal vouchers', async ({ page }) => {
+  const state = await fixture(page);
+  state.vouchers.push({ ...state.vouchers[1], id: 'training-voucher', code: 'TRAINING-FIXTURE', description: 'Existing agenda award' });
+  state.origins['training-voucher'] = [{ speaker: 'Recorded Speaker', event: 'Parent Training Event', event_internal_reference: 'TRAIN-001' }];
+  await page.goto('/VoucherManagement');
+  const card = page.getByTestId('card-voucher-training-voucher');
+  const origin = card.getByRole('region', { name: 'Speaker award origin' });
+  await expect(origin.getByText('Speaker', { exact: true })).toBeVisible();
+  await expect(origin.getByText('Recorded Speaker', { exact: true })).toBeVisible();
+  await expect(origin.getByText('Event', { exact: true })).toBeVisible();
+  await expect(origin.getByText('Parent Training Event', { exact: true })).toBeVisible();
+  await expect(origin.getByText('Event internal reference', { exact: true })).toBeVisible();
+  await expect(origin.getByText('TRAIN-001', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('card-voucher-org-voucher').getByRole('region')).toHaveCount(0);
+  await expect(page.getByTestId('card-voucher-personal-voucher').getByText(/award origins|award origin/)).toHaveCount(0);
+  await page.screenshot({ path: 'generated-artifacts/voucher-origins/list.jpg', fullPage: true });
+  await card.click();
+  await expect(page.getByRole('heading', { name: 'TRAINING-FIXTURE', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Speaker award origin' }).getByText('TRAIN-001')).toBeVisible();
+  await expect(page.getByText('Existing agenda award', { exact: true })).toBeVisible();
+  await expect(page.getByText('£125.00', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'generated-artifacts/voucher-origins/detail.jpg', fullPage: true });
+  await expect.poll(() => state.originRequests.some(r => r.voucher_ids.length === 1 && r.voucher_ids[0] === 'training-voucher')).toBe(true);
+  expect(state.originRequests.every(r => r.tenant === state.tenant && !r.voucher_ids.includes('personal-voucher'))).toBe(true);
+  expect(state.writes).toEqual([]);
+  expect(state.blocked).toEqual([]);
+});
+
+test('metadata failure keeps vouchers visible and retries in list and detail', async ({ page }) => {
+  const state = await fixture(page);
+  state.vouchers.push({ ...state.vouchers[1], id: 'other-org-voucher', code: 'OTHER-ORG' });
+  state.originFailure = true;
+  state.origins['org-voucher'] = [{ speaker: 'Recovered Speaker', event: 'Recovered Event', event_internal_reference: 'REF-RECOVERED' }];
+  await page.goto('/VoucherManagement');
+  const card = page.getByTestId('card-voucher-org-voucher');
+  await expect(card.getByRole('alert')).toContainText('Speaker award origins could not be loaded');
+  await expect(page.getByTestId('card-voucher-personal-voucher')).toBeVisible();
+  state.originFailure = false;
+  await card.getByRole('button', { name: 'Retry award origins' }).click();
+  await expect(card.getByText('Recovered Speaker', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Voucher management', exact: true })).toBeVisible();
+  state.originFailure = true;
+  await card.click();
+  await expect(page.getByRole('alert')).toContainText('Speaker award origins could not be loaded');
+  state.originFailure = false;
+  await page.getByRole('button', { name: 'Retry award origins' }).click();
+  await expect(page.getByText('REF-RECOVERED', { exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]);
+  expect(state.blocked).toEqual([]);
+});
+
+test('loading and missing sources stay distinct, and tenant changes never reuse old origin data', async ({ page }) => {
+  const state = await fixture(page);
+  let release;
+  state.originGate = new Promise(resolve => { release = resolve; });
+  state.origins['org-voucher'] = [{ speaker: null, event: 'Retained parent event', event_internal_reference: null }];
+  await page.goto('/VoucherManagement');
+  const card = page.getByTestId('card-voucher-org-voucher');
+  await expect(card.getByRole('status')).toHaveText('Loading speaker award origins…');
+  await expect(card.getByText('Unavailable', { exact: true })).toHaveCount(0);
+  release();
+  state.originGate = null;
+  await expect(card.getByText('Retained parent event')).toBeVisible();
+  await expect(card.getByText('Unavailable', { exact: true })).toHaveCount(2);
+  state.tenant = '55555555-5555-4555-8555-555555555555';
+  state.origins['org-voucher'] = [{ speaker: 'Other tenant speaker', event: 'Other tenant event', event_internal_reference: 'OTHER-REF' }];
+  await page.evaluate(async tenant => {
+    const { setActiveTenantId } = await import('/src/api/base44Client.js');
+    setActiveTenantId(tenant);
+  }, state.tenant);
+  await expect(card.getByText('Other tenant speaker')).toBeVisible();
+  await expect(page.getByText('Retained parent event')).toHaveCount(0);
+  expect(state.originRequests.at(-1).tenant).toBe(state.tenant);
   expect(state.writes).toEqual([]);
   expect(state.blocked).toEqual([]);
 });

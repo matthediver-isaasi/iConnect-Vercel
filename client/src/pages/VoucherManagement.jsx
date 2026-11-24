@@ -27,6 +27,7 @@ import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { adminFetch } from '@/lib/adminFetch';
 import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
 import { normalizeVoucherSettings, voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
+import VoucherAwardOrigin from '@/components/vouchers/VoucherAwardOrigin';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -390,6 +391,27 @@ export default function VoucherManagementPage() {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredVouchers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredVouchers, currentPage]);
+
+  const originVoucherIds = [...new Set((selectedVoucher ? [selectedVoucher] : paginatedVouchers)
+    .filter(v => voucherOwnerType(v) === 'organization').map(v => v.id))].sort();
+  const awardOrigins = useQuery({
+    queryKey: ['voucher-award-origins', ...viewerKey, originVoucherIds],
+    enabled: !!accessChecked && isAdmin && originVoucherIds.length > 0,
+    retry: false,
+    queryFn: async () => {
+      const response = await adminFetch('/api/admin/voucher-award-origins', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voucher_ids: originVoucherIds }),
+      }, viewerKey[0]);
+      if (!response.ok) throw new Error('Unable to load speaker award origins');
+      const payload = await response.json();
+      if (!payload.origins || typeof payload.origins !== 'object' || Array.isArray(payload.origins)) {
+        throw new Error('Invalid speaker award origins response');
+      }
+      return payload.origins;
+    },
+  });
 
   // Prune selection when the underlying voucher list changes (e.g. deletions)
   useEffect(() => {
@@ -1199,6 +1221,9 @@ export default function VoucherManagementPage() {
                 {selectedVoucher.description && (
                   <p className="text-slate-500 text-sm mt-1">{selectedVoucher.description}</p>
                 )}
+                {isAdmin && voucherOwnerType(selectedVoucher) === 'organization' && (
+                  <VoucherAwardOrigin query={awardOrigins} voucherId={selectedVoucher.id} />
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-slate-500">Current Value</p>
@@ -1649,6 +1674,9 @@ export default function VoucherManagementPage() {
                               <p className="text-sm text-slate-500 mt-2">{voucher.description}</p>
                             )}
                             <MembershipCreditNotice voucher={voucher} />
+                            {isAdmin && voucherOwnerType(voucher) === 'organization' && (
+                              <VoucherAwardOrigin query={awardOrigins} voucherId={voucher.id} />
+                            )}
                             
                             {voucher.used_at && (
                               <p className="text-xs text-slate-400 mt-2">
