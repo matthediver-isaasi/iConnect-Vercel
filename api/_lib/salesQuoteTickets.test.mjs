@@ -79,6 +79,44 @@ test('header event metadata never allocates unrelated product lines; explicit nu
   const cleared = await freezeQuoteTicketProduct(db, tenant, { ...db.product, event_id: eventId }, null, 4);
   assert.equal(cleared.event_id, null);
 });
+
+for (const directTicket of [true, false]) {
+  test(`unchanged bundle ${directTicket ? 'direct ticket' : 'legacy ticket product'} survives past-event billing edits`, async () => {
+    const db = database('simple');
+    const componentId = 'component';
+    const bundleId = 'bundle';
+    const reference = { kind: 'simple', eventId, ticketTypeId: ticketId };
+    Object.assign(db.product, { event_reference_kind: 'simple', event_id: eventId, ticket_type_id: ticketId });
+    const snapshot = await freezeQuoteTicketProduct(db, tenant, db.product, reference, '1');
+    snapshot.billing_component_id = componentId;
+    const component = { id: componentId, component_kind: directTicket ? 'ticket' : 'product',
+      product_id: directTicket ? null : productId, quantity: '1',
+      event_reference_kind: 'simple', event_id: eventId, ticket_type_id: ticketId };
+    const originalFrom = db.from;
+    db.from = table => {
+      if (table === 'sales_catalogue_bundle') return { select() { return this; }, eq() { return this; },
+        maybeSingle: async () => ({ data: { id: bundleId, is_active: true, currency: 'GBP', selling_price_minor: 10000, tax_rate_bps: 0 } }) };
+      if (table === 'sales_catalogue_bundle_item') return { select() { return this; }, eq() { return this; },
+        order: async () => ({ data: [component] }) };
+      return originalFrom(table);
+    };
+    db.rpc = async () => { throw new Error('This event has already started'); };
+    const draft = { currency: 'GBP', lines: [{ id: 'saved', kind: 'bundle', catalogueId: bundleId, quantity: '1' }] };
+    const prior = { catalogue_kind: 'bundle', catalogue_id: bundleId, quantity: '1', tax_rate_bps: 0,
+      catalogue_snapshot: {}, sales_quote_bundle_component: [{
+        product_id: component.product_id, quantity: '1', product_snapshot: snapshot,
+      }] };
+    const previous = new Map([['saved', prior]]);
+    const result = await prepareQuoteDraft(db, tenant, { actorId: tenant }, draft, false, previous);
+    assert.equal(result.lines[0].components[0].productSnapshot.event_id, eventId);
+    assert.equal(result.lines[0].components[0].productSnapshot.capacity_metadata.delegate_capacity, 1);
+    await assert.rejects(prepareQuoteDraft(db, tenant, { actorId: tenant }, draft), /already started/);
+    await assert.rejects(prepareQuoteDraft(db, tenant, { actorId: tenant },
+      { ...draft, lines: [{ ...draft.lines[0], quantity: '2' }] }, false, previous), /already started/);
+    component.quantity = '2';
+    await assert.rejects(prepareQuoteDraft(db, tenant, { actorId: tenant }, draft, false, previous), /already started/);
+  });
+}
 test('acceptance migration replaces live catalogue candidate identities and requires frozen capacity', () => {
   const sql = readFileSync(new URL('../../supabase/migrations/202610180007_sales_quote_line_ticket_snapshot.sql', import.meta.url), 'utf8');
   assert.match(sql, /l\.catalogue_snapshot->>'event_reference_kind'/);

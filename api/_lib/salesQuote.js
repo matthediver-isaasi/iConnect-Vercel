@@ -154,6 +154,15 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
       .eq('tenant_id', tenantId).eq('bundle_id', item.id).order('display_order');
     if (error) throw error;
     components = await Promise.all((data || []).map(async (component) => {
+      const previousComponents = previous?.catalogue_kind === 'bundle' && previous.catalogue_id === item.id
+        && Number(previous.quantity) === Number(amounts.quantity)
+        ? previous.sales_quote_bundle_component || [] : [];
+      const matches = previousComponents.filter(saved =>
+        Number(saved.quantity) === Number(component.quantity) &&
+        (component.component_kind === 'ticket'
+          ? saved.product_snapshot?.billing_component_id === component.id
+          : saved.product_id === component.product_id));
+      const previousComponent = matches.length === 1 ? matches[0].product_snapshot : undefined;
       if (component.component_kind === 'ticket') {
         const reference = { kind: component.event_reference_kind, eventId: component.event_id, ticketTypeId: component.ticket_type_id };
         const event = await one(db, reference.kind === 'complex' ? 'complex_event' : 'event', tenantId, reference.eventId, 'Ticket event');
@@ -166,7 +175,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
             name: `${event.title} — ${ticket?.name || 'Ticket'}`, categoryName: 'Ticket',
             // No inferred bundle value: existing pending attribution policy applies.
             standard_price_minor: null,
-          }, reference, Number(amounts.quantity) * Number(component.quantity)) };
+          }, reference, Number(amounts.quantity) * Number(component.quantity), previousComponent) };
       }
       const product = await one(db, 'sales_catalogue_product', tenantId, component.product_id, 'Bundle product');
       if (product.category_id && !categories.has(product.category_id)) {
@@ -178,7 +187,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
       return {
         productId: component.product_id, quantity: component.quantity,
         productSnapshot: await freezeQuoteTicketProduct(db, tenantId, categoryProduct, productTicketReference(product),
-          Number(amounts.quantity) * Number(component.quantity)),
+          Number(amounts.quantity) * Number(component.quantity), previousComponent),
       };
     }));
   }
@@ -306,7 +315,7 @@ export async function loadQuoteDraftState(db, tenantId, id) {
       previousSalesperson = version.salesperson_snapshot;
       previousBillingSchedule = version.billing_schedule;
       previousLegalHtml = version.terms_snapshot?.legalHtml;
-      const result = await db.from('sales_quote_line').select('*').eq('tenant_id', tenantId).eq('quote_version_id', version.id);
+      const result = await db.from('sales_quote_line').select('*,sales_quote_bundle_component(*)').eq('tenant_id', tenantId).eq('quote_version_id', version.id);
       if (result.error) throw result.error;
       for (const line of result.data || []) previousLines.set(line.id, line);
     }

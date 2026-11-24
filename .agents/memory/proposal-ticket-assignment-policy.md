@@ -16,6 +16,16 @@ New proposal ticket selections require a known future start instant. Draft event
 are selectable by authorised Sales staff; past, undated and waiting-list-mode
 events are not. Purchased draft entitlements do not authorise public discovery.
 
+Unchanged existing bundle ticket components must remain editable for unrelated
+proposal billing changes after their events start.
+
+**Why:** Proposals may be entered or amended partway through delivery and billing;
+reapplying new-selection eligibility prevents recording instalment commitments.
+
+**How to apply:** Use server-loaded prior line/component identity and unchanged
+quantities to preserve the existing reference. New or changed selections still
+require eligible events, and tenant/ticket ownership checks remain mandatory.
+
 **Why:** These are the explicit planning defaults for the purchaser-managed
 proposal ticket journey, not assumptions derived from general event discovery.
 
