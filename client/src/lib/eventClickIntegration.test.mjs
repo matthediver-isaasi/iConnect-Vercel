@@ -20,10 +20,15 @@ test('Events opts shared cards into tracking and typed count queries', () => {
   assert.match(source, /eventClickCountError=\{eventClickCountsError\}/);
 });
 
-test('EventCard does not track unless explicitly enabled and leaves button aux clicks unsupported', () => {
+test('EventCard tracking and native new-tab navigation are explicit listing opt-ins', () => {
   const source = read('../components/events/EventCard.jsx');
   assert.match(source, /eventClickTrackingEnabled = false/);
   assert.match(source, /!eventClickTrackingEnabled \|\| !onEventClick/);
   assert.match(source, /disabled=\{isSoldOut\}/);
-  assert.doesNotMatch(source, /onAuxClick=/);
+  assert.match(source, /navigationInNewTab = false/);
+  assert.match(source, /!eventClickTrackingEnabled \|\| !onEventAuxClick/);
+  assert.match(source, /onAuxClick=\{navigationInNewTab \? trackEventAuxClick : undefined\}/);
+  assert.match(source, /rel: 'noopener noreferrer'/);
+  assert.equal((read('../pages/Events.jsx').match(/^\s+navigationInNewTab$/gm) || []).length, 2);
+  assert.doesNotMatch(read('../pages/MemberGroupDetail.jsx'), /navigationInNewTab/);
 });

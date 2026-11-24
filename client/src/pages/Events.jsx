@@ -2208,12 +2208,8 @@ export default function EventsPage({
 
                                       if (!isActiveCta) {
                                         return (
-                                          <Link
-                                            to={detailUrl}
-                                            onClick={!isSoldOut ? (interactionEvent) => trackEventClick(event, interactionEvent) : undefined}
-                                            onAuxClick={!isSoldOut ? (interactionEvent) => trackEventAuxClick(event, interactionEvent) : undefined}
-                                          >
                                             <Button 
+                                              asChild={!isSoldOut}
                                               variant={isRegistrationClosed ? "secondary" : "default"}
                                               className={`w-full ${!isRegistrationClosed && isGradient 
                                                 ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
@@ -2221,9 +2217,13 @@ export default function EventsPage({
                                               disabled={isSoldOut}
                                               data-testid={`button-register-event-${event.id}`}
                                             >
-                                              {buttonLabel}
+                                              {isSoldOut ? buttonLabel : (
+                                                <Link to={detailUrl} target="_blank" rel="noopener noreferrer"
+                                                  onClick={(interactionEvent) => trackEventClick(event, interactionEvent)}
+                                                  onAuxClick={(interactionEvent) => trackEventAuxClick(event, interactionEvent)}
+                                                >{buttonLabel}</Link>
+                                              )}
                                             </Button>
-                                          </Link>
                                         );
                                       }
 
@@ -2231,6 +2231,8 @@ export default function EventsPage({
                                         <TenantCtaButton
                                           as="link"
                                           to={detailUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
                                           className="w-full"
                                           fallbackClassName={isGradient
                                             ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
@@ -2269,6 +2271,8 @@ export default function EventsPage({
                           eventClickTrackingEnabled
                           eventClickCountEnabled={canViewAttendees}
                           onEventClick={trackEventClick}
+                          onEventAuxClick={trackEventAuxClick}
+                          navigationInNewTab
                           eventClickCount={getEventClickCount(event)}
                           eventClickCountLoading={eventClickCountsLoading}
                           eventClickCountError={eventClickCountsError}
@@ -2555,12 +2559,8 @@ export default function EventsPage({
 
                                   if (!isActiveCta) {
                                     return (
-                                      <Link
-                                        to={detailUrl}
-                                        onClick={!isSoldOut ? (interactionEvent) => trackEventClick(event, interactionEvent) : undefined}
-                                        onAuxClick={!isSoldOut ? (interactionEvent) => trackEventAuxClick(event, interactionEvent) : undefined}
-                                      >
                                         <Button 
+                                          asChild={!isSoldOut}
                                           variant={isRegistrationClosed ? "secondary" : "default"}
                                           className={`w-full ${!isRegistrationClosed && isGradient 
                                             ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
@@ -2568,9 +2568,13 @@ export default function EventsPage({
                                           disabled={isSoldOut}
                                           data-testid={`button-register-event-${event.id}`}
                                         >
-                                          {buttonLabel}
+                                          {isSoldOut ? buttonLabel : (
+                                            <Link to={detailUrl} target="_blank" rel="noopener noreferrer"
+                                              onClick={(interactionEvent) => trackEventClick(event, interactionEvent)}
+                                              onAuxClick={(interactionEvent) => trackEventAuxClick(event, interactionEvent)}
+                                            >{buttonLabel}</Link>
+                                          )}
                                         </Button>
-                                      </Link>
                                     );
                                   }
 
@@ -2578,6 +2582,8 @@ export default function EventsPage({
                                     <TenantCtaButton
                                       as="link"
                                       to={detailUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
                                       className="w-full"
                                       fallbackClassName={isGradient
                                         ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
@@ -2617,6 +2623,8 @@ export default function EventsPage({
                       eventClickTrackingEnabled
                       eventClickCountEnabled={canViewAttendees}
                       onEventClick={trackEventClick}
+                      onEventAuxClick={trackEventAuxClick}
+                      navigationInNewTab
                       eventClickCount={getEventClickCount(event)}
                       eventClickCountLoading={eventClickCountsLoading}
                       eventClickCountError={eventClickCountsError}

@@ -17,6 +17,8 @@ description: Testing modes, route contracts, parallel test artifacts, and stable
 - [Login landing verification](login-landing-verification.md) — separate tenant demo policy from ordinary and contextual login fixtures.
 - [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js compatibility.
 - [Consent report verification](consent-report-verification.md) — assert individual matrix cells, not row-wide text.
+- [Consent-aware interactions](consent-interaction-verification.md) — use current consent contracts and explicit test boundaries; navigation alone does not prove tracking.
+- [New-tab verification](new-tab-browser-verification.md) — observe background tabs through the context and await the destination before document readiness.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML does not establish Excel compatibility.
 - [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Private audit logging](private-audit-logging.md) — redact assertion failures too; deep-equality errors can expose entire private records.

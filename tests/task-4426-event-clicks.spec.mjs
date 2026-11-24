@@ -135,13 +135,28 @@ async function installFixtures(page, {
   clickCountMode = "zero",
   clickCounts = {},
   eventClickStatus = 200,
+  eventOverrides = {},
+  branded = false,
 } = {}) {
+  const simpleEvents = SIMPLE_EVENTS.map(event => ({ ...event, ...eventOverrides }));
+  const complexEvents = COMPLEX_EVENTS.map(event => ({ ...event, ...eventOverrides }));
   const state = {
     eventClicks: [],
     clickCountRequests: [],
     attendeeCountRequests: [],
   };
-  await page.route("**/api/**", async (route) => {
+  // Include popup first requests in the boundary: no fixture navigation reaches
+  // a real destination or database, including external card overrides.
+  await page.context().route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.isNavigationRequest() && request.resourceType() === "document"
+      && url.pathname.toLowerCase() !== "/events") {
+      return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>CTA destination</title><p>Fixture destination</p>" });
+    }
+    return route.fallback();
+  });
+  await page.context().route("**/api/**", async (route) => {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const pathname = requestUrl.pathname;
@@ -152,6 +167,11 @@ async function installFixtures(page, {
       return json(route, MEMBER);
     }
     if (pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: auth !== "guest" });
+    if (pathname === "/api/public/cookie-consent") {
+      // SDK/banner integration has its own suite. This suite exercises the
+      // real tracking hook with controlled consent snapshots below.
+      return json(route, { error: "Consent SDK outside event-navigation fixture" }, 503);
+    }
     if (pathname === "/api/public/tenant-branding") {
       return json(route, {
         success: true,
@@ -160,15 +180,19 @@ async function installFixtures(page, {
           slug: TENANT.slug,
           name: TENANT.name,
           faviconUrl: "",
+          ...(branded ? {
+            buttonStyles: { primary: { background: { type: "solid", solidColor: "#123456" } } },
+          } : {}),
         },
       });
     }
     if (pathname === "/api/public/portal-branding") {
       return json(route, { logoUrl: "", logoHeight: "medium", logoLink: "", homePageSlug: "", faviconUrl: "", tenantName: TENANT.name });
     }
-    if (pathname === "/api/public/events") return json(route, SIMPLE_EVENTS);
-    if (pathname === "/api/public/complex-events") return json(route, COMPLEX_EVENTS);
+    if (pathname === "/api/public/events") return json(route, simpleEvents);
+    if (pathname === "/api/public/complex-events") return json(route, complexEvents);
     if (pathname === "/api/public/system-settings") {
+      if (requestUrl.searchParams.has("key")) return json(route, []);
       return json(route, [{ setting_key: "event_types", setting_value: "[]" }]);
     }
     if (pathname === "/api/public/resource-categories") return json(route, []);
@@ -177,8 +201,8 @@ async function installFixtures(page, {
     if (pathname === "/api/public/typography-styles") return json(route, []);
     if (pathname === "/api/public/ai-help-persona") return json(route, { name: "Fixture helper" });
 
-    if (pathname === "/api/entities/Event") return json(route, SIMPLE_EVENTS);
-    if (pathname === "/api/entities/ComplexEvent") return json(route, COMPLEX_EVENTS);
+    if (pathname === "/api/entities/Event") return json(route, simpleEvents);
+    if (pathname === "/api/entities/ComplexEvent") return json(route, complexEvents);
     if (pathname === "/api/entities/ComplexEventSession"
       || pathname === "/api/entities/ComplexEventTrack"
       || pathname === "/api/entities/ComplexEventTicketClass"
@@ -240,34 +264,69 @@ async function installFixtures(page, {
 
 async function openEvents(page, options) {
   const state = await installFixtures(page, options);
-  await page.goto("/Events");
+  await page.goto("/events");
   await expect(page.getByRole("heading", { name: "Simple Featured" }).first()).toBeVisible();
+  if (options?.consent) {
+    await page.evaluate(async (consent) => {
+      const { consentState } = await import("/src/lib/consentState.js");
+      consentState.publish({
+        ready: true, hasActed: true,
+        categories: { necessary: true, functional: false, analytics: consent === "accepted", marketing: false },
+      });
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }, options.consent);
+  }
   return state;
 }
 
+async function activateInNewTab(page, cta, activate = () => cta.click()) {
+  const listingUrl = page.url();
+  const href = await cta.getAttribute("href");
+  await expect(cta).toHaveAttribute("target", "_blank");
+  await expect(cta).toHaveAttribute("rel", "noopener noreferrer");
+  // Modified/background tabs do not always emit the opener's popup event.
+  const popupPromise = page.context().waitForEvent("page");
+  await activate();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(new URL(href, listingUrl).href);
+  await popup.waitForLoadState("domcontentloaded");
+  expect(await popup.evaluate(() => window.opener)).toBeNull();
+  expect(page.context().pages()).toHaveLength(2);
+  await expect(page).toHaveURL(listingUrl);
+  await popup.close();
+}
+
 test.describe("task 4426 event-card click tracking", () => {
-  test("tracks accepted guest activation for featured/standard simple and inline complex cards", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("cookie-consent", "accepted");
-    });
-    const state = await openEvents(page, { auth: "guest" });
+  test("tracks accepted guest activation for featured/standard simple and inline complex cards", async ({ page }, testInfo) => {
+    const state = await openEvents(page, { auth: "guest", consent: "accepted" });
 
     await expect(page.getByTestId("banner-cookie-consent")).toHaveCount(0);
     await expect(page.getByTestId(`card-featured-event-${EVENTS.complexFeatured}`)).toBeVisible();
 
-    // Use a real primary activation for every card variant. Navigation is
-    // intentionally allowed; returning to /Events between activations also
-    // proves tracking is fire-and-forget and does not hold up CTA navigation.
+    const search = page.getByPlaceholder("Search events by name, description or location...");
+    await search.fill("Fixture");
+    await page.evaluate(() => { window.listingInstance = "original"; });
+    await page.screenshot({ path: testInfo.outputPath("events-listing.png"), fullPage: true });
+    // Activate every rendered branch, including the featured cards repeated
+    // in the ordinary grid. Both mouse and keyboard must use native links.
     let expectedClicks = 0;
     for (const eventId of Object.values(EVENTS)) {
-      await page.getByTestId(`button-register-event-${eventId}`).first().click();
-      expectedClicks += 1;
-      await expect.poll(() => state.eventClicks.length).toBe(expectedClicks);
-      await page.goto("/Events");
-      await expect(page.getByRole("heading", { name: "Simple Featured" }).first()).toBeVisible();
+      const ctas = page.getByTestId(`button-register-event-${eventId}`);
+      for (const cta of await ctas.all()) {
+        await activateInNewTab(page, cta, async () => {
+          if (expectedClicks % 2) {
+            await cta.focus();
+            await page.keyboard.press("Enter");
+          } else await cta.click();
+        });
+        expectedClicks += 1;
+        await expect.poll(() => state.eventClicks.length).toBe(expectedClicks);
+        await expect(search).toHaveValue("Fixture");
+        expect(await page.evaluate(() => window.listingInstance)).toBe("original");
+      }
     }
 
-    await expect.poll(() => state.eventClicks.length).toBe(4);
+    await expect.poll(() => state.eventClicks.length).toBe(6);
     expect(state.eventClicks.map(({ eventId, eventType }) => ({ eventId, eventType })))
       .toEqual(expect.arrayContaining([
         { eventId: EVENTS.simpleFeatured, eventType: "simple" },
@@ -286,9 +345,6 @@ test.describe("task 4426 event-card click tracking", () => {
   });
 
   test("does not call the count endpoint or show a count to an unauthorized guest", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("cookie-consent", "accepted");
-    });
     const state = await openEvents(page, { auth: "guest" });
 
     await expect(page.getByTestId(`text-event-click-count-${EVENTS.simpleFeatured}`)).toHaveCount(0);
@@ -333,24 +389,113 @@ test.describe("task 4426 event-card click tracking", () => {
   });
 
   test("keeps CTA navigation working when ingestion fails", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("cookie-consent", "accepted");
-    });
-    await openEvents(page, { auth: "guest", eventClickStatus: 503 });
+    await openEvents(page, { auth: "guest", eventClickStatus: 503, consent: "accepted" });
 
-    await page.getByTestId(`button-register-event-${EVENTS.simpleStandard}`).click();
-    await expect(page).toHaveURL(/\/events\/simple-standard$/);
+    await activateInNewTab(page, page.getByTestId(`button-register-event-${EVENTS.simpleStandard}`));
   });
 
   test("does not count shared EventCard administrative actions as public CTA clicks", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem("cookie-consent", "accepted");
-    });
-    const state = await openEvents(page, { auth: "member" });
+    const state = await openEvents(page, { auth: "member", consent: "accepted" });
 
     await expect(page.getByTestId(`button-edit-event-${EVENTS.simpleFeatured}`).first()).toBeVisible();
     await page.getByTestId(`button-edit-event-${EVENTS.simpleFeatured}`).first().click();
     await expect(page).toHaveURL(/\/EditEvent\?id=44260000-0000-4000-8000-000000000011$/);
     expect(state.eventClicks).toEqual([]);
   });
+});
+
+for (const scenario of [
+  { name: "ID fallbacks", overrides: { slug: null } },
+  { name: "card overrides", overrides: { cta_override_url: "https://example.invalid/book?x=1&y=2" } },
+  { name: "detail-only overrides", overrides: { cta_override_url: "https://example.invalid/ignored", cta_override_mode: "detail_page" } },
+  { name: "waiting lists ignore overrides and sold-out capacity", overrides: { waiting_list_enabled: true, available_seats: 0, cta_override_url: "https://example.invalid/ignored" } },
+  { name: "registration closed can still view details", overrides: { event_state: "closed" } },
+  { name: "registration deadline passed", overrides: { registration_closes_at: "2000-01-15T11:00:00Z" } },
+  { name: "tenant-styled CTAs", overrides: {}, branded: true },
+]) {
+  test(`new-tab CTAs preserve ${scenario.name} in both listing branches`, async ({ page }) => {
+    await openEvents(page, { eventOverrides: scenario.overrides, branded: scenario.branded });
+    for (const event of [...SIMPLE_EVENTS, ...COMPLEX_EVENTS]) {
+      const isComplex = !!event.is_complex;
+      const expectedUrl = scenario.overrides.slug === null
+        ? `/${isComplex ? "ComplexEventDetail" : "EventDetails"}?id=${event.id}`
+        : !isComplex && scenario.name === "card overrides"
+          ? scenario.overrides.cta_override_url
+          : `/${isComplex ? "session-events" : "events"}/${event.slug}`;
+      const ctas = page.getByTestId(`button-register-event-${event.id}`);
+      await expect(ctas).toHaveCount(event.is_featured ? 2 : 1);
+      for (const cta of await ctas.all()) {
+        await expect(cta).toHaveAttribute("href", expectedUrl);
+        if (scenario.branded) await expect(cta).toHaveCSS("background-color", "rgb(18, 52, 86)");
+        await activateInNewTab(page, cta);
+      }
+    }
+  });
+}
+
+test("Buy Tickets uses its existing destination in both simple listing branches", async ({ page }) => {
+  const state = await openEvents(page, { eventOverrides: { program_tag: "fixture-program" }, consent: "accepted" });
+  for (const event of SIMPLE_EVENTS) {
+    const ctas = page.getByTestId(`button-buy-tickets-${event.id}`);
+    await expect(ctas).toHaveCount(event.is_featured ? 2 : 1);
+    for (const cta of await ctas.all()) {
+      await expect(cta).toHaveAttribute("href", "/BuyProgramTickets");
+      await activateInNewTab(page, cta);
+    }
+  }
+  await expect.poll(() => state.eventClicks.length).toBe(3);
+});
+
+test("sold-out CTAs are inert buttons without a navigable ancestor", async ({ page }) => {
+  const state = await openEvents(page, { eventOverrides: { available_seats: 0, shopping_held: 1 }, auth: "member" });
+  for (const event of [...SIMPLE_EVENTS, ...COMPLEX_EVENTS]) {
+    const ctas = page.getByTestId(`button-register-event-${event.id}`);
+    await expect(ctas).toHaveCount(event.is_featured ? 2 : 1);
+    for (const cta of await ctas.all()) {
+      await expect(cta).toBeDisabled();
+      await expect(cta).toHaveJSProperty("tagName", "BUTTON");
+      expect(await cta.evaluate(el => el.closest("a"))).toBeNull();
+      await cta.dispatchEvent("auxclick", { button: 1 });
+    }
+  }
+  expect(page.context().pages()).toHaveLength(1);
+  expect(state.eventClicks).toEqual([]);
+});
+
+test("ended CTAs stay disabled in both listing branches", async ({ page }) => {
+  const state = await installFixtures(page, { eventOverrides: { start_date: "2000-01-15T10:00:00Z", end_date: "2000-01-15T11:00:00Z" } });
+  await page.goto("/events");
+  await page.getByTestId("switch-show-past-events").click();
+  for (const event of [...SIMPLE_EVENTS, ...COMPLEX_EVENTS]) {
+    const ctas = page.getByTestId(`button-event-ended-${event.id}`);
+    await expect(ctas).toHaveCount(event.is_featured ? 2 : 1);
+    for (const cta of await ctas.all()) {
+      await expect(cta).toBeDisabled();
+      await expect(cta).toHaveJSProperty("tagName", "BUTTON");
+      expect(await cta.evaluate(el => el.closest("a"))).toBeNull();
+    }
+  }
+  expect(state.eventClicks).toEqual([]);
+  expect(page.context().pages()).toHaveLength(1);
+});
+
+test("modified and middle clicks open once and retain consent-aware tracking", async ({ page }) => {
+  const state = await openEvents(page, { consent: "accepted" });
+  let count = 0;
+  for (const eventId of [EVENTS.simpleStandard, EVENTS.complexStandard]) {
+    const cta = page.getByTestId(`button-register-event-${eventId}`);
+    for (const options of [{ modifiers: ["Control"] }, { button: "middle" }]) {
+      await activateInNewTab(page, cta, () => cta.click(options));
+      await expect.poll(() => state.eventClicks.length).toBe(++count);
+    }
+  }
+});
+
+test("declined analytics consent does not block new-tab navigation or create tracking identity", async ({ page }) => {
+  const state = await openEvents(page, { consent: "declined" });
+  for (const eventId of [EVENTS.simpleStandard, EVENTS.complexStandard]) {
+    await activateInNewTab(page, page.getByTestId(`button-register-event-${eventId}`));
+  }
+  expect(state.eventClicks).toEqual([]);
+  expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("iconn:event-click-visitor:")))).toBe(false);
 });

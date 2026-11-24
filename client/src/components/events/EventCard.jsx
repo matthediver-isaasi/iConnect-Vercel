@@ -212,7 +212,7 @@ export function EventClickCountMetric({
   );
 }
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false, eventClickTrackingEnabled = false, eventClickCountEnabled = false, onEventClick, eventClickCount = null, eventClickCountLoading = false, eventClickCountError = false }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false, eventClickTrackingEnabled = false, eventClickCountEnabled = false, onEventClick, onEventAuxClick, navigationInNewTab = false, eventClickCount = null, eventClickCountLoading = false, eventClickCountError = false }) {
   const queryClient = useQueryClient();
   const attendeeCountDisplay = resolveEventAttendeeCountDisplay({
     waitingList: event.waiting_list_enabled,
@@ -778,6 +778,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     if (!eventClickTrackingEnabled || !onEventClick) return;
     onEventClick(event, interactionEvent);
   };
+  const trackEventAuxClick = (interactionEvent) => {
+    if (!eventClickTrackingEnabled || !onEventAuxClick) return;
+    onEventAuxClick(event, interactionEvent);
+  };
+  // Only /events opts in. Other shared-card consumers keep button navigation.
+  const newTabProps = { target: '_blank', rel: 'noopener noreferrer' };
   const handleBuyTicketsClick = (interactionEvent) => {
     trackEventClick(interactionEvent);
     window.location.href = createPageUrl('BuyProgramTickets');
@@ -1152,11 +1158,19 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   ) : (
                     <Button
                       className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                      onClick={handleBuyTicketsClick}
+                      asChild={navigationInNewTab}
+                      onClick={navigationInNewTab ? trackEventClick : handleBuyTicketsClick}
+                      onAuxClick={navigationInNewTab ? trackEventAuxClick : undefined}
                       data-testid={`button-buy-tickets-${event.id}`}
                     >
-                      <ShoppingCart className="w-4 h-4 mr-2" />
-                      Buy Tickets
+                      {navigationInNewTab ? (
+                        <a href={createPageUrl('BuyProgramTickets')} {...newTabProps}>
+                          <ShoppingCart className="w-4 h-4 mr-2" />
+                          Buy Tickets
+                        </a>
+                      ) : (
+                        <><ShoppingCart className="w-4 h-4 mr-2" />Buy Tickets</>
+                      )}
                     </Button>
                   )
                 ) : (() => {
@@ -1180,16 +1194,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   // the tenant Primary button style (falls back to the existing
                   // gradient / blue when no Primary style is configured).
                   const isActiveCta = !isRegistrationClosed && !isSoldOut;
+                  const destination = event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page'
+                    ? event.cta_override_url
+                    : event.is_complex
+                      ? (event.slug ? `/session-events/${encodeURIComponent(event.slug)}` : createPageUrl('ComplexEventDetail') + '?id=' + event.id)
+                      : getEventUrl(event);
                   const handleRegisterClick = (interactionEvent) => {
                     trackEventClick(interactionEvent);
-                    if (event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page') {
-                      window.location.href = event.cta_override_url;
-                    } else {
-                      // Complex events have their own detail routes.
-                      window.location.href = event.is_complex
-                        ? (event.slug ? `/session-events/${encodeURIComponent(event.slug)}` : createPageUrl('ComplexEventDetail') + '?id=' + event.id)
-                        : getEventUrl(event);
-                    }
+                    window.location.href = destination;
                   };
 
                   if (!isActiveCta) {
@@ -1200,10 +1212,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                           ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
                           : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
                         disabled={isSoldOut}
-                        onClick={handleRegisterClick}
+                        asChild={navigationInNewTab && !isSoldOut}
+                        onClick={navigationInNewTab ? (!isSoldOut ? trackEventClick : undefined) : handleRegisterClick}
+                        onAuxClick={navigationInNewTab && !isSoldOut ? trackEventAuxClick : undefined}
                         data-testid={`button-register-event-${event.id}`}
                       >
-                        {buttonLabel}
+                        {navigationInNewTab && !isSoldOut ? (
+                          <a href={destination} {...newTabProps}>{buttonLabel}</a>
+                        ) : buttonLabel}
                       </Button>
                     );
                   }
@@ -1224,11 +1240,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
                   return (
                     <TenantCtaButton
+                      as={navigationInNewTab ? 'a' : 'button'}
+                      href={navigationInNewTab ? destination : undefined}
+                      {...(navigationInNewTab ? newTabProps : {})}
                       className="w-full"
                       fallbackClassName={isGradient
                         ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
                         : 'bg-blue-600'}
-                      onClick={handleRegisterClick}
+                      onClick={navigationInNewTab ? trackEventClick : handleRegisterClick}
+                      onAuxClick={navigationInNewTab ? trackEventAuxClick : undefined}
                       data-testid={`button-register-event-${event.id}`}
                     >
                       {buttonLabel}
