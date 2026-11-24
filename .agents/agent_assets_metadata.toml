@@ -2147,3 +2147,17 @@ mtime_ms = 1795167532901
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b270e715-4807-437e-b302-127f5414bbe5/3669f5a8-7890-4eb8-8473-fe1c9668abe0"
 storage_version_token = "1795167561667057"
 content_type = "text/csv"
+
+[[outputs]]
+id = "U0EmfR5GcVsGYlfwIMsoB"
+uri = "file://generated-artifacts/birmingham-newman/Birmingham-Newman-University-Activity-Findings.xlsx"
+type = "table"
+title = "Birmingham Newman University Activity Findings"
+description = "Private Excel workbook: 7 booking records, 5 resource-access records and totals for all 20 current primary-organisation members. All available history through 24 November 2026, 18:51:05 UTC."
+logical_id = "92117407-33e0-41d6-9253-68bd1a811249"
+content_hash = "sha256:f8a6d9c8230a6254a894803b340103ce348943eaeb64f714106c55b83a6169af"
+size = 16702
+mtime_ms = 1795546382061
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/92117407-33e0-41d6-9253-68bd1a811249/beea6579-3a79-4213-b8f3-4bbea2298988"
+storage_version_token = "1795546398726796"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
