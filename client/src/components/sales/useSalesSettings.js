@@ -11,7 +11,14 @@ export async function salesSettingsRequest(path, options = {}) {
     credentials: "include", ...options,
     headers: { "Content-Type": "application/json", ...options.headers },
   });
-  const data = await response.json();
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    const error = new Error(`The Sales service returned an unexpected response (HTTP ${response.status}). Reload and try again. If this continues, contact your administrator.`);
+    error.status = response.status;
+    throw error;
+  }
   if (!response.ok) {
     const details = Array.isArray(data?.details) ? data.details.map(item => typeof item === "string" ? item : item?.message).filter(Boolean).join(" ") : "";
     const error = new Error(details || data?.message || (typeof data?.error === "string" ? data.error : data?.error?.message) || "The Sales request failed. Please retry.");

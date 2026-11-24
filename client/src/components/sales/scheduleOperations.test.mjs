@@ -13,6 +13,16 @@ mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(compiled.outputFiles[0].text, `${process.cwd()}/schedule-operations-fixture.cjs`);
 const { salesSettingsRequest, scheduleCustomerMatch } = mod.exports;
 
+test("plain-text platform failures produce a useful HTTP error instead of a JSON syntax error", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response("The page could not be found", { status: 404 });
+  try {
+    await assert.rejects(salesSettingsRequest("/fixture-only"), error =>
+      error.status === 404 && /unexpected response \(HTTP 404\)/.test(error.message)
+      && !/Unexpected token/.test(error.message));
+  } finally { globalThis.fetch = original; }
+});
+
 test("Sales requests preserve structured candidate errors without treating details objects as arrays", async () => {
   const original = globalThis.fetch;
   const payload = { code: "AMBIGUOUS_CUSTOMER_MATCH", message: "Select the accounting customer", details: { candidates: [{ provider_customer_id: "customer-2", display_name: "Harbour Events", email: "billing@example.test" }] } };

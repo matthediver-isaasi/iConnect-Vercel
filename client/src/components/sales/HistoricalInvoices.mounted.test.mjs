@@ -97,10 +97,11 @@ test("records once with explicit confirmation, scoped headers and authoritative 
     await click(button(fixture.host, "Record existing"));
     const posts = calls.filter(call => call.method === "POST");
     assert.equal(posts.length, 1);
-    assert.equal(posts[0].path, "/api/sales/quotes/proposal-a/historical-invoices");
+    assert.equal(posts[0].path, "/api/sales/quotes/proposal-a?action=historical-invoices");
     assert.deepEqual(JSON.parse(posts[0].body), { versionId: "version-4", groupId: "deposit-id", invoiceNumber: "OLD-2023-187", expectedGroup: stages().stages[0].groupSnapshot });
     assert.deepEqual(posts[0].headers, { "X-Tenant-Id": "tenant-a" });
     assert.ok(calls.filter(call => call.method !== "POST").length >= 2);
+    assert.ok(calls.every(call => call.path === "/api/sales/quotes/proposal-a?action=historical-invoices"));
     assert.match(fixture.host.textContent, /Invoicing complete — existing invoice/);
     assert.match(fixture.host.textContent, /OLD-2023-187/);
     assert.match(fixture.host.textContent, /Payment not verified/);

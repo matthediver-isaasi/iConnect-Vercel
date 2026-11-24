@@ -20,3 +20,12 @@ Plain Vercel function deployment can resolve a catch-all filename for one segmen
 **Why:** Live public proposal OPTIONS probes reached the token route but not its send-code or acceptance action; the application handler was never invoked.
 
 **How to apply:** Probe with invalid synthetic tokens and safe methods, never real signing links. Cover original URLs and rewrite-forwarded parameters in tests; confirm the deployed rewrite separately after publishing.
+
+For internal Sales proposal actions, reuse the established single-ID URL with
+`?action=...`, not a second path segment.
+
+**Why:** Historical-invoice nested URLs returned Vercel's plain-text 404 before
+authentication; the equivalent query-action URL reached the protected handler.
+
+**How to apply:** Test both GET and POST URL construction and URL-only handler
+dispatch. Passing local component tests does not prove deployed route discovery.

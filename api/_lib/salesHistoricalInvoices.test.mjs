@@ -4,6 +4,20 @@ import { historicalInvoiceNumber, recordHistoricalInvoice } from './salesHistori
 import { createSalesQuotesHandler } from '../sales/quotes/[...path].js';
 
 const id = '123e4567-e89b-12d3-a456-426614174000';
+test('URL-only GET query action reaches historical stages rather than proposal detail', async () => {
+  const db = { from(table) {
+    assert.ok(['sales_quote', 'sales_quote_version'].includes(table));
+    return { select() { return this; }, eq() { return this; },
+      maybeSingle: async () => ({ data: { id, current_version: 1 } }),
+      order: async () => ({ data: [{ id, version_number: 1, billing_schedule: null }] }) };
+  } };
+  const handler = createSalesQuotesHandler({ db,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: id, tenantUserId: 'admin' }) });
+  const res = { setHeader() {}, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await handler({ method: 'GET', url: `/api/sales/quotes/${id}?action=historical-invoices` }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { versionId: id, stages: [] });
+});
 test('invoice numbers are required, bounded and preserve provider formatting', () => {
   assert.equal(historicalInvoiceNumber('  INV / 2025-001  '), 'INV / 2025-001');
   for (const value of [null, 123, '', ' ', 'x'.repeat(101), 'INV\n42']) {
@@ -41,7 +55,7 @@ test('Sales viewers cannot record invoices without Manage Accounting; actor and 
     hasFeatureAccess: async (_role, capability) => capability === 'sales.view' || permitted,
   });
   const response = () => ({ setHeader() {}, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
-  const req = { method: 'POST', url: `/api/sales/quotes/${id}/historical-invoices`,
+  const req = { method: 'POST', url: `/api/sales/quotes/${id}?action=historical-invoices`,
     body: { versionId: id, groupId: id, invoiceNumber: 'INV-42', expectedGroup: { id }, tenantId: 'spoof', actorId: 'spoof' } };
   const denied = response();
   await handler(req, denied);

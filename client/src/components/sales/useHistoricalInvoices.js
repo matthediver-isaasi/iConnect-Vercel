@@ -8,7 +8,7 @@ export function useHistoricalInvoices(quoteId, canManage, disabled, savedRevisio
   const { scopeKey, ready, tenant, generation } = useSalesSettingsScope();
   const qc = useQueryClient();
   const inFlight = useRef(false);
-  const endpoint = `/api/sales/quotes/${encodeURIComponent(quoteId || "")}/historical-invoices`;
+  const endpoint = `/api/sales/quotes/${encodeURIComponent(quoteId || "")}?action=historical-invoices`;
   const headers = tenant ? { "X-Tenant-Id": tenant } : {};
   const query = useQuery({
     queryKey: ["sales-historical-invoices", scopeKey, quoteId, savedRevision],

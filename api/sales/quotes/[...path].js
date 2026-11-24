@@ -51,7 +51,8 @@ export function createSalesQuotesHandler(dependencies = {}) {
     try {
       if (!db) throw new SalesHttpError(503, 'Database not configured');
       let [id, action] = pathParts(req);
-      action = action || req.query?.action || req.query?.resource;
+      action = action || new URL(req.url || '/', 'http://internal').searchParams.get('action')
+        || req.query?.action || req.query?.resource;
       const read = req.method === 'GET';
       const context = await getContext(req);
       const actor = await requireSalesContext(context,
