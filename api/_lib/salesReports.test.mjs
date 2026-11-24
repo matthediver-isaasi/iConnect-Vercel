@@ -58,6 +58,17 @@ const fixture = {
 
 const filters = (input = {}) => parseSalesReportQuery({ mode: 'report', report: 'sales', ...input });
 
+test('archiving excludes active pipeline totals without removing historical sales', () => {
+  const archived = { ...fixture, opportunities: fixture.opportunities.map(row => ({
+    ...row, archived_at: '2026-02-20T00:00:00Z',
+  })) };
+  const baseline = buildSalesReport(fixture, filters());
+  const result = buildSalesReport(archived, filters());
+  assert.deepEqual(buildSalesReport(archived, filters({report:'pipeline'})).details, []);
+  assert.deepEqual(result.summary.pipeline, []);
+  assert.deepEqual(result.details, baseline.details);
+});
+
 test('expected-close filters validate dates and ordering separately from report filters', () => {
   for (const query of [
     { expectedCloseFrom: '2026-02-30' }, { expectedCloseTo: '12/10/2026' },

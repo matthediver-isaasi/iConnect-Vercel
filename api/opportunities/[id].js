@@ -113,6 +113,30 @@ export function createOpportunityDetailHandler(dependencies = {}) {
       );
       const resource = req.query.resource;
 
+      const lifecycleAction = !resource && (req.method === 'DELETE' ? 'delete'
+        : req.method === 'PATCH' && ['archive', 'restore'].includes(req.body?.action) ? req.body.action : null);
+      if (lifecycleAction) {
+        if (!access.permissions.canManage) throw new OpportunityHttpError(403, 'Opportunity management access required');
+        assertExpectedVersion(access.opportunity, req.body?.expectedVersion);
+        if (lifecycleAction === 'delete' && req.body?.confirmDelete !== true) {
+          throw new OpportunityHttpError(400, 'Confirm permanent deletion before continuing');
+        }
+        const { data, error } = await db.rpc('set_opportunity_archive', {
+          p_tenant: context.tenantId, p_opportunity: id, p_version: req.body.expectedVersion,
+          p_action: lifecycleAction, p_actor_kind: access.principal.kind, p_actor_id: access.principal.id,
+        });
+        if (error?.code === 'PT409' || error?.code === '23503') {
+          throw new OpportunityHttpError(409, error.code === '23503'
+            ? 'Linked records prevent deletion. Keep this opportunity archived.' : error.message);
+        }
+        if (error?.code === 'P0002') throw new OpportunityHttpError(404, 'Opportunity not found');
+        if (['PGRST202', '42883'].includes(error?.code)) {
+          throw new OpportunityHttpError(503, 'Opportunity archiving requires the database update.');
+        }
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+
       if (req.method === 'GET') {
         if (resource === 'collaborator-options') {
           if (!access.permissions.canManage) throw new OpportunityHttpError(403, 'Opportunity management access required');
@@ -152,6 +176,9 @@ export function createOpportunityDetailHandler(dependencies = {}) {
 
       if (req.method === 'PATCH' && !resource) {
         if (!access.permissions.canEdit) throw new OpportunityHttpError(403, 'Opportunity edit access required');
+        if (access.opportunity.archived_at) {
+          throw new OpportunityHttpError(409, 'Restore this opportunity before editing it.');
+        }
         const body = req.body || {};
         assertExpectedVersion(access.opportunity, body.expectedVersion);
         if (body.action === 'silent-mode') {

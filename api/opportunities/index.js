@@ -32,6 +32,8 @@ export function createOpportunitiesHandler(dependencies = {}) {
         let query = db.from('opportunity').select(
           activeOnly ? '*,active_stage:opportunity_stage!inner(id)' : '*', { count: 'exact' })
           .eq('tenant_id', context.tenantId);
+        query = req.query.archived === 'true'
+          ? query.not('archived_at', 'is', null) : query.is('archived_at', null);
         // Apply before counting/paging, not to an already paginated client list.
         if (activeOnly) query = query.eq('active_stage.is_active', true)
           .eq('active_stage.is_won', false).eq('active_stage.is_lost', false);

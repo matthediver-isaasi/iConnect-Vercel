@@ -70,6 +70,41 @@ function handlerFor(principalId, db, isAdmin = false) {
   });
 }
 
+test('archive and restore require management and pass server-owned tenant and actor', async () => {
+  for (const action of ['archive', 'restore']) {
+    const owner = fakeDb('owner-a');
+    const res = response();
+    await handlerFor('owner-a', owner)({ method: 'PATCH', query: { id: 'opp-a' },
+      body: { action, expectedVersion: 2, tenantId: 'foreign' } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(owner.calls.find(c => c.rpc).args, {
+      p_tenant: 'tenant-a', p_opportunity: 'opp-a', p_version: 2,
+      p_action: action, p_actor_kind: 'member', p_actor_id: 'owner-a',
+    });
+    const collaborator = fakeDb('collab-a'), denied = response();
+    await handlerFor('collab-a', collaborator)({ method: 'PATCH', query: { id: 'opp-a' },
+      body: { action, expectedVersion: 2 } }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.ok(!collaborator.calls.some(c => c.rpc));
+  }
+});
+
+test('permanent delete requires explicit confirmation and current version', async () => {
+  for (const body of [{ expectedVersion: 2 }, { confirmDelete: true, expectedVersion: 1 }]) {
+    const db = fakeDb('owner-a'), res = response();
+    await handlerFor('owner-a', db)({ method: 'DELETE', query: { id: 'opp-a' }, body }, res);
+    assert.ok([400, 409].includes(res.statusCode));
+    assert.ok(!db.calls.some(c => c.rpc));
+  }
+  for (const code of ['PT409', '23503', 'PGRST202', 'P0002']) {
+    const db = fakeDb('owner-a'), res = response();
+    db.rpc = async () => ({ error: { code, message: 'Deletion blocked' } });
+    await handlerFor('owner-a', db)({ method: 'DELETE', query: { id: 'opp-a' },
+      body: { confirmDelete: true, expectedVersion: 2 } }, res);
+    assert.equal(res.statusCode, code === 'PGRST202' ? 503 : code === 'P0002' ? 404 : 409);
+  }
+});
+
 test('collaborator can patch ordinary fields with optimistic versioning', async () => {
   const db = fakeDb('collab-a');
   const res = response();

@@ -312,7 +312,7 @@ function ownerGroups(sales) {
 
 export function buildSalesReport(data = {}, filters) {
   const prepared = prepare(data, filters);
-  const open = prepared.opportunities.filter((row) => !row.stage?.is_won && !row.stage?.is_lost
+  const open = prepared.opportunities.filter((row) => !row.archived_at && !row.stage?.is_won && !row.stage?.is_lost
     && has(filters.owner, row.owner_id) && has(filters.organisation, row.organization_id)
     && has(filters.stage, row.stage_id) && has(filters.currency, row.currency)
     && dateInRange(row.expected_close_date, filters));
@@ -478,7 +478,7 @@ export function buildSalesDashboard(data, result, filters = {}) {
     date: row.created_at,
   }));
   const matchingCloses = result.details && result.summary.pipeline
-    ? stable(result.prepared.opportunities.filter((row) => !row.stage?.is_won && !row.stage?.is_lost
+    ? stable(result.prepared.opportunities.filter((row) => !row.archived_at && !row.stage?.is_won && !row.stage?.is_lost
       && row.expected_close_date
       && (!closeFrom || String(row.expected_close_date).slice(0, 10) >= closeFrom)
       && (!closeTo || String(row.expected_close_date).slice(0, 10) <= closeTo)).map((row) => ({

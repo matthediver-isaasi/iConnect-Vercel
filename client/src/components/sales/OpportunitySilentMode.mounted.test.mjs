@@ -211,6 +211,7 @@ test("pending saves disable edits and repeated submissions", async () => {
 
 test("detail mounts the isolated control with explicit edit permission and existing request/refresh functions", () => {
   const source = readFileSync("client/src/components/sales/OpportunitiesWorkspace.jsx", "utf8");
-  assert.match(source, /<OpportunitySilentMode key=\{id\} opportunity=\{opportunity\} canEdit=\{capabilities\.canEdit === true\} request=\{request\}/);
+  assert.match(source, /const canEditActiveOpportunity = canEdit === true && !archived/);
+  assert.match(source, /<OpportunitySilentMode key=\{id\} opportunity=\{opportunity\} canEdit=\{canEditActiveOpportunity\} request=\{request\}/);
   assert.match(source, /onReload=\{async \(\) => \{ const result = await detail\.refetch\(\)/);
 });

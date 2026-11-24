@@ -9,6 +9,8 @@ function fixture(admin = true, fail = false) {
     const q = {
       select(columns, options) { call.columns = columns; call.options = options; return q; },
       eq(key, value) { call.filters.push([key,value]); return q; },
+      is(key, value) { call.filters.push([key,value]); return q; },
+      not(key, operator, value) { call.filters.push([key,operator,value]); return q; },
       or(value) { call.or = value; return q; },
       ilike(key,value) { call.search = [key,value]; return q; },
       order(key,options) { call.orders.push([key,options]); return q; },
@@ -30,7 +32,7 @@ test('active opportunity search filters open stages before pagination with stabl
   assert.equal(f.res.statusCode,200);
   const q=f.calls.find(c=>c.table==='opportunity');
   assert.match(q.columns,/opportunity_stage!inner/);
-  assert.deepEqual(q.filters,[['tenant_id','tenant-a'],['active_stage.is_active',true],['active_stage.is_won',false],['active_stage.is_lost',false]]);
+  assert.deepEqual(q.filters,[['tenant_id','tenant-a'],['archived_at',null],['active_stage.is_active',true],['active_stage.is_won',false],['active_stage.is_lost',false]]);
   assert.deepEqual(q.search,['name','%Conference%']);
   assert.deepEqual(q.range,[25,49]);
   assert.deepEqual(q.orders.map(v=>v[0]),['updated_at','id']);
@@ -45,6 +47,15 @@ test('active selector preserves tenant and owner/collaborator scope', async () =
   assert.match(q.or,/id.in.\(shared\)/);
   const roles=f.calls.find(c=>c.table==='opportunity_collaborator');
   assert.ok(roles.filters.some(([key,value])=>key==='tenant_id'&&value==='tenant-a'));
+});
+test('archived list is filtered before counting and pagination', async () => {
+  const f = fixture(false);
+  await f.handler({method:'GET',query:{archived:'true',page:'2'}},f.res);
+  assert.equal(f.res.statusCode,200);
+  const q = f.calls.find(c => c.table === 'opportunity');
+  assert.ok(q.filters.some(f => f[0] === 'archived_at' && f[1] === 'is' && f[2] === null));
+  assert.match(q.or,/owner_id.eq.user-a/);
+  assert.deepEqual(q.range,[25,49]);
 });
 test('ordinary opportunity lists retain closed stages; lookup errors are not empty success', async () => {
   const normal=fixture();

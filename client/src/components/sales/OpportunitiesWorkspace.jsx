@@ -11,8 +11,8 @@ import { QuotesList } from "./QuotesWorkspace";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Columns3,
-  FileText, LayoutList, Loader2, Plus, RefreshCw, Search, Trash2,
+  AlertTriangle, Archive, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Columns3,
+  FileText, LayoutList, Loader2, Plus, RefreshCw, RotateCcw, Search, Trash2,
   Upload, UserRound,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
@@ -183,17 +183,19 @@ function OpportunitiesList({ destination }) {
   const [search, setSearch] = useState("");
   const [stageId, setStageId] = useState("all");
   const [mine, setMine] = useState(false);
+  const [archived, setArchived] = useState(false);
   const [view, setView] = useState(destination === "pipeline" ? "kanban" : "table");
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingLossMove, setPendingLossMove] = useState(null);
   const { memberInfo } = useMemberAccess();
   const debouncedSearch = useDelayed(search);
   useEffect(() => setView(destination === "pipeline" ? "kanban" : "table"), [destination]);
-  useEffect(() => setPage(1), [debouncedSearch, stageId, mine, view]);
+  useEffect(() => setPage(1), [debouncedSearch, stageId, mine, view, archived]);
   const query = useQuery({
-    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view],
+    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view, archived],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: view === "kanban" ? "100" : "20", search: debouncedSearch, view });
+      params.set("archived", String(archived));
       if (stageId !== "all") params.set("stageId", stageId);
       if (mine) { params.set("my", "true"); params.set("mine", "true"); }
       return request(`/api/opportunities?${params}`);
@@ -233,22 +235,26 @@ function OpportunitiesList({ destination }) {
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative min-w-[220px] flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" aria-label="Search opportunities" placeholder="Search opportunities…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
       <Select value={stageId} onValueChange={setStageId}><SelectTrigger className="w-44"><SelectValue placeholder="All stages" /></SelectTrigger><SelectContent><SelectItem value="all">All stages</SelectItem>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)}</SelectItem>)}</SelectContent></Select>
-      <Button variant={mine ? "default" : "outline"} onClick={() => setMine(!mine)}><UserRound className="mr-2 h-4 w-4" />My opportunities</Button>
-      <Button variant="outline" size="icon" aria-label={view === "table" ? "Kanban view" : "Table view"} onClick={() => setView(view === "table" ? "kanban" : "table")}>{view === "table" ? <Columns3 className="h-4 w-4" /> : <LayoutList className="h-4 w-4" />}</Button>
-      <SavedViews state={{ search, stageId, mine, view }} onApply={(saved) => { setSearch(saved.search || ""); setStageId(saved.stageId || "all"); setMine(Boolean(saved.mine)); setView(saved.view || "table"); }} tenantId={memberInfo?.tenant_id} memberId={memberInfo?.id} />
-      {destination !== "pipeline" && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />New</Button>}
+       <Button variant={mine ? "default" : "outline"} onClick={() => setMine(!mine)}><UserRound className="mr-2 h-4 w-4" />My opportunities</Button>
+       <div className="inline-flex rounded-md border p-1" aria-label="Opportunity lifecycle view">
+         <Button size="sm" variant={!archived ? "default" : "ghost"} aria-pressed={!archived} onClick={() => setArchived(false)}>Active</Button>
+         <Button size="sm" variant={archived ? "default" : "ghost"} aria-pressed={archived} onClick={() => { setArchived(true); setView("table"); }}>Archived</Button>
+       </div>
+       {!archived && <Button variant="outline" size="icon" aria-label={view === "table" ? "Kanban view" : "Table view"} onClick={() => setView(view === "table" ? "kanban" : "table")}>{view === "table" ? <Columns3 className="h-4 w-4" /> : <LayoutList className="h-4 w-4" />}</Button>}
+       <SavedViews state={{ search, stageId, mine, view, archived }} onApply={(saved) => { setSearch(saved.search || ""); setStageId(saved.stageId || "all"); setMine(Boolean(saved.mine)); setArchived(Boolean(saved.archived)); setView(saved.archived ? "table" : saved.view || "table"); }} tenantId={memberInfo?.tenant_id} memberId={memberInfo?.id} />
+       {destination !== "pipeline" && !archived && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />New</Button>}
     </div>
     {query.isLoading ? <div className="grid h-64 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
       : query.error ? <Card className="border-rose-200"><CardContent className="flex items-center justify-between p-5 text-rose-700"><span><AlertTriangle className="mr-2 inline h-4 w-4" />{query.error.message}</span><Button variant="outline" onClick={() => query.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button></CardContent></Card>
         : !opportunities.length ? <Card><CardContent className="p-10 text-center text-slate-500">No opportunities match these filters.</CardContent></Card>
-          : view === "kanban" ? <div className="flex snap-x gap-4 overflow-x-auto pb-4">{stages.map((stage) => {
+           : view === "kanban" && !archived ? <div className="flex snap-x gap-4 overflow-x-auto pb-4">{stages.map((stage) => {
             const rows = opportunities.filter((item) => (item.stage_id || item.stageId || idOf(item.stage)) === idOf(stage));
             return <section key={idOf(stage)} className="w-[290px] shrink-0 snap-start rounded-xl bg-slate-100 p-3" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const opportunity = opportunities.find((x) => idOf(x) === e.dataTransfer.getData("text/opportunity-id")); if (opportunity) (stage.is_lost || stage.isLost) ? setPendingLossMove({ opportunity, targetStageId: idOf(stage) }) : move.mutate({ opportunity, targetStageId: idOf(stage) }); }}>
               <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color || "#64748b" }} /><h3 className="font-semibold">{nameOf(stage)}</h3></div><Badge variant="secondary">{rows.length}</Badge></div>
               <div className="space-y-3">{rows.map((item) => <OpportunityCard key={idOf(item)} opportunity={item} stages={stages} />)}</div>
             </section>;
           })}</div>
-            : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Organisation</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3 text-right">Value</th><th className="px-4 py-3">Close date</th></tr></thead><tbody>{opportunities.map((item) => <tr key={idOf(item)} tabIndex={0} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => navigate(`/sales/opportunities/${idOf(item)}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/sales/opportunities/${idOf(item)}`); }}><td className="px-4 py-3 font-medium">{nameOf(item)}</td><td className="px-4 py-3">{nameOf(item.organization || { name: item.organization_name })}</td><td className="px-4 py-3"><Badge variant="outline">{nameOf(item.stage || stages.find((s) => idOf(s) === (item.stage_id || item.stageId)))}</Badge></td><td className="px-4 py-3">{nameOf(item.owner || { name: item.owner_name })}</td><td className="px-4 py-3 text-right font-medium">{money(opportunityValue(item), item.currency)}</td><td className="px-4 py-3">{date(item.expected_close_date || item.expectedCloseDate)}</td></tr>)}</tbody></table></div></Card>}
+             : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Organisation</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3 text-right">Value</th><th className="px-4 py-3">{archived ? "Archived" : "Close date"}</th></tr></thead><tbody>{opportunities.map((item) => <tr key={idOf(item)} tabIndex={0} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => navigate(`/sales/opportunities/${idOf(item)}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/sales/opportunities/${idOf(item)}`); }}><td className="px-4 py-3 font-medium">{nameOf(item)}</td><td className="px-4 py-3">{nameOf(item.organization || { name: item.organization_name })}</td><td className="px-4 py-3"><Badge variant="outline">{nameOf(item.stage || stages.find((s) => idOf(s) === (item.stage_id || item.stageId)))}</Badge></td><td className="px-4 py-3">{nameOf(item.owner || { name: item.owner_name })}</td><td className="px-4 py-3 text-right font-medium">{money(opportunityValue(item), item.currency)}</td><td className="px-4 py-3">{date(archived ? item.archived_at : item.expected_close_date || item.expectedCloseDate)}</td></tr>)}</tbody></table></div></Card>}
     {view === "table" && pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} opportunities · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
     <OpportunityDialog open={createOpen} onOpenChange={setCreateOpen} stages={stages} onCreated={(created) => { qc.invalidateQueries({ queryKey: ["opportunities"] }); if (idOf(created)) navigate(`/sales/opportunities/${idOf(created)}`); }} />
     <LossReasonDialog open={Boolean(pendingLossMove)} onOpenChange={(open) => !open && setPendingLossMove(null)} reasons={arr(lossReasonsQuery.data)} onConfirm={(lossReasonId) => { move.mutate({ ...pendingLossMove, lossReasonId }); setPendingLossMove(null); }} />
@@ -461,10 +467,15 @@ function OpportunityDetail() {
   const stageQuery = useQuery({ queryKey: ["opportunity-settings", "stages"], queryFn: () => request("/api/opportunity-settings?resource=stages") });
   const lossReasonsQuery = useQuery({ queryKey: ["opportunity-settings", "loss-reasons"], queryFn: () => request("/api/opportunity-settings?resource=loss-reasons") });
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
+  const [lifecycleDialog, setLifecycleDialog] = useState(null);
+  const [lifecycleError, setLifecycleError] = useState("");
   const normalizedDetail = normalizeOpportunityDetail(detail.data);
   const opportunity = normalizedDetail.opportunity;
   const capabilities = normalizedDetail.permissions;
   const { canEdit, canManage } = getOpportunityUiCapabilities(capabilities);
+  const archived = Boolean(opportunity?.archived_at);
+  const canManageLifecycle = canManage === true;
+  const canEditActiveOpportunity = canEdit === true && !archived;
   const [form, setForm] = useState(null);
   useEffect(() => { if (opportunity) setForm({
     name: opportunity.name || opportunity.title || "",
@@ -476,6 +487,34 @@ function OpportunityDetail() {
     stage_id: opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage) || "",
   }); }, [opportunity]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
+  const lifecycle = useMutation({
+    mutationFn: (action) => action === "delete"
+      ? request(`/api/opportunities/${id}`, { method: "DELETE", body: JSON.stringify({ expectedVersion: opportunity.version, confirmDelete: true }) })
+      : request(`/api/opportunities/${id}`, { method: "PATCH", body: JSON.stringify({ action, expectedVersion: opportunity.version }) }),
+    onSuccess: async (_, action) => {
+      setLifecycleDialog(null);
+      setLifecycleError("");
+      await Promise.all([
+        action === "delete" ? Promise.resolve() : qc.invalidateQueries({ queryKey: ["opportunity", id] }),
+        qc.invalidateQueries({ queryKey: ["opportunities"] }),
+        qc.invalidateQueries({ queryKey: ["sales-reports"] }),
+      ]);
+      if (action === "delete") {
+        qc.removeQueries({ queryKey: ["opportunity", id] });
+        toast({ title: "Opportunity permanently deleted" });
+        navigate("/sales/opportunities");
+      } else {
+        toast({ title: action === "archive" ? "Opportunity archived" : "Opportunity restored" });
+      }
+    },
+    onError: async (error) => {
+      setLifecycleError(error.message || "The lifecycle change could not be completed.");
+      if (error.status === 409 || error.status === 412) {
+        await detail.refetch();
+        qc.invalidateQueries({ queryKey: ["opportunities"] });
+      }
+    },
+  });
   const invoiceQuoteId = normalizedDetail.invoiceQuoteId;
   const invoiceAction = async (actionName, command = {}) => {
     if (!invoiceQuoteId) return Promise.reject(new Error(`The accepted ${naming.singular} for this opportunity is unavailable.`));
@@ -508,11 +547,22 @@ function OpportunityDetail() {
   const currentStage = stages.find((stage) => idOf(stage) === (opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage)));
   const isConfirmed = ["confirmed", "won"].includes(String(opportunity.status || "").toLowerCase())
     || Boolean(opportunity.isConfirmed || opportunity.is_confirmed || opportunity.stage?.is_won || opportunity.stage?.isWon || currentStage?.is_won || currentStage?.isWon);
+  const confirmLifecycle = () => {
+    if (!lifecycleDialog || lifecycle.isPending) return;
+    lifecycle.mutate(lifecycleDialog);
+  };
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex items-start gap-3"><Button variant="outline" size="icon" aria-label="Back to opportunities" onClick={() => navigate("/sales/opportunities")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold text-slate-950">{nameOf(opportunity)}</h2><Badge className="capitalize" variant="outline">{opportunity.priority || "medium"}</Badge></div><div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-500"><span>{nameOf(opportunity.organization || { name: opportunity.organization_name })}</span><span>{money(opportunityValue(opportunity), opportunity.currency)}</span><span>Close {date(opportunity.expected_close_date || opportunity.expectedCloseDate)}</span></div></div></div>
-      <div className="flex flex-wrap gap-2"><Button asChild><Link to={`${quotePath(naming, "new")}?opportunityId=${encodeURIComponent(id)}`}><FileText className="mr-2 h-4 w-4" />Create {naming.singular}</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
+      <div className="flex flex-wrap gap-2">
+        {canManageLifecycle && (archived
+          ? <><Button variant="outline" disabled={lifecycle.isPending} onClick={() => { setLifecycleError(""); lifecycle.mutate("restore"); }}><RotateCcw className="mr-2 h-4 w-4" />Restore</Button><Button variant="destructive" disabled={lifecycle.isPending} onClick={() => { setLifecycleError(""); setLifecycleDialog("delete"); }}><Trash2 className="mr-2 h-4 w-4" />Delete permanently</Button></>
+          : <Button variant="outline" disabled={lifecycle.isPending} onClick={() => { setLifecycleError(""); setLifecycleDialog("archive"); }}><Archive className="mr-2 h-4 w-4" />Archive</Button>)}
+        <Button asChild><Link to={`${quotePath(naming, "new")}?opportunityId=${encodeURIComponent(id)}`}><FileText className="mr-2 h-4 w-4" />Create {naming.singular}</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}
+      </div>
     </div>
+    {archived && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Archived opportunity.</strong> This record is outside the active pipeline. Financial and project records remain available.</div>}
+    {lifecycleError && !lifecycleDialog && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{lifecycleError}{(lifecycle.error?.status === 409 || lifecycle.error?.status === 412) && " The latest opportunity has been reloaded; review its current status and try again."}</p>}
     {isConfirmed && <InvoiceStatusPanel saleId={normalizedDetail.saleId} scheduledBilling={normalizedDetail.scheduledBilling} schedules={normalizedDetail.schedules} invoice={normalizedDetail.invoice} invoices={normalizedDetail.invoices} activeProvider={normalizedDetail.activeProvider} permissions={capabilities} error={update.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={normalizedDetail.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     <Tabs value={searchParams.get("tab") || "overview"} onValueChange={(tab) => { const params = new URLSearchParams(searchParams); params.set("tab", tab); setSearchParams(params, { replace: true }); }}>
       <TabsList className="h-auto max-w-full flex-wrap justify-start">
@@ -520,28 +570,42 @@ function OpportunityDetail() {
       </TabsList>
       <TabsContent value="overview" className="space-y-4">
         <Card><CardHeader><CardTitle>Opportunity details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2"><Label>Name</Label><Input disabled={!canEdit} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-          <div><Label>Stage</Label><Select disabled={!canEdit || !stages.length} value={form.stage_id} onValueChange={(stage_id) => setForm({ ...form, stage_id })}><SelectTrigger><SelectValue placeholder={nameOf(opportunity.stage)} /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)} ({stage.probability ?? 0}%)</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Priority</Label><Select disabled={!canEdit} value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Value</Label><Input disabled={!canEdit} type="number" min="0" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
-          <div><Label>Expected close</Label><Input disabled={!canEdit} type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} /></div>
-          <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={!canEdit} rows={5} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-          {canEdit && <div className="sm:col-span-2 flex justify-end"><Button disabled={!form.name.trim() || update.isPending} onClick={() => { const target = stages.find((stage) => idOf(stage) === form.stage_id); if ((target?.is_lost || target?.isLost) && form.stage_id !== (opportunity.stage_id || opportunity.stageId)) setLossDialogOpen(true); else update.mutate(); }}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save changes</Button></div>}
+          <div className="sm:col-span-2"><Label>Name</Label><Input disabled={!canEditActiveOpportunity} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><Label>Stage</Label><Select disabled={!canEditActiveOpportunity || !stages.length} value={form.stage_id} onValueChange={(stage_id) => setForm({ ...form, stage_id })}><SelectTrigger><SelectValue placeholder={nameOf(opportunity.stage)} /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)} ({stage.probability ?? 0}%)</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Priority</Label><Select disabled={!canEditActiveOpportunity} value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Value</Label><Input disabled={!canEditActiveOpportunity} type="number" min="0" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
+          <div><Label>Expected close</Label><Input disabled={!canEditActiveOpportunity} type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} /></div>
+          <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={!canEditActiveOpportunity} rows={5} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+          {canEditActiveOpportunity && <div className="sm:col-span-2 flex justify-end"><Button disabled={!form.name.trim() || update.isPending} onClick={() => { const target = stages.find((stage) => idOf(stage) === form.stage_id); if ((target?.is_lost || target?.isLost) && form.stage_id !== (opportunity.stage_id || opportunity.stageId)) setLossDialogOpen(true); else update.mutate(); }}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save changes</Button></div>}
         </CardContent></Card>
-        <OpportunitySilentMode key={id} opportunity={opportunity} canEdit={capabilities.canEdit === true} request={request}
+        <OpportunitySilentMode key={id} opportunity={opportunity} canEdit={canEditActiveOpportunity} request={request}
           onChanged={() => { refresh(); qc.invalidateQueries({ queryKey: ["opportunities"] }); }}
           onReload={async () => { const result = await detail.refetch(); if (result.error) throw result.error; return normalizeOpportunityDetail(result.data).opportunity; }} />
-        <div><h3 className="mb-2 text-lg font-semibold">Collaborators</h3><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="collaborators" items={collections.collaborators} canEdit={canManage} onChanged={refresh} /></div>
+        <div><h3 className="mb-2 text-lg font-semibold">Collaborators</h3><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="collaborators" items={collections.collaborators} canEdit={canManage && !archived} onChanged={refresh} /></div>
       </TabsContent>
-      <TabsContent value="contacts"><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="contacts" items={collections.contacts} canEdit={canEdit} onChanged={refresh} /></TabsContent>
-      <TabsContent value="notes"><CollectionPanel opportunityId={id} type="notes" items={collections.notes} canEdit={canEdit} onChanged={refresh} /></TabsContent>
-      <TabsContent value="documents"><DocumentsPanel opportunityId={id} items={collections.documents} canEdit={canEdit} onChanged={refresh} /></TabsContent>
-      <TabsContent value="tasks"><OpportunityProjectTasksPanel opportunityId={id} standardTasks={<CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEdit} onChanged={refresh} />} /></TabsContent>
+      <TabsContent value="contacts"><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="contacts" items={collections.contacts} canEdit={canEditActiveOpportunity} onChanged={refresh} /></TabsContent>
+      <TabsContent value="notes"><CollectionPanel opportunityId={id} type="notes" items={collections.notes} canEdit={canEditActiveOpportunity} onChanged={refresh} /></TabsContent>
+      <TabsContent value="documents"><DocumentsPanel opportunityId={id} items={collections.documents} canEdit={canEditActiveOpportunity} onChanged={refresh} /></TabsContent>
+      <TabsContent value="tasks"><OpportunityProjectTasksPanel opportunityId={id} standardTasks={<CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEditActiveOpportunity} onChanged={refresh} />} /></TabsContent>
       <TabsContent value="activity"><div className="grid gap-4 lg:grid-cols-2"><Timeline title="Activity" items={collections.activity} /><Timeline title="Stage history" items={collections.stageHistory} /></div></TabsContent>
       <TabsContent value="quotes"><QuotesList key={id} opportunityId={id} /></TabsContent>
       <TabsContent value="allocations"><OpportunityAllocations opportunityId={id} /></TabsContent>
     </Tabs>
     <LossReasonDialog open={lossDialogOpen} onOpenChange={setLossDialogOpen} reasons={arr(lossReasonsQuery.data)} onConfirm={(lossReasonId) => { setLossDialogOpen(false); update.mutate(lossReasonId); }} />
+    <Dialog open={Boolean(lifecycleDialog)} onOpenChange={(open) => { if (!open && !lifecycle.isPending) { setLifecycleDialog(null); setLifecycleError(""); } }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{lifecycleDialog === "delete" ? "Permanently delete this opportunity?" : "Archive this opportunity?"}</DialogTitle>
+          <DialogDescription>
+            {lifecycleDialog === "delete"
+              ? "This permanently removes the opportunity and its notes, tasks, contacts and activity. Deletion is blocked when links to proposals, commercial records or documents remain."
+              : "This removes the opportunity from the active pipeline. Archiving does not cancel invoices, payments or proposals."}
+          </DialogDescription>
+        </DialogHeader>
+        {lifecycleError && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{lifecycleError}{(lifecycle.error?.status === 409 || lifecycle.error?.status === 412) && " The latest opportunity has been reloaded; review its current status and try again."}</p>}
+        <DialogFooter><Button variant="outline" disabled={lifecycle.isPending} onClick={() => setLifecycleDialog(null)}>Cancel</Button><Button variant={lifecycleDialog === "delete" ? "destructive" : "default"} disabled={lifecycle.isPending || !canManageLifecycle || (lifecycleDialog === "delete" && !archived)} onClick={confirmLifecycle}>{lifecycle.isPending ? "Working…" : lifecycleDialog === "delete" ? "Delete permanently" : "Archive opportunity"}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
