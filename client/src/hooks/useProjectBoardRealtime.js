@@ -59,6 +59,8 @@ export function useProjectBoardRealtime(boardId) {
         (payload) => {
           console.log('[useProjectBoardRealtime] Card change detected:', payload.eventType, payload.new?.id || payload.old?.id);
           queryClient.invalidateQueries({ queryKey: ['project-board', boardIdRef.current] });
+          const cardId = payload.new?.id || payload.old?.id;
+          if (cardId) queryClient.invalidateQueries({ queryKey: ['card-detail', cardId], exact: true });
         }
       )
       .on(

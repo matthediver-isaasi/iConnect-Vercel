@@ -40,7 +40,11 @@ function setup(patch = {}) {
         },
       }; return q;
     },
-    async rpc(name, args) { state.calls.push({ name, args }); return { data: { id, content: args.p_content, images: [{ attachment: { id } }] }, error: state.rpcError || null }; },
+    async rpc(name, args) {
+      state.calls.push({ name, args });
+      const comment = { id, content: args.p_content || '', images: [{ attachment: { id } }] };
+      return { data: { comment, comments: [comment], discussionVersion: 1 }, error: state.rpcError || null };
+    },
   };
 }
 async function request(body, method = 'POST') {
@@ -54,16 +58,17 @@ test('image-only submission delegates atomic ownership validation and returns im
   assert.equal(res.statusCode, 201);
   assert.equal(res.body.comment.images[0].attachment.id, id);
   assert.deepEqual(state.calls.find(call => call.name)?.args, {
-    p_card_id: 'card', p_actor_id: 'actor', p_content: '', p_recipient_ids: [], p_attachment_ids: [id], p_request_id: id,
+    p_card_id: 'card', p_actor_id: 'actor', p_operation: 'create', p_rich_content: null,
+    p_content: '', p_recipient_ids: [], p_attachment_ids: [id], p_request_id: id, p_reply_to_id: null,
   });
-  assert.equal(state.calls.find(call => call.name)?.name, 'create_project_comment_with_images');
+  assert.equal(state.calls.find(call => call.name)?.name, 'write_project_discussion');
   await request(null, 'GET');
-  assert.match(state.calls.find(call => call.table === 'project_card_comment').fields, /images:project_comment_image/);
+  assert.ok(state.calls.some(call => call.name === 'read_project_discussion'));
 });
 test('legacy text comments remain supported and invalid image payloads never call the RPC', async () => {
   setup();
   assert.equal((await request({ content: 'Hello' })).statusCode, 201);
-  assert.equal(state.calls.find(call => call.name).name, 'create_project_comment_with_mentions');
+  assert.equal(state.calls.find(call => call.name).name, 'write_project_discussion');
   for (const payload of [
     { content: '' }, { content: '', attachmentIds: [id] },
     { content: '', attachmentIds: ['https://external.invalid/image.png'], requestId: id },
@@ -72,6 +77,56 @@ test('legacy text comments remain supported and invalid image payloads never cal
     setup(); assert.equal((await request(payload)).statusCode, 400);
     assert.ok(!state.calls.some(call => call.name));
   }
+});
+test('author operations and explicit reactions derive actor from session, never the request', async () => {
+  for (const [method, body, operation] of [
+    ['PATCH', { commentId: id, content: 'Edited', actorId: 'forged' }, 'edit'],
+    ['DELETE', { commentId: id, actorId: 'forged' }, 'delete'],
+    ['PUT', { commentId: id, emoji: '❤️', actorId: 'forged' }, 'react'],
+    ['PUT', { commentId: id, emoji: null }, 'react'],
+  ]) {
+    setup();
+    const res = await request(body, method);
+    assert.equal(res.statusCode, 200);
+    const call = state.calls.find(call => call.name === 'write_project_discussion');
+    assert.equal(call.args.p_actor_id, 'actor');
+    assert.equal(call.args.p_operation, operation);
+    assert.equal(call.args.p_comment_id, id);
+  }
+  for (const method of ['POST', 'PATCH', 'DELETE', 'PUT']) {
+    for (const role of ['viewer', null]) {
+      setup({ role });
+      assert.equal((await request({ commentId: id, content: 'No', emoji: '👍' }, method)).statusCode, 403);
+      assert.ok(!state.calls.some(call => call.name));
+    }
+  }
+});
+test('rich comments derive projection and mentions, bind reply identity, and reject unsafe mutations', async () => {
+  setup();
+  const richContent = { version: 1, doc: { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Hello ', marks: [{ type: 'bold' }] },
+    { type: 'mention', attrs: { id, label: 'Current Member' } },
+  ] }] } };
+  assert.equal((await request({ content: 'forged', richContent, requestId: id, replyToCommentId: id })).statusCode, 201);
+  assert.deepEqual(state.calls.find(call => call.name).args, {
+    p_card_id: 'card', p_actor_id: 'actor', p_operation: 'create', p_content: 'Hello @Current Member',
+    p_rich_content: richContent, p_recipient_ids: [id], p_attachment_ids: [], p_request_id: id, p_reply_to_id: id,
+  });
+  for (const [method, body] of [
+    ['POST', { content: 'Reply', replyToCommentId: id }],
+    ['POST', { richContent, requestId: 'invalid' }],
+    ['PATCH', { commentId: 'invalid', content: 'Changed' }],
+    ['PUT', { commentId: id, emoji: '🦆' }],
+    ['PUT', { commentId: id }],
+    ['DELETE', { commentId: 'invalid' }],
+    ['POST', { richContent: { version: 1, doc: { type: 'doc', content: [] } }, requestId: id }],
+  ]) {
+    setup();
+    assert.equal((await request(body, method)).statusCode, 400);
+    assert.ok(!state.calls.some(call => call.name));
+  }
+  setup({ rpcError: { code: 'PT409', message: 'This comment was already deleted' } });
+  assert.equal((await request({ content: 'Retry', requestId: id })).statusCode, 409);
 });
 test('unauthenticated, viewer, nonmember and linked-project denial cannot create comments', async () => {
   for (const patch of [{ session: false }, { role: 'viewer' }, { role: null }, { linkedAllowed: false }]) {

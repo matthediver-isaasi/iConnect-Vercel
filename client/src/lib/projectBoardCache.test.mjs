@@ -1,8 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { publishCreatedProjectCard, publishProjectCardUpdate, publishProjectCardComment, publishProjectCardAssignee } from './projectBoardCache.js';
+import { publishCreatedProjectCard, publishProjectCardUpdate, publishProjectCardComment, publishProjectCardAssignee, publishProjectDiscussion, orderProjectDiscussion } from './projectBoardCache.js';
 import { refreshSalesProjects } from '../components/sales/useSalesProjectTasks.js';
+test('discussion snapshots fence stale writes, publish promotion and preserve task drafts/attachments', async () => {
+  const client = new QueryClient();
+  const detail = ['card-detail', 'card'], board = ['project-board', 'board'];
+  const card = { id: 'card', title: 'Saved title', project_card_attachment: [{ id: 'image' }], project_card_label: [{ label_id: 'label' }] };
+  client.setQueryData(detail, { card, attachments: ['image'], activity: ['history'], comments: [], discussionVersion: 0 });
+  client.setQueryData(board, { cards: [card, { id: 'other' }] });
+  const comments = [
+    { id: 'root', created_at: '2026-01-01', content: 'Old root' },
+    { id: 'reply', created_at: '2026-01-02', parent_comment_id: 'root', content: 'Reply' },
+    { id: 'newest', created_at: '2026-01-03', content: 'New root' },
+  ];
+  await publishProjectDiscussion(client, 'board', 'card', { comments, discussionVersion: 1 });
+  assert.deepEqual(client.getQueryData(detail).comments.map(c => c.id), ['newest', 'root', 'reply']);
+  assert.equal(client.getQueryData(board).cards[0].project_card_comment[0].count, 3);
+  const promoted = [{ ...comments[1], parent_comment_id: null, reactions: [{ emoji: '❤️', count: 1, selected: true }] }, comments[2]];
+  await publishProjectDiscussion(client, 'board', 'card', { comments: promoted, discussionVersion: 3 });
+  await publishProjectDiscussion(client, 'board', 'card', { comments, discussionVersion: 2 });
+  assert.equal(client.getQueryData(detail).discussionVersion, 3);
+  assert.equal(client.getQueryData(detail).comments.length, 2);
+  assert.equal(client.getQueryData(board).cards[0].project_card_comment[0].count, 2);
+  assert.deepEqual(client.getQueryData(detail).attachments, ['image']);
+  assert.deepEqual(client.getQueryData(detail).activity, ['history']);
+  assert.equal(client.getQueryData(detail).card.title, 'Saved title');
+  assert.deepEqual(client.getQueryData(board).cards[1], { id: 'other' });
+  await assert.rejects(publishProjectDiscussion(client, 'board', 'card', { comment: {} }), /Incomplete discussion/);
+  client.clear();
+});
+test('discussion tie breaks are deterministic; replies never bump a root', () => {
+  const rows = [
+    { id: 'a', created_at: '2026-01-01' }, { id: 'b', created_at: '2026-01-01' },
+    { id: 'd', parent_comment_id: 'a', created_at: '2027-01-01' },
+    { id: 'c', parent_comment_id: 'a', created_at: '2027-01-01' },
+  ];
+  assert.deepEqual(orderProjectDiscussion(rows).map(r => r.id), ['b', 'a', 'c', 'd']);
+});
 test('assignment deltas cancel stale reads, preserve relationships and never await refreshes', async () => {
   const client = new QueryClient();
   const card = { id: 'card', title: 'Saved', project_card_label: [{ label_id: 'label' }],

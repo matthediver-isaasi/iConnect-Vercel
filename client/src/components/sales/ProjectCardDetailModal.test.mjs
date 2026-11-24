@@ -16,6 +16,10 @@ Object.assign(globalThis, {
   Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver,
   getComputedStyle: dom.window.getComputedStyle, IS_REACT_ACT_ENVIRONMENT: true,
 });
+dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} });
+dom.window.HTMLElement.prototype.getClientRects = () => [{ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }];
+dom.window.Range.prototype.getBoundingClientRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+dom.window.Range.prototype.getClientRects = dom.window.HTMLElement.prototype.getClientRects;
 const React = (await import("react")).default;
 globalThis.React = React;
 const { act } = React;
@@ -77,7 +81,11 @@ async function settle() { await act(async () => { await new Promise((resolve) =>
 async function mount(overrides = {}, fixture = {}) {
   globalThis.cardMentionErrors = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
-  const detail = { card: { ...fixtureCard, cover_image: "live-cover" }, comments: [{ id: "comment-a", identity_id: "member-a", content: "Ready for review", created_at: "2026-10-09T12:30:00Z" }], activity: [{ id: "activity-a", identity_id: "member-a", action_type: "moved", action_data: { to_list: "list-a" }, created_at: "2026-10-09T12:30:00Z" }], attachments: [] };
+  const detail = { card: { ...fixtureCard, cover_image: "live-cover" }, discussionVersion: 0,
+    discussionCanWrite: fixture.discussionCanWrite ?? true,
+    comments: [{ id: "comment-a", parent_comment_id: null, identity_id: "member-a", author: { first_name: "Maya", last_name: "Stone" },
+      can_edit: true, content: "Ready for review", created_at: "2026-10-09T12:30:00Z" }],
+    activity: [{ id: "activity-a", identity_id: "member-a", action_type: "moved", action_data: { to_list: "list-a" }, created_at: "2026-10-09T12:30:00Z" }], attachments: [] };
   const calls = [], updates = [];
   const props = {
     card: fixtureCard, open: true, onOpenChange: () => {}, boardId: "board-a", labels: fixtureLabels,
@@ -134,6 +142,17 @@ async function click(container, selector) {
 }
 async function type(container, selector, value) {
   const input = container.querySelector(selector); assert.ok(input, selector);
+  if (input.getAttribute("contenteditable") === "true") {
+    const escape = (text) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    const paragraphs = value.split("\n").map((line) => `<p>${escape(line)}</p>`).join("");
+    await act(async () => {
+      input.focus();
+      input.innerHTML = paragraphs;
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return;
+  }
   const prototype = input.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
   await act(async () => {
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
@@ -164,7 +183,7 @@ test("wide two-pane modal resolves raw comment/activity identities and uses the 
 
 test("assignments publish before delayed refreshes, serialize rapid clicks and preserve drafts on failure", async () => {
   let finishWrite, refreshRead, fail = false, holdReads = false;
-  const app = await mount({}, { respond: (url, options) => {
+  const app = await mount({}, { respond: (url, options, detail) => {
     if (url.endsWith('/assignees')) return new Promise(resolve => {
       finishWrite = () => resolve(response(fail ? { error: 'Assignment denied' }
         : options.method === 'POST' ? { assignee: { identity_id: 'member-a' } } : { success: true }, fail ? 403 : 200));
@@ -219,15 +238,18 @@ test("image drafts and late uploads stay with their originating card, including 
   URL.createObjectURL = () => 'blob:fixture'; URL.revokeObjectURL = () => {};
   let finishUpload;
   const posted = [];
-  const attachment = { id: 'image', name: 'screenshot.png', file_type: 'image/png', url: 'https://fixture.invalid/image.png' };
-  const app = await mount({}, { respond: (url, options) => {
+   const attachment = { id: '0d0a1cc0-1c89-4c62-9242-1f928ac0d066', name: 'screenshot.png', file_type: 'image/png', url: 'https://fixture.invalid/image.png' };
+  const app = await mount({}, { respond: (url, options, detail) => {
     if (url === '/api/projects/cards/card-b') return response({ card: { ...fixtureCard, id: 'card-b' }, comments: [] });
     if (url.endsWith('/attachments')) return response({ signedUrl: 'https://fixture.invalid/storage', uploadToken: 'token' });
     if (url === 'https://fixture.invalid/storage') return new Promise(resolve => { finishUpload = resolve; });
     if (url.endsWith('/attachments/confirm')) return response({ attachment });
     if (url.endsWith('/comments')) {
       posted.push({ url, body: JSON.parse(options.body) });
-      return response({ comment: { id: 'image-comment', content: '', images: [{ attachment }] } });
+      const comment = { id: 'image-comment', content: '', images: [{ attachment }] };
+      detail.comments = [comment, ...detail.comments];
+      detail.discussionVersion++;
+      return response({ comments: detail.comments, comment, discussionVersion: detail.discussionVersion });
     }
   } });
   try {
@@ -248,13 +270,13 @@ test("image drafts and late uploads stay with their originating card, including 
     await act(async () => finishUpload(response({}))); await settle();
     assert.equal(posted.length, 1);
     assert.equal(posted[0].url, '/api/projects/cards/card-a/comments');
-    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').value, 'Other card draft');
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').textContent, 'Other card draft');
     assert.equal(app.container.querySelector('aside img[alt="screenshot.png"]'), null);
     app.props.card = fixtureCard; await app.render();
-    assert.equal(app.container.querySelector('[data-testid="button-add-comment"]').textContent, 'Submit');
+    assert.equal(app.container.querySelector('[data-testid="button-add-comment"]').textContent, 'Submit', app.container.textContent);
     assert.equal(app.container.querySelector('img[alt="Preview screenshot.png"]'), null);
     app.props.card = { ...fixtureCard, id: 'card-b' }; await app.render();
-    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').value, 'Other card draft');
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').textContent, 'Other card draft');
   } finally {
     await app.close(); URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
   }
@@ -675,5 +697,37 @@ test("retry from an old opening is inert after closing or switching cards", asyn
     app.props.open = true; await app.render();
     await act(async () => retry());
     assert.equal(readCalls(app).length, 1);
+  } finally { await app.close(); }
+});
+
+test("current detail write permission gates the composer even when board props allow editing", async () => {
+  const app = await mount({}, { discussionCanWrite: false });
+  try {
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]'), null);
+    assert.equal(app.container.querySelector('[aria-label="Edit comment"]'), null);
+    assert.equal(app.container.querySelector('button[aria-label="Add reaction"]'), null);
+    assert.equal([...app.container.querySelectorAll("button")].some((button) => button.textContent.includes("Reply")), false);
+    assert.match(app.container.textContent, /Ready for review/);
+  } finally { await app.close(); }
+});
+
+test("a revoked-access detail error denies discussion controls despite cached write permission", async () => {
+  const app = await mount({}, {
+    respond: (url, options) => url === "/api/projects/cards/card-a" && (options.method || "GET") === "GET"
+      ? response({ error: "No longer allowed to write" }, 403) : undefined,
+    seedDetail: {
+      card: fixtureCard, discussionVersion: 3, discussionCanWrite: true,
+      comments: [{ id: "comment-a", parent_comment_id: null, identity_id: "member-a", can_edit: true,
+        author: { first_name: "Maya", last_name: "Stone" }, content: "Cached discussion" }],
+      activity: [], attachments: [],
+    },
+  });
+  try {
+    await until(() => app.client.getQueryState(["card-detail", "card-a"])?.status === "error");
+    await settle();
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]'), null);
+    assert.equal(app.container.querySelector('[aria-label="Edit comment"]'), null);
+    assert.equal(app.container.querySelector('button[aria-label="Add reaction"]'), null);
+    assert.match(app.container.textContent, /Cached discussion/);
   } finally { await app.close(); }
 });

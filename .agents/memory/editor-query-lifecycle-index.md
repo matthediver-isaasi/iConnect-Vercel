@@ -12,3 +12,4 @@ description: Index of discovery, pending-query, and saved-metadata lifecycle con
 - [Saved member layout authority](saved-member-layout-authority.md) — default mandate fields must not override deliberate saved-layout removals.
 - [Post-save freshness](editor-postsave-freshness.md) — wait for fresh data before re-hydrating; stale cached drafts can blank saved fields.
 - [Destructive dialog defaults](destructive-dialog-defaults.md) — background refresh must never replace an explicit preservation choice with destructive disposal.
+- [TipTap editable-state updates](tiptap-editable-update.md) — busy toggles emit document updates by default, which can erase errors and rotate retry identities.

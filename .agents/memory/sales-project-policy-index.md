@@ -5,6 +5,7 @@ description: Task modes, collaborator scope, board responsiveness and dashboard 
 - [Sales/Projects task modes](sales-project-task-modes.md) — per-opportunity task choice, forward-only acceptance automation, and board-access boundaries.
 - [Sales collaborator scope](sales-collaborator-scope.md) — collaborators belong to the tenant's primary organisation; customer contacts are separate.
 - [Project board responsiveness](project-board-responsiveness.md) — saved changes must be visible when completion feedback appears.
+- [Project discussion policy](project-discussion-policy.md) — preserve surviving replies; explicit mentions only, with no administrator author override.
 - [Sales dashboard dates](sales-dashboard-dates.md) — day-first dates and expected-close filter scope.
 - [Grouped billing](sales-grouped-billing-policy.md) — issue timing and time to pay are separate; deposits allocate existing bundle price, with no retroactive or unapproved live invoicing.
 - [Unified Sales agreement](sales-unified-agreement.md) — requested quote + rich legal content + two-party signatures; investigation is not implementation approval.

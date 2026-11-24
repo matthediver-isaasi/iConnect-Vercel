@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
 import { guardSalesLinkedProject } from '../../_lib/salesLinkedProjectGuard.js';
+import { readProjectDiscussion } from '../../_lib/projectDiscussion.js';
 
 async function getBoardMembershipForCard(cardId, identityId) {
   const { data: card } = await supabase
@@ -73,12 +74,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Card not found' });
       }
 
-      const { data: comments, error: commentsError } = await supabase
-        .from('project_card_comment')
-        .select('*, images:project_comment_image(attachment:project_card_attachment(id,name,url,file_type,file_size))')
-        .eq('card_id', cardId)
-        .order('created_at', { ascending: true });
-      if (commentsError) return res.status(500).json({ error: 'Failed to load comments and images' });
+      const discussion = await readProjectDiscussion(supabase, cardId, session.identityId);
 
       const { data: attachments } = await supabase
         .from('project_card_attachment')
@@ -95,7 +91,7 @@ export default async function handler(req, res) {
 
       return res.json({
         card,
-        comments: comments || [],
+        ...discussion,
         attachments: attachments || [],
         activity: activity || []
       });

@@ -18,10 +18,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import ActivityComposer from "@/components/projects/ActivityComposer";
+import DiscussionThread from "@/components/projects/DiscussionThread";
 import ProjectDescription from "@/components/projects/ProjectDescription";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
 import { TaskError } from "./SalesProjectTaskStates";
 import { useProjectCardCompletion } from "@/components/projects/useProjectCardCompletion";
+import { mergeDiscussionDetails } from "@/components/projects/discussionFormat.mjs";
 
 const LABEL_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f43f5e", "#78716c"];
 const editableValues = (card) => ({
@@ -87,6 +89,7 @@ export default function CardDetailModal({
     queryKey: ["card-detail", card?.id],
     queryFn: ({ signal }) => projectTaskRequest(`/api/projects/cards/${card.id}`, { signal }),
     enabled: Boolean(card?.id && open), refetchOnWindowFocus: true,
+    structuralSharing: mergeDiscussionDetails,
   });
   const mentionOpening = useRef(null);
   const mentionsMounted = useRef(false);
@@ -253,6 +256,11 @@ export default function CardDetailModal({
   const lookupLabel = (id) => Object.hasOwn(labelOverrides, id)
     ? labelOverrides[id] : boardLabels.find((label) => label.id === id) || getLabelById(id);
   const labelBusy = saveLabel.isPending || deleteLabel.isPending;
+  // A failed background refresh is not a permission revocation. Keep drafts and
+  // retry controls mounted through transient network/server failures; explicit
+  // access/absence responses still immediately disable every discussion write.
+  const discussionAccessDenied = details.isError && [401, 403, 404, 410].includes(details.error?.status);
+  const discussionCanWrite = Boolean(canEdit && cardDetails?.discussionCanWrite !== false && !discussionAccessDenied);
   const updateCover = async (cover_image) => {
     // CardCoverSection/Attachments own the error UI. Preserve rejection so
     // they never emit a success toast for a failed PATCH.
@@ -299,7 +307,11 @@ export default function CardDetailModal({
   return <><Dialog open={open} onOpenChange={(nextOpen) => {
     if (!saving && !deletePending.current && !confirmDelete) onOpenChange(nextOpen);
   }}>
-    <DialogContent data-testid="card-detail-modal" className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[1180px] flex-col gap-0 overflow-hidden rounded-xl p-0">
+    <DialogContent data-testid="card-detail-modal" onEscapeKeyDown={(event) => {
+      // Radix handles Escape at document capture, before the editor's React
+      // handler can close its local menu. Dismiss that menu, not the whole task.
+      if (event.target?.closest?.('[data-discussion-popup-open="true"]')) event.preventDefault();
+    }} className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[1180px] flex-col gap-0 overflow-hidden rounded-xl p-0">
       <CardCoverSection presentation="header" cardId={card.id} coverImage={liveCard.cover_image} attachments={cardDetails?.attachments || []} canEdit={canEdit} onCoverChange={updateCover} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:grid md:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)] md:overflow-hidden">
         <section aria-label="Card details" className="min-w-0 px-5 pb-6 pt-8 md:overflow-y-auto md:px-8">
@@ -393,29 +405,12 @@ export default function CardDetailModal({
             <h2 className="flex items-center gap-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" />Comments and activity</h2>
             <Button variant="outline" size="sm" aria-expanded={showActivity} onClick={() => setShowActivity(!showActivity)}>{showActivity ? "Hide activity" : "Show activity"}</Button>
           </div>
-          {canEdit && open && <ActivityComposer key={card.id} cardId={card.id} boardId={liveCard.board_id || boardId}
+          {discussionCanWrite && open && <ActivityComposer key={card.id} cardId={card.id} boardId={liveCard.board_id || boardId}
             members={members} drafts={activityDrafts.current} refresh={refresh} />}
           {details.isLoading ? <div role="status" aria-label="Loading comments and activity" className="space-y-4">{[0, 1, 2].map((index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />)}</div>
             : <div className="space-y-5">
-              {!cardDetails?.comments?.length && <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground"><p className="font-medium text-foreground">No comments yet</p><p className="mt-1">Keep updates and decisions with this task.</p></div>}
-              {(cardDetails?.comments || []).map((comment) => {
-                // Card detail GET returns raw rows; author is only enriched by
-                // the comments endpoint. Resolve raw identity_id via board members.
-                const author = comment.author || getMemberById(comment.identity_id);
-                return <div key={comment.id} className="flex gap-3">
-                  <Avatar className="h-8 w-8 shrink-0"><AvatarImage src={author?.avatar_url} /><AvatarFallback className="text-xs">{author?.first_name?.[0] || "B"}{author?.last_name?.[0] || "M"}</AvatarFallback></Avatar>
-                  <div className="min-w-0 flex-1"><p className="text-sm font-medium">{personName(author)}</p><time className="text-xs text-muted-foreground">{dateText(comment.created_at)}</time>
-                    {comment.content && <p className="mt-2 whitespace-pre-wrap break-words rounded-lg border bg-background p-3 text-sm leading-relaxed shadow-sm">{comment.content}</p>}
-                    {!comment.content && !comment.images?.length && <p className="mt-2 text-sm text-muted-foreground">Image attachment removed.</p>}
-                    {(comment.images || []).map(({ attachment }) => attachment &&
-                      ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(attachment.file_type) &&
-                      /^(https?:\/\/|\/(?!\/))/i.test(attachment.url) &&
-                      <a key={attachment.id} href={attachment.url} target="_blank" rel="noopener noreferrer" className="mt-2 block">
-                        <img src={attachment.url} alt={attachment.name || "Activity image"} loading="lazy" className="max-h-80 max-w-full rounded-lg border object-contain" />
-                      </a>)}
-                  </div>
-                </div>;
-              })}
+              <DiscussionThread comments={cardDetails?.comments || []} cardId={card.id} boardId={liveCard.board_id || boardId}
+                members={members} canWrite={discussionCanWrite} drafts={activityDrafts.current} refresh={refresh} />
               {showActivity && <div className="space-y-4 border-t pt-5">
                 <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"><History className="h-3.5 w-3.5" />Activity</h3>
                 {!cardDetails?.activity?.length && <p className="text-sm text-muted-foreground">No activity recorded yet.</p>}

@@ -13,6 +13,10 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLTextAr
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0);
 globalThis.cancelAnimationFrame = clearTimeout;
+dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} });
+dom.window.HTMLElement.prototype.getClientRects = () => [{ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }];
+dom.window.Range.prototype.getBoundingClientRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+dom.window.Range.prototype.getClientRects = dom.window.HTMLElement.prototype.getClientRects;
 const React = (await import("react")).default;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
@@ -39,8 +43,8 @@ const h = React.createElement;
 const originalFetch = globalThis.fetch;
 const mounts = [];
 const members = [
-  { identity_id: "mia", first_name: "Mia", last_name: "Chen", email: "mia@example.test" },
-  { identity_id: "jules", first_name: "Jules", last_name: "Le Roy", email: "jules@example.test" },
+  { identity_id: "11111111-2222-4333-8444-555555555501", first_name: "Mia", last_name: "Chen", email: "mia@example.test" },
+  { identity_id: "11111111-2222-4333-8444-555555555502", first_name: "Jules", last_name: "Le Roy", email: "jules@example.test" },
 ];
 const item = { id: "mention-1", card_id: "card-1", comment_id: "comment-1", card_title: "Review checklist", content: "@Mia Chen please review.", author_name: "Jules Le Roy", created_at: "2026-03-12T09:23:00Z", read_at: null, pinned_at: null };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -61,11 +65,12 @@ async function mount(component, transport) {
 }
 async function click(node) { assert.ok(node, "Clickable element exists"); await act(async () => node.click()); }
 async function type(node, value) {
-  assert.ok(node, "Textarea exists");
+  assert.ok(node, "Editable element exists");
   await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set;
+    const prototype = node.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
     setter.call(node, value);
-    node.setSelectionRange(value.length, value.length);
+    if (node.tagName === "TEXTAREA") node.setSelectionRange(value.length, value.length);
     node.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
 }
@@ -96,7 +101,7 @@ test("keyboard and pointer mentions: explicit selection, deduplication, exact la
   assert.equal(host.querySelector('[aria-selected="true"]').textContent.includes("Jules Le Roy"), true);
   await key(input, "Enter");
   assert.equal(input.value, "@Jules Le Roy ");
-  assert.deepEqual(picked, [{ id: "jules", label: "Jules Le Roy" }]);
+  assert.deepEqual(picked, [{ id: "11111111-2222-4333-8444-555555555502", label: "Jules Le Roy" }]);
   await type(input, "@Jules Le Roy t");
   assert.equal(host.querySelector('[role="listbox"]'), null, "typing after a chosen mention keeps the picker closed");
   await click(input);
@@ -213,6 +218,7 @@ test("inbox pagination clears page selection and uses the contract pageSize", as
 
 test("shared comment modal sends picked IDs only, invalidates board inbox, preserves ordinary comments and viewer permissions", async () => {
   const writes = [], invalidated = [];
+  let comments = [], discussionVersion = 0;
   const props = { card: { id: "card-1", board_id: "board-1", list_id: "list-1", title: "Review checklist" }, open: true, onOpenChange: () => {}, boardId: "board-1", members, lists: [{ id: "list-1", name: "Review" }], canEdit: true, canManage: false, onUpdate: () => {}, onDelete: () => {} };
   const transport = async (url, options = {}) => {
     if (String(url) === "/api/projects/boards/board-1/inbox" && options.method === "PATCH") {
@@ -221,9 +227,19 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
     }
     if (String(url).endsWith("/comments") && options.method === "POST") {
       const body = JSON.parse(options.body); writes.push(body);
-      return json({ comment: { id: `new-${writes.length}`, content: body.content, identity_id: "mia", created_at: "2026-03-12T10:23:00Z" } });
+      const comment = {
+        id: `00000000-0000-4000-8000-${String(writes.length).padStart(12, "0")}`,
+        parent_comment_id: null, reply_to_name: null, content: body.content, rich_content: body.richContent,
+        identity_id: members[0].identity_id, author: { first_name: "Mia", last_name: "Chen" }, can_edit: true,
+        created_at: "2026-03-12T10:23:00Z", images: [], reactions: [],
+      };
+      comments = [comment, ...comments];
+      discussionVersion++;
+      return json({ comments, comment, discussionVersion });
     }
-    if (String(url) === "/api/projects/cards/card-1") return json({ card: props.card, comments: [], activity: [], attachments: [] });
+    if (String(url) === "/api/projects/cards/card-1") return json({
+      card: props.card, comments, discussionVersion, discussionCanWrite: true, activity: [], attachments: [],
+    });
     throw new Error(`Blocked unknown fixture request ${url}`);
   };
   const { client } = await mount(h(Modal, props), transport);
@@ -235,21 +251,32 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   const invalidate = client.invalidateQueries.bind(client);
   client.invalidateQueries = (options) => { invalidated.push(options); return invalidate(options); };
   await waitFor(() => document.querySelector('[data-testid="input-new-comment"]'), "comment input");
-  const input = document.querySelector('[data-testid="input-new-comment"]');
-  await type(input, "Thanks @Mia");
-  await key(input, "Enter");
+  let input = document.querySelector('[data-testid="input-new-comment"]');
+  await click([...document.querySelectorAll("button")].find((button) => button.textContent.includes("Insert")));
+  await click([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.includes("Mention")));
+  const memberSearch = document.querySelector('[aria-label="Search board members"]');
+  await type(memberSearch, "Mia");
+  await key(memberSearch, "Enter");
+  assert.match(input.textContent, /@Mia Chen/);
   await click(document.querySelector('[data-testid="button-add-comment"]'));
   await waitFor(() => writes.length === 1 && !document.querySelector('[data-testid="button-add-comment"]').textContent.includes("Posting"), "picked comment posted");
   assert.match(writes[0].requestId, /^[0-9a-f-]{36}$/i);
-  assert.deepEqual(writes[0], { content: "Thanks @Mia Chen ", mentionIdentityIds: ["mia"], attachmentIds: [], requestId: writes[0].requestId });
+  assert.equal(writes[0].content, "@Mia Chen ");
+  assert.deepEqual(writes[0].mentionIdentityIds, [members[0].identity_id]);
+  assert.deepEqual(writes[0].attachmentIds, []);
+  assert.equal(writes[0].richContent.version, 1);
+  assert.equal(writes[0].richContent.doc.content[0].content[0].type, "mention");
   assert.equal(client.getQueryData(["project-board", "board-1"]).cards[0].project_card_comment[0].count, 1);
   assert.deepEqual(client.getQueryData(["project-board", "board-1"]).cards[1], { id: "untouched", title: "Other task" });
   assert.ok(invalidated.some((options) => JSON.stringify(options.queryKey) === JSON.stringify(["board-inbox", "board-1"])));
   assert.ok(invalidated.some((options) => options.exact && JSON.stringify(options.queryKey) === JSON.stringify(["inbox"])));
   assert.ok(invalidated.some((options) => JSON.stringify(options.queryKey) === JSON.stringify(["inbox", "unread"])));
-  await type(input, "Plain @Mia Chen typed, not picked.");
+  input = document.querySelector('[data-testid="input-new-comment"]');
+  await click([...document.querySelectorAll("button")].find((button) => button.textContent.includes("Insert")));
+  await click([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.includes("Emoji")));
+  await click(document.querySelector('[aria-label="Insert 😊"]'));
   await click(document.querySelector('[data-testid="button-add-comment"]'));
-  await waitFor(() => writes.length === 2 && input.value === "", "ordinary comment posted");
+  await waitFor(() => writes.length === 2 && document.querySelector('[data-testid="input-new-comment"]')?.textContent === "", "ordinary comment posted");
   assert.deepEqual(writes[1].mentionIdentityIds, []);
   assert.equal(client.getQueryData(["project-board", "board-1"]).cards[0].project_card_comment[0].count, 2);
   const root = mounts.at(-1).root;

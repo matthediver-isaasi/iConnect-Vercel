@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
@@ -35,7 +35,7 @@ async function setup() {
       function App(){
         const [open,setOpen]=React.useState(!params.has('board'));
         const completion=useProjectCardCompletion();
-        const board=useQuery({queryKey:['project-board','board'],queryFn:()=>fetch('/api/projects/boards/board').then(r=>r.json())});
+        const board=useQuery({queryKey:['project-board','board'],queryFn:()=>fetch('/api/projects/boards/board').then(r=>{if(!r.ok)throw new Error('Board refresh failed');return r.json();})});
         return <><div data-testid="board-cover">{board.data.cards[0].cover_image||'No cover'}</div>
           <DragDropContext onDragStart={()=>window.fixtureDrags=(window.fixtureDrags||0)+1} onDragEnd={()=>{}}>
           <Droppable droppableId="list">{drop=><div ref={drop.innerRef} {...drop.droppableProps}>
@@ -46,7 +46,7 @@ async function setup() {
           </div>}</Draggable>{drop.placeholder}</div>}</Droppable></DragDropContext>
           <Modal card={board.data.cards[0]} open={open} onOpenChange={setOpen} boardId="board"
             labels={board.data.labels} lists={[{id:'list',name:'To do'}]}
-            members={[{identity_id:'person',first_name:'Alex',last_name:'Example'}]}
+            members={[{identity_id:'11111111-2222-4333-8444-555555555501',first_name:'Alex',last_name:'Example'}]}
             canEdit={canEdit} canManage={canEdit} canAssign={canEdit} canManageLabels={canEdit}
             onUpdate={async patch=>{if(window.failDescriptionSave) throw new Error('Description save failed');
               window.savedPatch=patch;await publishProjectCardUpdate(client,'card',patch);}}
@@ -66,6 +66,9 @@ async function setup() {
     './client/src/components/projects/ProjectCardTileSummary.jsx',
     './client/src/components/projects/CardAttachments.jsx',
     './client/src/components/projects/ActivityComposer.jsx',
+     './client/src/components/projects/DiscussionEditor.jsx',
+     './client/src/components/projects/DiscussionThread.jsx',
+     './client/src/components/projects/DiscussionRenderer.jsx',
     './client/src/components/projects/ProjectDescription.jsx',
     './client/src/components/ui/**/*.{jsx,tsx}',
   ]})]).process(await readFile('client/src/index.css','utf8'),{from:'client/src/index.css'})).css
@@ -78,7 +81,7 @@ async function setup() {
       res.setHeader('Content-Type', 'application/json');
       if (req.url === '/api/projects/cards/card') return res.end(JSON.stringify({
         card: { id: 'card',board_id:'board',list_id:'list',cover_image:null },
-        attachments:[],comments:[{id:'comment',identity_id:'person',content:'The draft agenda is ready for review.',created_at:'2026-10-09T10:00:00Z',
+        attachments:[],discussionVersion:0,discussionCanWrite:true,comments:[{id:'00000000-0000-4000-8000-000000000010',parent_comment_id:null,reply_to_name:null,mentions:[],identity_id:'11111111-2222-4333-8444-555555555501',can_edit:true,author:{first_name:'Alex',last_name:'Example'},content:'The draft agenda is ready for review.',created_at:'2026-10-09T10:00:00Z',
           images: req.headers.referer?.includes('image-demo') ? [{ attachment: {
             id: 'fixture-image', name: 'Screenshot.png', file_type: 'image/png', url: '/saved-screenshot.png',
           } }] : [],
@@ -126,6 +129,8 @@ for (const width of [1280,390]) test(`wide/stacked layout and date fields at ${w
     const right=await page.getByRole('complementary').boundingBox();
     if(width===1280) assert.ok(right.x>left.x+left.width-1);
     else assert.ok(right.y>=left.y+left.height-1);
+    assert.ok(await page.getByRole('complementary').evaluate(node => node.scrollWidth <= node.clientWidth + 1),
+      'discussion controls fit without horizontal clipping');
     await page.getByTestId('input-start-date').fill('2026-10-10');
     await page.getByTestId('input-due-date').fill('2026-10-15');
     await page.getByTestId('button-save-card').click();
@@ -233,6 +238,10 @@ test('native screenshot paste, failed submit retry, immediate image publication 
   try {
     const attachment = { id: '50000000-0000-0000-0000-000000000001', name: 'screenshot.png',
       file_type: 'image/png', url: origin + '/saved-screenshot.png', file_size: screenshotBytes.length };
+    const original = { id: '00000000-0000-4000-8000-000000000010', parent_comment_id: null,
+      identity_id: '11111111-2222-4333-8444-555555555501', can_edit: true,
+      author: { first_name: 'Alex', last_name: 'Example' }, content: 'The draft agenda is ready for review.',
+      created_at: '2026-10-09T10:00:00Z', images: [] };
     let saved = null, posts = [], confirmations = 0, preparations = 0;
     const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     await page.route('**/saved-screenshot.png', route => route.fulfill({ contentType: 'image/png', body: screenshotBytes }));
@@ -247,9 +256,10 @@ test('native screenshot paste, failed submit retry, immediate image publication 
     await page.route('**/api/projects/cards/card/comments', route => {
       const body = route.request().postDataJSON(); posts.push(body);
       if (posts.length === 1) return json(route, { error: 'Comment service temporarily unavailable' }, 503);
-      saved = { id: 'image-comment', content: body.content, identity_id: 'person',
+      saved = { id: '00000000-0000-4000-8000-000000000011', parent_comment_id: null, content: body.content,
+        rich_content: body.richContent, identity_id: '11111111-2222-4333-8444-555555555501', can_edit: true,
         created_at: new Date().toISOString(), images: [{ attachment }] };
-      return json(route, { comment: saved });
+      return json(route, { comments: [saved, original], comment: saved, discussionVersion: 1 });
     });
     // Publication must not depend on a successful detail refresh.
     await page.route('**/api/projects/cards/card', route => route.abort());
@@ -272,7 +282,7 @@ test('native screenshot paste, failed submit retry, immediate image publication 
     assert.equal(await page.getByAltText(/Preview /).count(), 0);
     await page.unroute('**/api/projects/cards/card');
     await page.route('**/api/projects/cards/card', route => json(route, {
-      card: { id: 'card', board_id: 'board', list_id: 'list' }, comments: [saved], attachments: [attachment], activity: [],
+      card: { id: 'card', board_id: 'board', list_id: 'list' }, comments: [saved, original], discussionVersion: 1, attachments: [attachment], activity: [],
     }));
     await page.reload();
     await page.getByRole('complementary').getByAltText('screenshot.png', { exact: true }).waitFor();
@@ -288,7 +298,7 @@ test('plain text paste and mentions survive; unsupported images and upload failu
     await page.evaluate(() => navigator.clipboard.writeText('Pasted notes'));
     await page.getByTestId('input-new-comment').focus();
     await page.keyboard.press('Control+V');
-    await page.waitForFunction(() => document.querySelector('[data-testid="input-new-comment"]').value === 'Pasted notes');
+    await page.waitForFunction(() => document.querySelector('[data-testid="input-new-comment"]').textContent.includes('Pasted notes'));
     await pasteImage(page, { type: 'image/svg+xml' });
     await page.getByRole('alert').filter({ hasText: 'Choose PNG' }).waitFor();
     assert.equal(await page.getByAltText(/Preview /).count(), 0);
@@ -300,7 +310,11 @@ test('plain text paste and mentions survive; unsupported images and upload failu
     await pasteImage(page);
     const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     let attempts = 0, puts = 0, payload;
-    const attachment = { id: 'image', name: 'screenshot.png', file_type: 'image/png', url: origin + '/image.png' };
+    const attachment = { id: '11111111-2222-4333-8444-555555555555', name: 'screenshot.png', file_type: 'image/png', url: origin + '/image.png' };
+    const original = { id: '00000000-0000-4000-8000-000000000010', parent_comment_id: null,
+      identity_id: '11111111-2222-4333-8444-555555555501', can_edit: true,
+      author: { first_name: 'Alex', last_name: 'Example' }, content: 'The draft agenda is ready for review.',
+      created_at: '2026-10-09T10:00:00Z', images: [] };
     await page.route('**/api/projects/cards/card/attachments', route => {
       attempts++;
       return attempts === 1 ? json(route, { error: 'Storage quota exceeded' }, 403)
@@ -313,23 +327,190 @@ test('plain text paste and mentions survive; unsupported images and upload failu
       ? json(route, { error: 'Upload not present' }, 400) : json(route, { attachment }));
     await page.route('**/api/projects/cards/card/comments', route => {
       payload = route.request().postDataJSON();
-      return json(route, { comment: { id: 'new', content: payload.content, images: [{ attachment }] } });
+      const saved = { id: '00000000-0000-4000-8000-000000000012', parent_comment_id: null, content: payload.content, rich_content: payload.richContent,
+        identity_id: '11111111-2222-4333-8444-555555555501', can_edit: true, images: [{ attachment }] };
+      return json(route, { comments: [saved, original], comment: saved, discussionVersion: 1 });
     });
     await page.route('**/api/projects/cards/card', route => route.abort());
     await page.route('**/api/projects/boards/board', route => route.abort());
     await page.getByTestId('button-add-comment').click();
     await page.getByRole('alert').filter({ hasText: 'Storage quota exceeded' }).waitFor();
     assert.equal(await page.getByAltText(/Preview /).count(), 1);
-    assert.match(await page.getByTestId('input-new-comment').inputValue(), /Pasted notes @Alex Example/);
+    assert.match(await page.getByTestId('input-new-comment').innerText(), /Pasted notes @Alex Example/);
     await page.getByTestId('button-add-comment').click();
     await page.getByRole('alert').filter({ hasText: 'Image upload failed' }).waitFor();
     assert.equal(await page.getByAltText(/Preview /).count(), 1);
     await page.getByTestId('button-add-comment').click();
-    await page.waitForFunction(() => document.querySelector('[data-testid="input-new-comment"]').value === '');
-    assert.deepEqual(payload.mentionIdentityIds, ['person']);
-    assert.deepEqual(payload.attachmentIds, ['image']);
+    await page.waitForFunction(() => !document.querySelector('[data-testid="input-new-comment"]').textContent.trim());
+    assert.deepEqual(payload.mentionIdentityIds, ['11111111-2222-4333-8444-555555555501']);
+    assert.deepEqual(payload.attachmentIds, [attachment.id]);
     assert.equal(attempts, 2);
     assert.equal(puts, 2);
+  } finally { await page.close(); }
+});
+
+test('actual discussion editor formats, dropdowns, insertion commands, keyboard mentions and screenshot capture', async () => {
+  const page = await open(900);
+  page.setDefaultTimeout(8000);
+  try {
+    const editor = page.getByTestId('input-new-comment');
+    await editor.waitFor();
+    assert.equal(await editor.evaluate((node) => node.isContentEditable), true);
+    assert.equal(await page.locator('textarea[data-testid="input-new-comment"]').count(), 0);
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.getByRole('menu', { name: 'Formatting options' }).count(), 0);
+    assert.equal(await page.getByTestId('card-detail-modal').isVisible(), true, 'Escape closes the editor menu, not the task');
+
+    await editor.fill('Decision');
+    await page.getByLabel('Text style').selectOption('2');
+    assert.equal(await editor.locator('h2').textContent(), 'Decision');
+    await page.getByLabel('Text style').selectOption('paragraph');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Bold/ }).click();
+    assert.equal(await editor.locator('strong').textContent(), 'Decision', 'format menu restores the text selection');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Italic/ }).click();
+    assert.equal(await editor.locator('em').textContent(), 'Decision');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Underline/ }).click();
+    assert.equal(await editor.locator('u').textContent(), 'Decision');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Strikethrough/ }).click();
+    assert.equal(await editor.locator('s').textContent(), 'Decision');
+
+    await editor.fill('First item');
+    await page.getByRole('button', { name: 'List options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /Bulleted list/ }).click();
+    assert.equal(await editor.locator('ul li').textContent(), 'First item');
+    await page.getByRole('button', { name: 'List options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /Numbered list/ }).click();
+    assert.equal(await editor.locator('ol li').textContent(), 'First item');
+
+    await editor.fill('A safe destination');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: /Insert/ }).click();
+    await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Link/ }).click();
+    await page.getByRole('textbox', { name: 'Link URL' }).fill('https://example.test/brief');
+    await page.getByRole('button', { name: 'Save link' }).click();
+    assert.equal(await editor.locator('a').getAttribute('href'), 'https://example.test/brief');
+    await editor.press('Control+A');
+    await editor.press('Control+K');
+    await page.getByRole('textbox', { name: 'Link URL' }).fill('javascript:alert(1)');
+    await page.getByRole('button', { name: 'Save link' }).click();
+    await page.getByRole('alert').filter({ hasText: 'safe https' }).waitFor();
+    await page.getByRole('textbox', { name: 'Link URL' }).fill('https://example.test/updated');
+    await page.getByRole('button', { name: 'Save link' }).click();
+    assert.equal(await editor.locator('a').getAttribute('href'), 'https://example.test/updated');
+    await page.getByRole('button', { name: 'Remove link' }).click();
+    assert.equal(await editor.locator('a').count(), 0);
+
+    await editor.fill('Direct toolbar');
+    await editor.press('Control+A');
+    // Browser fill retains inherited marks. Verify actual add/remove behavior,
+    // not an assumption that replacing text resets the editor's formatting.
+    for (const [tag, shortcut] of [['strong', 'Control+B'], ['em', 'Control+I'], ['u', 'Control+U']]) {
+      if (await editor.locator(tag).count()) await editor.press(shortcut);
+      assert.equal(await editor.locator(tag).count(), 0);
+      await editor.press(shortcut);
+      assert.equal(await editor.locator(tag).textContent(), 'Direct toolbar');
+    }
+
+    await editor.fill('A quoted decision');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: /Insert/ }).click();
+    await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Quote/ }).click();
+    assert.equal(await editor.locator('blockquote').textContent(), 'A quoted decision');
+
+    await editor.fill('');
+    await editor.pressSequentially('@Al');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    assert.equal(await editor.locator('[data-discussion-mention]').textContent(), '@Alex Example');
+
+    await editor.fill('Mention picker');
+    await page.getByRole('button', { name: /Insert/ }).click();
+    await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Mention/ }).click();
+    await page.getByRole('textbox', { name: 'Search board members' }).fill('Alex');
+    await page.keyboard.press('Enter');
+    assert.match(await editor.innerText(), /@Alex Example/);
+
+    await page.getByRole('button', { name: /Insert/ }).click();
+    await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Emoji/ }).click();
+    await page.getByRole('button', { name: 'Insert 😊' }).click();
+    assert.match(await editor.innerText(), /😊/);
+
+    // Start this persistence assertion from a genuinely empty document, rather
+    // than inheriting the deliberately combined styles exercised above.
+    await page.reload();
+    await editor.waitFor();
+    await editor.fill('Round-trip decision');
+    await editor.press('Control+A');
+    await page.getByRole('button', { name: 'Formatting options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Bold/ }).click();
+    let publishedBody;
+    const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const original = {
+      id: '00000000-0000-4000-8000-000000000010', parent_comment_id: null, reply_to_name: null,
+      identity_id: '11111111-2222-4333-8444-555555555501', can_edit: true,
+      author: { first_name: 'Alex', last_name: 'Example' }, content: 'The draft agenda is ready for review.',
+      created_at: '2026-10-09T10:00:00Z', images: [], reactions: [],
+    };
+    await page.route('**/api/projects/cards/card/comments', async (route) => {
+      publishedBody = route.request().postDataJSON();
+      const saved = {
+        id: '00000000-0000-4000-8000-000000000013', parent_comment_id: null,
+        identity_id: '11111111-2222-4333-8444-555555555501', author: original.author, can_edit: true,
+        content: publishedBody.content, rich_content: publishedBody.richContent,
+        created_at: '2026-11-24T10:00:00Z', images: [], reactions: [],
+      };
+      return json(route, { comments: [saved, original], comment: saved, discussionVersion: 1 });
+    });
+    await page.getByTestId('button-add-comment').click();
+    await page.getByRole('complementary').locator('.discussion-renderer strong').filter({ hasText: 'Round-trip decision' }).waitFor();
+    assert.deepEqual(publishedBody.richContent.doc.content[0].content[0].marks, [{ type: 'bold' }]);
+    assert.equal(publishedBody.content, 'Round-trip decision');
+
+    await page.getByRole('button', { name: /Insert/ }).click();
+    const chooseFile = page.waitForEvent('filechooser');
+    await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Image/ }).click();
+    await (await chooseFile).setFiles({ name: 'decision.png', mimeType: 'image/png', buffer: screenshotBytes });
+    await page.getByAltText('Preview decision.png').waitFor();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
+    assert.ok(await page.getByRole('complementary').evaluate(node => node.scrollWidth <= node.clientWidth + 1),
+      'the insert menu stays within the discussion column');
+    const imageIcon = await page.getByRole('dialog', { name: 'Insert into comment' }).getByRole('button', { name: /Image/ }).locator('svg').boundingBox();
+    assert.ok(await page.evaluate(({ x, y, width, height }) =>
+      document.elementFromPoint(x + width / 2, y + height / 2)?.closest('button')?.classList.contains('discussion-insert-option'),
+    imageIcon), 'image previews cannot cover insert commands');
+    await mkdir('generated-artifacts', { recursive: true });
+    const imageUiShot = await page.screenshot({ animations: 'disabled', path: 'generated-artifacts/project-discussion-editor.png' });
+    assert.equal(imageUiShot.subarray(1, 4).toString(), 'PNG', 'capture the real editor fixture screenshot');
+    assert.ok(imageUiShot.length > 8_000);
+
+    await page.reload();
+    await editor.waitFor();
+    await editor.press('Control+B'); // empty-caret stored mark, not existing text
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search insert options' }).fill('emoji');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Insert 😊' }).click();
+    assert.equal(await editor.locator('strong').textContent(), '😊', 'empty-caret formatting survives the searchable insert menu');
+
+    await editor.fill('');
+    await editor.evaluate(node => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/html', '<script>window.pasteAttack=true</script><p onclick="window.pasteAttack=true">Safe <b>bold</b><a href="javascript:alert(1)">link text</a><img src="https://external.invalid/tracker"></p>');
+      transfer.setData('text/plain', 'Safe bold link text');
+      node.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    });
+    await editor.getByText(/Safe/).waitFor();
+    assert.equal(await editor.locator('script,[onclick],img[src*="external.invalid"],a[href^="javascript:"]').count(), 0);
+    assert.equal(await page.evaluate(() => Boolean(window.pasteAttack)), false);
   } finally { await page.close(); }
 });
 
@@ -403,7 +584,7 @@ for (const width of [1280,390]) test(`immediate detail and summary completion pe
         const patch = route.request().postDataJSON(); writes.push(patch); saved = patch.is_complete;
       }
       return route.fulfill({contentType:'application/json',body:JSON.stringify({
-        card:{id:'card',board_id:'board',is_complete:saved},comments:[],activity:[],attachments:[],
+        card:{id:'card',board_id:'board',is_complete:saved},comments:[],discussionVersion:0,activity:[],attachments:[],
       })});
     });
     await page.route('**/api/projects/boards/board', route => route.abort());

@@ -1,155 +1,67 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
 import { guardSalesLinkedProject } from '../../../_lib/salesLinkedProjectGuard.js';
-
-async function getBoardMembershipForCard(cardId, identityId) {
-  const { data: card } = await supabase
-    .from('project_card')
-    .select('board_id')
-    .eq('id', cardId)
-    .single();
-
-  if (!card) return null;
-
-  const { data: membership } = await supabase
-    .from('project_board_member')
-    .select('role')
-    .eq('board_id', card.board_id)
-    .eq('identity_id', identityId)
-    .single();
-
-  return { card, membership };
-}
+import { readProjectDiscussion } from '../../../_lib/projectDiscussion.js';
+import { normalizeDiscussionContent, discussionUuid, DISCUSSION_EMOJI } from '../../../_lib/projectDiscussionContent.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (!supabase) {
-    return res.status(503).json({ error: 'Database not configured' });
-  }
-
-  const sessionResult = await getSession(req);
-  if (!sessionResult?.data) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  const session = sessionResult.data;
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  const session = (await getSession(req))?.data;
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
   const { cardId } = req.query;
-
-  if (!cardId) {
-    return res.status(400).json({ error: 'Card ID required' });
-  }
-
+  if (!cardId) return res.status(400).json({ error: 'Card ID required' });
   try {
-    const access = await getBoardMembershipForCard(cardId, session.identityId);
-    if (!access?.membership) {
-      return res.status(403).json({ error: 'Not a member of this board' });
+    const { data: card, error: cardError } = await supabase.from('project_card').select('board_id').eq('id', cardId).single();
+    if (cardError) throw cardError;
+    if (!card) return res.status(404).json({ error: 'Card unavailable' });
+    const { data: membership, error: memberError } = await supabase.from('project_board_member')
+      .select('role').eq('board_id', card.board_id).eq('identity_id', session.identityId).single();
+    if (memberError && memberError.code !== 'PGRST116') throw memberError;
+    if (!membership) return res.status(403).json({ error: 'Not a member of this board' });
+    if (!await guardSalesLinkedProject(req, res, card.board_id)) return;
+    if (req.method === 'GET') return res.json(await readProjectDiscussion(supabase, cardId, session.identityId));
+    const operations = { POST: 'create', PATCH: 'edit', DELETE: 'delete', PUT: 'react' };
+    const operation = operations[req.method];
+    if (!operation) return res.status(405).json({ error: 'Method not allowed' });
+    if (!['owner', 'admin', 'member'].includes(membership.role)) return res.status(403).json({ error: 'This board is read-only' });
+    const body = req.body || {};
+    const args = { p_card_id: cardId, p_actor_id: session.identityId, p_operation: operation };
+    if (operation !== 'create') {
+      if (!discussionUuid(body.commentId)) return res.status(400).json({ error: 'Comment ID required' });
+      args.p_comment_id = body.commentId;
     }
-    if (!await guardSalesLinkedProject(req, res, access.card.board_id)) return;
-
-    if (req.method === 'GET') {
-      const { data: comments, error } = await supabase
-        .from('project_card_comment')
-        .select('*, images:project_comment_image(attachment:project_card_attachment(id,name,url,file_type,file_size))')
-        .eq('card_id', cardId)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        return res.status(500).json({ error: 'Failed to fetch comments' });
-      }
-
-      const identityIds = [...new Set(comments?.map(c => c.identity_id) || [])];
-      let identities = [];
-      if (identityIds.length > 0) {
-        const { data } = await supabase
-          .from('tenant_identity')
-          .select('id, email, first_name, last_name, avatar_url')
-          .in('id', identityIds);
-        identities = data || [];
-      }
-
-      const enrichedComments = comments?.map(c => {
-        const identity = identities.find(i => i.id === c.identity_id);
-        return {
-          ...c,
-          author: {
-            id: identity?.id,
-            email: identity?.email,
-            first_name: identity?.first_name,
-            last_name: identity?.last_name,
-            avatar_url: identity?.avatar_url
-          }
-        };
-      }) || [];
-
-      return res.json({ comments: enrichedComments });
-    }
-
-    if (req.method === 'POST') {
-      if (access.membership.role === 'viewer') {
-        return res.status(403).json({ error: 'Viewers cannot comment' });
-      }
-
-      const { content, mentionIdentityIds = [], attachmentIds = [], requestId } = req.body || {};
-      const uuid = id => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      if (!Array.isArray(attachmentIds) || attachmentIds.length > 10 || attachmentIds.some(id => !uuid(id))
-        || (requestId !== undefined && !uuid(requestId)) || (attachmentIds.length && !requestId)) {
-        return res.status(400).json({ error: 'Invalid comment images or request ID' });
-      }
-
-      if (typeof content !== 'string' || (!content.trim() && !attachmentIds.length) || content.length > 20000) {
-        return res.status(400).json({ error: 'Comment content is required' });
-      }
-      if (!Array.isArray(mentionIdentityIds) || mentionIdentityIds.length > 50
-        || mentionIdentityIds.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
-        return res.status(400).json({ error: 'Invalid mention recipients' });
-      }
-
-      const { data: comment, error } = await supabase
-        .rpc(requestId ? 'create_project_comment_with_images' : 'create_project_comment_with_mentions', {
-          p_card_id: cardId, p_actor_id: session.identityId,
-          p_content: content.trim(), p_recipient_ids: [...new Set(mentionIdentityIds)],
-          ...(requestId ? { p_attachment_ids: [...new Set(attachmentIds)], p_request_id: requestId } : {})
-        });
-
-      if (error) {
-        if (error.code === '22023') return res.status(400).json({ error: error.message });
-        if (error.code === '42501') return res.status(403).json({ error: 'Not allowed to comment on this board' });
-        if (error.code === 'P0002') return res.status(404).json({ error: 'Card or board unavailable' });
-        console.error('[Comments] Error creating:', error.code);
-        return res.status(500).json({ error: 'Failed to create comment' });
-      }
-
-      const { data: identity } = await supabase
-        .from('tenant_identity')
-        .select('id, email, first_name, last_name, avatar_url')
-        .eq('id', session.identityId)
-        .single();
-
-      return res.status(201).json({
-        comment: {
-          ...comment,
-          author: {
-            id: identity?.id,
-            email: identity?.email,
-            first_name: identity?.first_name,
-            last_name: identity?.last_name,
-            avatar_url: identity?.avatar_url
-          }
-        }
+    if (['create', 'edit'].includes(operation)) {
+      const normalized = normalizeDiscussionContent(body);
+      Object.assign(args, {
+        p_content: normalized.content, p_rich_content: normalized.richContent,
+        p_recipient_ids: normalized.mentionIdentityIds, p_attachment_ids: normalized.attachmentIds,
       });
     }
-
-    return res.status(405).json({ error: 'Method not allowed' });
-  } catch (err) {
-    console.error('[Comments] Error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    if (operation === 'create') {
+      if ((body.requestId !== undefined && !discussionUuid(body.requestId)) ||
+        (body.replyToCommentId != null && !discussionUuid(body.replyToCommentId)) ||
+        ((body.attachmentIds?.length || body.richContent || body.replyToCommentId) && !body.requestId)) {
+        return res.status(400).json({ error: 'A valid request ID and reply target are required' });
+      }
+      args.p_request_id = body.requestId || null;
+      args.p_reply_to_id = body.replyToCommentId || null;
+    }
+    if (operation === 'react') {
+      if (body.emoji !== null && !DISCUSSION_EMOJI.includes(body.emoji)) return res.status(400).json({ error: 'Unsupported reaction' });
+      args.p_emoji = body.emoji;
+    }
+    const { data, error } = await supabase.rpc('write_project_discussion', args);
+    if (error) throw error;
+    if (!data || !Array.isArray(data.comments)) throw new Error('Incomplete discussion response');
+    return res.status(operation === 'create' ? 201 : 200).json(data);
+  } catch (error) {
+    const status = error.status || ({ '22023': 400, '22P02': 400, '42501': 403, P0002: 404, PT409: 409 }[error.code]) || 500;
+    if (status === 500) console.error('[Discussion]', error.code || error.message);
+    return res.status(status).json({ error: status === 500 ? 'Could not load or update this discussion. Your draft is kept; try again.' : error.message });
   }
 }

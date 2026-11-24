@@ -57,3 +57,19 @@ test('large boards use bounded ID batches and failures never yield a partial suc
   assert.deepEqual(await buildProjectBoardSearchIndex(empty,[]),{documents:[]});
   assert.equal(empty.calls.length,0);
 });
+test('discussion search uses readable reply projections and reflects edits and deletion', async () => {
+  const rows = { project_card_comment: [
+    { id: 'root', card_id: 'c', content: 'Root', rich_content: { version: 1, doc: { type: 'doc' } } },
+    { id: 'reply', card_id: 'c', parent_comment_id: 'root', content: 'Readable reply 😊' },
+  ] };
+  const index = () => buildProjectBoardSearchIndex(database(rows), [{ id: 'c' }]);
+  let result = await index();
+  assert.match(result.documents[0].text, /Readable reply 😊/);
+  assert.ok(!result.documents[0].text.includes('rich_content'));
+  rows.project_card_comment[1].content = 'Updated reply';
+  result = await index();
+  assert.match(result.documents[0].text, /Updated reply/);
+  assert.ok(!result.documents[0].text.includes('Readable reply'));
+  rows.project_card_comment.splice(1, 1);
+  assert.ok(!(await index()).documents[0].text.includes('Updated reply'));
+});
