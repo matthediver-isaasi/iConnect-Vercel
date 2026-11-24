@@ -175,3 +175,4 @@
 - [QuickBooks tax evidence](quickbooks-tax-evidence.md) — returned percentages may not explain overridden tax; preserve issued amounts and original rate references.
 - [Proposal default VAT](proposal-default-vat-policy.md) — sales default also applies to new free-text lines; preserve explicit selections and saved tax snapshots.
 - [PostgreSQL test adapters](postgres-test-adapters.md) — preserve JSON result types and service-role RLS visibility; fixture mismatches can disguise successful writes or existing rows.
+- [Unified identity comparison types](unified-identity-comparison-types.md) — identity keys can be varchar while Sales principals are UUID; match live types in trigger tests.

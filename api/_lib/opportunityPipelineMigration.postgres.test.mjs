@@ -232,6 +232,22 @@ test('forward identity guard fixes the reproduced mismatch without changing unre
     }
     assert.equal(after, expected);
     assert.equal(run(psql, [...args, '-t', '-A'], 'SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM opportunity o'), beforeRows);
+    // Match production: unified identity keys are varchar, not UUID. The
+    // historical fixture's UUID columns hid an operator-resolution failure.
+    run(psql, args, `
+      ALTER TABLE tenant_identity ALTER COLUMN id TYPE varchar USING id::text;
+      ALTER TABLE tenant_membership ALTER COLUMN identity_id TYPE varchar USING identity_id::text;
+      INSERT INTO tenant_identity VALUES ('non-uuid-external-identity');
+      INSERT INTO tenant_membership VALUES ('non-uuid-external-identity','${uuid(1)}','active','admin','member');
+    `);
+    assert.throws(() => run(psql, args, insert(10)), /operator does not exist: character varying = uuid/);
+    const compatibility = fileURLToPath(new URL('../../supabase/migrations/202701240002_opportunity_identity_type_compatibility.sql', import.meta.url));
+    run(psql, [...args, '-f', compatibility]);
+    const compatible = run(psql, [...args, '-t', '-A'], "SELECT pg_get_functiondef('guard_opportunity_tenant_links()'::regprocedure)");
+    assert.equal(compatible, after
+      .replace('WHERE i.id=NEW.owner_id AND', 'WHERE i.id::text=NEW.owner_id::text AND')
+      .replace('WHERE i.id=NEW.principal_id AND', 'WHERE i.id::text=NEW.principal_id::text AND'));
+    assert.equal(run(psql, [...args, '-t', '-A'], 'SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM opportunity o'), beforeRows);
     run(psql, args, `
       ALTER ROLE service_role BYPASSRLS;
       GRANT USAGE ON SCHEMA public TO service_role;
