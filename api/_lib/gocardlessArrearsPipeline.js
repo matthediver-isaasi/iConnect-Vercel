@@ -5,7 +5,7 @@ const ARREARS_STATUSES = ['payment_grace_period', 'payment_overdue'];
 const iso = now => new Date(now).toISOString();
 
 export function selectArrearsAccess(query, now) {
-  return query.in('status', ARREARS_STATUSES)
+  return query.in('status', [...ARREARS_STATUSES, 'payment_plan_cancelled'])
     .or('arrears_policy_applied.is.null,arrears_policy_applied.eq.restrict')
     .not('grace_expires_at', 'is', null).lte('grace_expires_at', typeof now === 'string' ? now : iso(now));
 }
@@ -128,6 +128,38 @@ async function loadAgreement(db, plan, agreement) {
 }
 
 export async function runArrearsAccess({ db, plan, agreement, now, effects, trace = () => {} }) {
+  if (plan.status === 'payment_plan_cancelled') {
+    if (plan.provider !== 'gocardless' || plan.last_payment_status !== 'failed'
+      || !plan.grace_expires_at || !(new Date(plan.grace_expires_at) <= new Date(now))) {
+      return { applied: false, result: { skippedReason: 'cancelled-plan-not-due' } };
+    }
+    const receipt = await db.from('membership_payment_grace_exit').select('id')
+      .eq('tenant_id',plan.tenant_id).eq('plan_id',plan.id).maybeSingle();
+    if (receipt.error) throw new Error('Payment grace expiry evidence is unavailable');
+    if (receipt.data) return { applied: false, result: { skippedReason: 'payment-grace-exit-recorded' } };
+    const release = await db.from('membership_payment_grace_exit_release').select('enabled')
+      .eq('tenant_id',plan.tenant_id).maybeSingle();
+    const approval = await db.from('membership_payment_grace_exit_approval').select('plan_id')
+      .eq('tenant_id',plan.tenant_id).eq('plan_id',plan.id).maybeSingle();
+    if (release.error || approval.error) throw new Error('Payment grace expiry approval is unavailable');
+    if (release.data?.enabled !== true || !approval.data) {
+      const reason = 'Direct Debit cancelled with unresolved payment after grace; access review required.';
+      if (!plan.needs_attention || plan.attention_reason !== reason) {
+        await effects.perform(update('membership_payment_plans', {
+          needs_attention: true, attention_reason: reason, updated_at: iso(now),
+        }, scope(plan), reason));
+      }
+      return { applied: false, result: { skippedReason: 'payment-grace-exit-awaiting-release-or-approval' } };
+    }
+    const exitId = await effects.perform({
+      type: 'arrears_rpc', description: 'Apply an explicitly approved payment-grace exit atomically; preserve original debt and dates.',
+      payload: { name: 'apply_membership_payment_grace_exit',
+        args: { p_tenant_id: plan.tenant_id, p_plan_id: plan.id } },
+    });
+    // This is not the ordinary arrears email/restore path. The full renewal
+    // journey owns subsequent activation; do not send duplicate legacy alerts.
+    return { applied: false, paymentGraceExitId: exitId, result: { skippedReason: 'payment-grace-exit-recorded' } };
+  }
   if (!arrearsDue(plan, now) || (plan.arrears_policy_applied != null && plan.arrears_policy_applied !== 'restrict')) {
     trace({ stage: 'access-policy', status: 'skipped', reason: 'No expired-grace unapplied/restrict access policy is due.' });
     return { applied: false, result: { skippedReason: 'not-due' } };

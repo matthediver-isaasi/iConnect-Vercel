@@ -43,6 +43,16 @@ test('cancelled Direct Debit warning remains visible with recognised active memb
     assert.doesNotMatch(html, /untrusted copy|membership-renewal-cta/);
   }
 });
+
+test('verified payment-grace expiry uses Continue your membership and the full renewal journey', () => {
+  const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{status:'ready',data:{membership:{state:'expired'},payment:{state:'paused'},
+      renewal:{eligible:true,state:'post_grace_renewal',paymentGraceExit:true,
+        journeyMode:'questionnaire',entryHref:'/FormView?slug=continuing-with-bnms'}}}} />);
+  assert.match(html,/Continue your membership/);
+  assert.match(html,/href="\/FormView\?slug=continuing-with-bnms"/);
+  assert.doesNotMatch(html,/Restart your membership<\/span>/);
+});
 test('first membership action keeps the empty payment card visible and uses only the joining route', () => {
   const result = {status:'ready',data:{membership:{state:'none'},payment:{state:'none'},
     joining:{eligible:true,entryHref:'/FormView?slug=getting-started-with-bnms'}}};

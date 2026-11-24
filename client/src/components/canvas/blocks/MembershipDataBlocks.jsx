@@ -47,7 +47,7 @@ const stateColors = {
 // Use the same Primary slot, size/background/border and label composition as
 // Canvas Button, rather than the membership link typography or a local colour.
 export function MembershipRenewalButton({
-  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false, joining = false,
+  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false, joining = false, continuing = false,
 }) {
   const branding = useTenantBranding()?.branding || null;
   const buttonStyle = resolveTenantButtonStyle('tenant-primary', branding);
@@ -76,7 +76,7 @@ export function MembershipRenewalButton({
       lineHeight: undefined, maxWidth: '100%', textDecoration: 'none',
     }}>
     {iconElement && icon.position !== 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
-    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{joining ? 'Become a member' : restart ? 'Restart your membership' : 'Renew your subscription'}</span>
+    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{joining ? 'Become a member' : continuing ? 'Continue your membership' : restart ? 'Restart your membership' : 'Renew your subscription'}</span>
     {iconElement && icon.position === 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
   </a>;
 }
@@ -363,6 +363,7 @@ export function MembershipDataView({
         </p>}
         <MembershipRenewalButton href={renewalHref} newTab={content.renewalLinkNewTab}
           restart={restart}
+          continuing={summary.renewal.paymentGraceExit === true}
           asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
           breakpoint={breakpoint || viewportBreakpoint} />
       </div>}

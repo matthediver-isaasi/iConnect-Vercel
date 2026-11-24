@@ -205,6 +205,7 @@ export function shapePersistedCommitment(record, now = new Date()) {
   } else if (Number.isFinite(renewal) && renewal <= today.getTime()) {
     lifecycle = 'past';
   }
+  if (record.payment_grace_exit_id && record.status === 'expired') lifecycle = 'past';
   return {
     id: record.id,
     membershipRecognition: currentMembershipRecognition(record, new Date(now).toISOString().slice(0, 10)),

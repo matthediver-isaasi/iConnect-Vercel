@@ -68,6 +68,24 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
 
 export async function loadCanvasRenewalEligibility(db, { selected, owner, history, today, plan, simulate }) {
   let record = selected?.record;
+  if (record?.payment_grace_exit_id && record.membership_source === 'personal' && !owner.membership_paused) {
+    try {
+      const { loadFormMembershipRenewalContext } = await import('./formMembershipRenewalContext.js');
+      const { simulateMembershipForMember } = await import('./membershipSimulation.js');
+      const restart = await loadFormMembershipRenewalContext(db, {
+        tenantId: owner.tenant_id, memberId: owner.id,
+        simulate: simulate || simulateMembershipForMember, now: new Date(`${today}T23:59:59Z`),
+      });
+      if (restart.renewal?.eligible && restart.renewal.state === 'post_grace_renewal'
+        && restart.renewal.predecessorId === record.id) {
+        return { eligible: true, state: 'post_grace_renewal', paymentGraceExit: true, priceState: 'unavailable',
+          commencementBasis: 'confirmed_payment', provisional: true };
+      }
+      return hidden();
+    } catch {
+      return { eligible: false, reason: 'eligibility_evidence_unavailable' };
+    }
+  }
   if (!record || record.membership_source !== 'personal' || owner.membership_paused
       || plan || record.billing_agreement_id || record.payment_status !== 'paid'
       || !upfrontPeriod(record)

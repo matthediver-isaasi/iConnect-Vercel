@@ -26,6 +26,30 @@ test('late renewal uses saved class and current schedule, not Former access role
   assert.equal(result.provisional, true);
   assert.deepEqual(input, before);
 });
+
+test('audited payment-grace exit permits the full renewal journey without claiming prior settlement', () => {
+  const input = fixture();
+  const history = input.histories[0];
+  Object.assign(history, { payment_status: 'unpaid', billing_agreement_id: 'old-dd',
+    term_start_date: '2026-09-01', term_end_date: '2027-08-31', membership_renewal_date: '2027-09-01',
+    term_key: 'rolling:2026-09-01', payment_grace_exit_id: 'exit' });
+  history.commitment_snapshot.payment_frequency = 'monthly';
+  input.agreements = [{ id: 'old-dd', tenant_id: 'tenant', member_id: 'member', status: 'payment_plan_cancelled' }];
+  assert.equal(assess(input).eligible,false,'cancelled mandate alone does not authorize renewal');
+  history.paymentGraceExit = { id: 'exit', tenant_id: 'tenant', member_id: 'member',
+    history_id: 'prior', agreement_id: 'old-dd', grace_expires_at: '2026-10-20T12:00:00Z',
+    effective_at: '2026-11-01T12:00:00Z' };
+  const before = structuredClone(input);
+  const result = assess(input);
+  assert.equal(result.eligible,true);
+  assert.equal(result.state,'post_grace_renewal');
+  assert.equal(result.commencementBasis,'confirmed_payment');
+  assert.equal(result.term_start_date,'2026-11-02');
+  assert.equal(result.term_end_date,'2027-11-01');
+  assert.deepEqual(input,before,'original term and unpaid history are preserved');
+  input.agreements.push({id:'other-dd',tenant_id:'tenant',member_id:'member',status:'payment_plan_cancelled'});
+  assert.equal(assess(input).eligible,false,'another agreement cannot borrow the exit receipt');
+});
 test('grace is inclusive and late renewal does not alter within-grace behaviour', () => {
   assert.equal(assess({ ...fixture(), today: '2026-10-21' }).reason, 'still_within_grace');
   assert.equal(assess({ ...fixture(), today: '2026-10-22' }).eligible, true);

@@ -276,6 +276,8 @@ export function normalizeCanvasMembershipSummary(value) {
       } : {}),
       ...(renewal.journeyUnavailable === true ? { journeyUnavailable: true } : {}),
       ...(renewal.state === 'post_grace_renewal' ? { state: renewal.state } : {}),
+      ...(renewal.state === 'post_grace_renewal' && renewal.paymentGraceExit === true
+        ? { paymentGraceExit: true } : {}),
       ...(['loading', 'ready', 'unavailable'].includes(renewal.priceState) ? { priceState: renewal.priceState } : {}),
       ...(renewal.eligible === true && price.verified === true
         && Number.isFinite(price.amount) && price.amount >= 0

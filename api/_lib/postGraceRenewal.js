@@ -27,7 +27,14 @@ export function assessPostGraceRenewal({
       return deny('evidence_scope_mismatch');
     }
     if (configs.some(row => row.tenant_id !== tenantId)) return deny('config_scope_mismatch');
-    if (agreements.some(row => !closedAgreements.has(row.status))) return deny('unresolved_billing_agreement');
+    const exits = histories.filter(row => row.paymentGraceExit
+      && row.paymentGraceExit.id === row.payment_grace_exit_id && row.status === 'expired'
+      && row.paymentGraceExit.history_id === row.id
+      && row.paymentGraceExit.tenant_id === tenantId && row.paymentGraceExit.member_id === member.id
+      && row.paymentGraceExit.agreement_id === row.billing_agreement_id);
+    const exitedAgreement = agreement => agreement.status === 'payment_plan_cancelled'
+      && exits.some(row => row.billing_agreement_id === agreement.id);
+    if (agreements.some(row => !closedAgreements.has(row.status) && !exitedAgreement(row))) return deny('unresolved_billing_agreement');
     if (elections.some(row => row.status !== 'released')) return deny('successor_already_reserved');
     const retained = histories.filter(row => !retired.has(row.status));
     if (!retained.length) return deny('previous_membership_required');
@@ -37,25 +44,34 @@ export function assessPostGraceRenewal({
     })).sort((a, b) => b.start.localeCompare(a.start));
     if (ordered.some(term => term.start > term.end)) return deny('invalid_term_evidence');
     for (let i = 1; i < ordered.length; i++) {
-      if (ordered[i].end >= ordered[i - 1].start) return deny('overlapping_terms');
+      const earlierExit = exits.includes(ordered[i].row) ? ordered[i].row.paymentGraceExit : null;
+      if (ordered[i].end >= ordered[i - 1].start
+        && !(earlierExit && toDateString(new Date(earlierExit.effective_at)) <= ordered[i - 1].start)) {
+        return deny('overlapping_terms');
+      }
     }
     const { row: prior, start, end } = ordered[0];
-    if (start > day || end >= day) return deny('membership_not_expired');
-    if (prior.payment_status !== 'paid' || prior.billing_agreement_id
-        || prior.commitment_snapshot?.payment_frequency === 'monthly') return deny('previous_settlement_requires_review');
+    const paymentExit = exits.includes(prior) ? prior.paymentGraceExit : null;
+    if (start > day || (!paymentExit && end >= day)) return deny('membership_not_expired');
+    if (!paymentExit && (prior.payment_status !== 'paid' || prior.billing_agreement_id
+        || prior.commitment_snapshot?.payment_frequency === 'monthly')) return deny('previous_settlement_requires_review');
     const config = prior.effective_commitment_snapshot?.config
       || prior.renewal_policy_snapshot || prior.commitment_snapshot?.config || prior.incentive_snapshot?.config;
     if (!config || config.tenant_id !== tenantId || config.structure_scope_type !== 'member') {
       return deny('previous_class_unavailable');
     }
     const grace = config.renewal_grace_days;
-    if (grace == null || grace === '' || !Number.isInteger(Number(grace))
-        || Number(grace) < 0 || Number(grace) > 366) return deny('grace_policy_unavailable');
+    if (!paymentExit && (grace == null || grace === '' || !Number.isInteger(Number(grace))
+        || Number(grace) < 0 || Number(grace) > 366)) return deny('grace_policy_unavailable');
     const rolling = String(prior.term_key || '').startsWith('rolling:');
     const next = toDateString(addDays(end, 1));
     if (rolling && (!prior.membership_renewal_date
         || rollingDateString(prior.membership_renewal_date) !== next)) return deny('inconsistent_renewal_boundary');
-    const graceEnd = toDateString(addDays(rolling ? next : end, Number(grace)));
+    const graceEnd = paymentExit ? toDateString(new Date(paymentExit.grace_expires_at))
+      : toDateString(addDays(rolling ? next : end, Number(grace)));
+    if (paymentExit && new Date(paymentExit.effective_at).getTime() > new Date(today).getTime()) {
+      return deny('payment_grace_exit_not_effective');
+    }
     if (day <= graceEnd) return deny('still_within_grace');
     // Access role, including Former, is deliberately not a membership-class selector.
     const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();

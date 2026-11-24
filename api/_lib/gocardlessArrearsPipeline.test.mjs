@@ -120,3 +120,23 @@ test('pure pipeline has no imports or ambient mutation/network clients; actual c
   assert.match(cron, /await selectArrearsMonthly\(/);
   assert.match(cron, /await selectArrearsAccess\(/);
 });
+
+test('cancelled failure enters reviewed access processing but never monthly collection', async () => {
+  const stopped = {...plan,status:'payment_plan_cancelled',last_payment_status:'failed'};
+  const operations=[];
+  const effects={async perform(op){operations.push(op);return 'exit';}};
+  const waiting = await runArrearsAccess({plan:stopped,agreement,now,db:db(),effects});
+  assert.match(waiting.result.skippedReason,/awaiting-release-or-approval/);
+  assert.equal(operations[0].payload.values.needs_attention,true);
+  operations.length=0;
+  const approved = await runArrearsAccess({plan:stopped,agreement,now,effects,db:db({
+    membership_payment_grace_exit_release:[{enabled:true}],
+    membership_payment_grace_exit_approval:[{plan_id:'p'}],
+  })});
+  assert.equal(approved.paymentGraceExitId,'exit');
+  assert.equal(operations[0].payload.name,'apply_membership_payment_grace_exit');
+  assert.equal(operations.length,1);
+  await runArrearsMonthly({plan:stopped,agreement,now,db:db(),effects:{
+    perform(){assert.fail('cancelled mandate must not enter collection');},
+  }});
+});

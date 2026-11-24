@@ -116,6 +116,91 @@ test('payment-grace evidence is disabled, immutable, scoped and never rewrites f
     assert.equal((await db.query('SELECT * FROM membership_payment_grace_exit')).rowCount,1);
     await assert.rejects(db.query("UPDATE membership_payment_grace_exit SET approval_reference='forged'"),/permission denied/);
     await db.query('RESET ROLE');
+    // Exercise the subsequent authority migration against the real role RPC.
+    await db.query(`
+      TRUNCATE membership_payment_grace_exit;
+      DELETE FROM membership_arrears_role_action;
+      ALTER TABLE member ADD COLUMN organization_id uuid;
+      ALTER TABLE role ADD COLUMN name text DEFAULT 'Fixture role';
+      ALTER TABLE membership_arrears_role_action
+        ADD COLUMN previous_role_id uuid, ADD COLUMN applied_at timestamptz DEFAULT now(),
+        ADD COLUMN restoration_status text, ADD COLUMN created_at timestamptz DEFAULT now(),
+        ADD COLUMN updated_at timestamptz DEFAULT now();
+      ALTER TABLE membership_arrears_role_action ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE member_membership_history ADD COLUMN term_key text;
+      ALTER TABLE member_membership_history ADD COLUMN membership_renewal_date date;
+      UPDATE member_membership_history SET term_key='rolling:2025-12-01',membership_renewal_date='2027-12-02';
+      CREATE EXTENSION btree_gist;
+      ALTER TABLE member_membership_history ADD CONSTRAINT member_membership_history_rolling_no_overlap
+        EXCLUDE USING gist (tenant_id WITH =,member_id WITH =,
+          daterange(term_start_date,membership_renewal_date,'[)') WITH &&)
+        WHERE(term_key IS NOT NULL AND status IS DISTINCT FROM 'replaced'
+          AND status IS DISTINCT FROM 'cancelled_by_request');
+      UPDATE membership_payment_grace_exit_release SET enabled=false;
+    `);
+    await db.query(await readFile(new URL('../../supabase/migrations/20260920_recurring_arrears_fallback_role.sql',import.meta.url),'utf8'));
+    await db.query(await readFile(new URL('../../supabase/migrations/202612310056_retired_membership_arrears_roles.sql',import.meta.url),'utf8'));
+    const beforeAuthority = await snapshot();
+    await db.query(await readFile(new URL('../../supabase/migrations/202701250002_payment_grace_exit_authority.sql',import.meta.url),'utf8'));
+    const afterAuthority = await snapshot();
+    const overlap = (await db.query(`SELECT pg_get_constraintdef(oid) definition FROM pg_constraint
+      WHERE conname='member_membership_history_rolling_no_overlap'`)).rows[0].definition;
+    assert.match(overlap,/payment_grace_exit_id IS NULL/);
+    assert.match(overlap,/status IS DISTINCT FROM 'replaced'/);
+    assert.match(overlap,/status IS DISTINCT FROM 'cancelled_by_request'/);
+    delete afterAuthority.history[0].payment_grace_exit_id;
+    assert.deepEqual(afterAuthority,beforeAuthority,'authority migration changes no existing data');
+    await assert.rejects(db.query('SELECT apply_membership_payment_grace_exit($1,$2)',[tenant,plan]),/disabled/);
+    await db.query('UPDATE membership_payment_grace_exit_release SET enabled=true');
+    await assert.rejects(db.query('SELECT apply_membership_payment_grace_exit($1,$2)',[tenant,plan]),/not been approved/);
+    const oldRole = id(9);
+    await db.query('INSERT INTO role(id,tenant_id,is_tenant_admin) VALUES($1,$2,false)',[oldRole,tenant]);
+    await db.query('UPDATE member SET role_id=$1',[oldRole]);
+    await db.query("INSERT INTO membership_payment_grace_exit_approval VALUES($1,$2,$3,$4,'fixture approval')",
+      [tenant,plan,history,oldRole]);
+    for(const actor of ['anon','authenticated','service_role']) {
+      await db.query(`SET ROLE ${actor}`);
+      await assert.rejects(db.query('SELECT apply_membership_payment_grace_exit($1,$2)',[tenant,plan]),/permission denied/);
+      await assert.rejects(db.query("INSERT INTO membership_payment_grace_exit_approval VALUES($1,$2,$3,$4,'forged')",
+        [tenant,plan,history,oldRole]),/permission denied/);
+      await db.query('RESET ROLE');
+    }
+    await db.query("UPDATE gocardless_mandates SET status='active'");
+    await assert.rejects(db.query('SELECT apply_membership_payment_grace_exit($1,$2)',[tenant,plan]),/conflicting/);
+    assert.equal((await db.query('SELECT role_id FROM member')).rows[0].role_id,oldRole,'failed exit rolls back role assignment');
+    assert.equal((await db.query('SELECT count(*)::int n FROM membership_arrears_role_action')).rows[0].n,0);
+    await db.query("UPDATE gocardless_mandates SET status='cancelled'");
+    const result = (await db.query('SELECT apply_membership_payment_grace_exit($1,$2) AS id',[tenant,plan])).rows[0].id;
+    assert.equal((await db.query('SELECT apply_membership_payment_grace_exit($1,$2) AS id',[tenant,plan])).rows[0].id,result);
+    const exited = await snapshot();
+    assert.equal(exited.member[0].role_id,role);
+    assert.equal(exited.member[0].login_enabled,true);
+    assert.equal(exited.history[0].status,'expired');
+    assert.equal(exited.history[0].payment_status,'unpaid');
+    assert.equal(exited.history[0].term_end_date,'2027-12-01');
+    assert.deepEqual(exited.plan,beforeAuthority.plan);
+    assert.deepEqual(exited.agreement,beforeAuthority.agreement);
+    const appliedAction = (await db.query('SELECT id FROM membership_arrears_role_action')).rows[0].id;
+    assert.equal((await db.query('SELECT * FROM restore_membership_arrears_fallback_role($1,$2)',
+      [tenant,appliedAction])).rows[0].result_status,'payment_grace_expired');
+    assert.equal((await db.query('SELECT role_id FROM member')).rows[0].role_id,role,
+      'later settlement of old debt cannot restore the ended membership role');
+    const evidence = (await db.query('SELECT membership_payment_grace_exit_evidence($1,$2,$3) AS data',
+      [tenant,member,history])).rows[0].data;
+    assert.equal(evidence.id,result);
+    assert.equal((await db.query('SELECT membership_payment_grace_exit_evidence($1,$2,$3) AS data',
+      [tenant,id(99),history])).rows[0].data,null);
+    await assert.rejects(db.query('UPDATE member_membership_history SET payment_grace_exit_id=null'),/cannot be removed/);
+    await assert.rejects(db.query("UPDATE member_membership_history SET status='active'"),/cannot be removed/);
+    await assert.rejects(db.query("UPDATE member_membership_history SET term_end_date='2027-11-01'"),/cannot be removed/);
+    await db.query(`INSERT INTO member_membership_history
+      (id,tenant_id,member_id,term_key,term_start_date,term_end_date,membership_renewal_date,status,payment_status)
+      VALUES($1,$2,$3,'rolling:2026-11-24','2026-11-24','2027-11-23','2027-11-24','pending','unpaid')`,
+    [id(10),tenant,member]);
+    await assert.rejects(db.query(`INSERT INTO member_membership_history
+      (id,tenant_id,member_id,term_key,term_start_date,term_end_date,membership_renewal_date,status,payment_status)
+      VALUES($1,$2,$3,'rolling:2026-11-25','2026-11-25','2027-11-24','2027-11-25','pending','unpaid')`,
+    [id(11),tenant,member]),/exclusion constraint/);
   } finally {
     await db?.end();
     if(running) execFileSync('pg_ctl',['-D',join(dir,'data'),'-m','immediate','-w','stop'],{stdio:'pipe'});

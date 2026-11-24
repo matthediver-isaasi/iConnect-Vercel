@@ -921,7 +921,7 @@ test('history query projections respect each owner schema and avoid unsupported 
   // Server-only attestation fields are intentionally absent from the public
   // history projection. The API regression above exercises their selection.
   for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status',
-    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at', 'renewal_policy_snapshot'].includes(column))) {
+    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at', 'renewal_policy_snapshot', 'payment_grace_exit_id'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);

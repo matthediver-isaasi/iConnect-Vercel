@@ -162,7 +162,7 @@ export async function loadFormMembershipRenewalContext(db, {
     simulation: election.quote?.simulation || null,
   };
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
-  if (!organizationId && previous?.term_end_date < today && !renewal.eligible) {
+  if (!organizationId && (previous?.term_end_date < today || previous?.payment_grace_exit_id) && !renewal.eligible) {
     // Capability is separate from tenant policy. Installing preparatory storage
     // must never expose a checkout whose finalizer is still inaccessible.
     const readiness = await db.rpc('post_grace_checkout_ready');
