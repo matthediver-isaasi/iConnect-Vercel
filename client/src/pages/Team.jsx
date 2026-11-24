@@ -36,7 +36,7 @@ export default function TeamPage({ hasBanner }) {
   const [selectedRoleId, setSelectedRoleId] = useState("all");
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(9);
+  const [itemsPerPage, setItemsPerPage] = useState('all');
   const [view, setView] = useState("list");
   const [sortKey, setSortKey] = useState("first_name");
   const [sortDirection, setSortDirection] = useState("asc");

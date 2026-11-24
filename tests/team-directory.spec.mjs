@@ -79,16 +79,27 @@ test('card/list metadata, all six header directions, shared sorts and keyboard v
   expect(state.writes).toEqual([]);
 });
 
-test('list is the default on load and reload; toggling preserves filters, sort and pagination', async ({ page }) => {
+test('list and all members default on load and reload; toggling preserves filters, sort and pagination', async ({ page }) => {
   await fixture(page, { count: 61 });
   const list = page.getByRole('button', { name: 'List', exact: true });
   const cards = page.getByRole('button', { name: 'Cards', exact: true });
   await expect(list).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('tbody tr')).toHaveCount(9);
+  const pageSize = page.getByRole('combobox', { name: 'Members per page', exact: true });
+  await expect(pageSize).toContainText('Show all members');
+  await expect(page.locator('tbody tr')).toHaveCount(60);
+  await expect(page.getByRole('status')).toHaveText('Showing 1–60 of 60 members');
+  await cards.click();
+  await expect(pageSize).toContainText('Show all members');
+  await expect(page.getByRole('status')).toHaveText('Showing 1–60 of 60 members');
+  await list.click();
+  await expect(page.locator('tbody tr')).toHaveCount(60);
   await page.getByTestId('input-team-search').fill('Person00');
   await page.getByTestId('select-role-filter').click();
   await page.getByRole('option', { name: 'Alpha', exact: true }).click();
   await select(page, 'Sort by', 'Last name');
+  await expect(page.locator('tbody tr')).toHaveCount(31);
+  await expect(page.getByRole('status')).toHaveText('Showing 1–31 of 31 members');
+  await select(page, 'Members per page', '9');
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   const rows = await page.locator('tbody tr').allTextContents();
   for (const button of [cards, list]) {
@@ -97,6 +108,7 @@ test('list is the default on load and reload; toggling preserves filters, sort a
     await expect(page.getByTestId('input-team-search')).toHaveValue('Person00');
     await expect(page.getByTestId('select-role-filter')).toContainText('Alpha');
     await expect(page.getByRole('combobox', { name: 'Sort by', exact: true })).toContainText('Last name');
+    await expect(pageSize).toContainText('9');
     await expect(page.getByRole('status')).toHaveText('Showing 10–18 of 31 members');
   }
   expect(await page.locator('tbody tr').allTextContents()).toEqual(rows);
@@ -104,18 +116,30 @@ test('list is the default on load and reload; toggling preserves filters, sort a
   await page.reload();
   await expect(list).toHaveAttribute('aria-pressed', 'true');
   await expect(cards).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('tbody tr')).toHaveCount(9);
+  await expect(pageSize).toContainText('Show all members');
+  await expect(page.locator('tbody tr')).toHaveCount(60);
+  await expect(page.getByRole('status')).toHaveText('Showing 1–60 of 60 members');
 });
 
 test('complete multi-batch team, size transitions, filtering and update clamp', async ({ page }) => {
   const state = await fixture(page, { count: 1105, restricted: true });
-  await expect(page.getByRole('status')).toHaveText('Showing 1–9 of 1104 members');
+  await expect(page.getByRole('combobox', { name: 'Members per page', exact: true })).toContainText('Show all members');
+  await expect(page.getByRole('status')).toHaveText('Showing 1–1104 of 1104 members');
+  await expect(page.locator('tbody tr')).toHaveCount(1104);
   expect(state.calls.map(c => c.offset)).toEqual([0, 500, 1000]);
   expect(state.calls.every(c => c.sort.id === 'asc' && c.filter.organization_id === 'org')).toBe(true);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   for (const size of ['25', '50', '100', 'Show all members', '9']) {
     await select(page, 'Members per page', size);
     await expect(page.locator('tbody tr')).toHaveCount(size === 'Show all members' ? 1104 : Number(size));
+    if (size !== 'Show all members') {
+      const count = Number(size);
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await expect(page.getByRole('status')).toHaveText(`Showing ${count + 1}–${count * 2} of 1104 members`);
+      await expect(page.locator('tbody tr')).toHaveCount(count);
+      await page.getByRole('button', { name: 'Previous page', exact: true }).click();
+      await expect(page.getByRole('status')).toHaveText(`Showing 1–${count} of 1104 members`);
+    }
   }
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Showing 10–18 of 1104 members');
@@ -168,7 +192,19 @@ test('batch error never exposes partial data and retry recovers', async ({ page 
   await expect(page.getByText('Person0000', { exact: true })).toHaveCount(0);
   state.fail = false;
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('Showing 1–9 of 500 members');
+  await expect(page.getByRole('status')).toHaveText('Showing 1–500 of 500 members');
+  await expect(page.locator('tbody tr')).toHaveCount(500);
+});
+
+test('empty team safely keeps the all-members default in either view', async ({ page }) => {
+  await fixture(page, { count: 0 });
+  for (const view of ['List', 'Cards']) {
+    await page.getByRole('button', { name: view, exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Members per page', exact: true })).toContainText('Show all members');
+    await expect(page.getByRole('status')).toHaveText('Showing 0–0 of 0 members');
+    await expect(page.getByText('No members found', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next page', exact: true })).toHaveCount(0);
+  }
 });
 
 test('narrow layouts remain within viewport and controls work by keyboard', async ({ page }) => {

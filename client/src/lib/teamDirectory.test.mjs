@@ -48,6 +48,17 @@ test('all sizes, empty and shrinking datasets clamp safely', () => {
   const filteredSorted = sortTeamMembers(rows.filter(r => r.first_name), roles, 'first_name', 'asc');
   assert.deepEqual(paginateTeamMembers(filteredSorted, 1, 9).members.map(r => r.id), ['a', 'b']);
 });
+test('all members preserves the complete ordered result on one page', () => {
+  const many = Array.from({ length: 126 }, (_, id) => ({ id }));
+  for (const requestedPage of [1, 8]) {
+    assert.deepEqual(paginateTeamMembers(many, requestedPage, 'all'), {
+      members: many, page: 1, totalPages: 1, start: 1, end: 126, total: 126,
+    });
+  }
+  const filtered = many.filter(member => member.id % 2 === 0);
+  assert.deepEqual(paginateTeamMembers(filtered, 8, 'all').members, filtered);
+  assert.equal(many.length, 126);
+});
 test('complete stable scoped multi-batch load even with a lower provider cap', async () => {
   const many = Array.from({ length: 1105 }, (_, id) => ({ id: String(id).padStart(4, '0'), organization_id: 'org', last_activity: null }));
   const calls = [];
