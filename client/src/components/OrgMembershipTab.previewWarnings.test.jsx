@@ -83,6 +83,7 @@ async function mounted(data, callback) {
     ...data,
   });
   client.setQueryData(["membership-settings"], { require_approval: false });
+  client.setQueryData(["org-membership", "org", "proposal-entitlements"], { items: [], enabled: false });
   client.setQueryData(["org-membership-invoicing", "org"], { settings: {} });
   client.setQueryData(["member-join-form-setting"], null);
   client.setQueryData(["member-join-forms-by-org-type-setting"], null);
@@ -97,6 +98,9 @@ async function mounted(data, callback) {
     calls.push({ url, options });
     if (url === "/api/membership/simulate-renewal" && options?.method === "POST") {
       return { ok: true, json: async () => ({ success: true, steps: [], membershipYear: JSON.parse(options.body).targetYear }) };
+    }
+    if (String(url).startsWith("/api/membership-invoice/")) {
+      return new Response("synthetic invoice PDF", { status: 200, headers: { "Content-Type": "application/pdf" } });
     }
     throw new Error(`Unexpected network request: ${url}`);
   };
@@ -118,6 +122,78 @@ async function mounted(data, callback) {
 function section(container, suffix) {
   return container.querySelector(`[data-testid="section-${suffix}"]`);
 }
+
+test("organisation invoice cells show saved references and retain unnumbered actions and missing-invoice explanations", async () => {
+  const history = [
+    { id: "generic", accounting_invoice_id: "private-accounting-id",
+      accounting_invoice_number: "INV-ORG-42", xero_invoice_number: "OLD-42",
+      accounting_sync_status: "failed", accounting_sync_error: "Payment sync needs review" },
+    { id: "legacy", xero_invoice_id: "private-xero-id", accounting_invoice_number: "",
+      xero_invoice_number: "XERO-43" },
+    { id: "unnumbered", accounting_invoice_id: "private-unnumbered-id" },
+    { id: "unlinked", accounting_invoice_number: "UNLINKED-REFERENCE",
+      invoice_availability: { status: "missing", message: "This historical fee has no linked invoice." } },
+  ].map(record => ({ membership_year: "2025/2026", final_cost: 42, currency: "GBP", ...record }));
+  const before = structuredClone(history);
+  await mounted({ history }, ({ container, calls }) => {
+    const cell = id => container.querySelector(`[data-testid="row-history-${id}"]`).lastElementChild;
+    assert.equal(cell("generic").querySelector("p").textContent, "INV-ORG-42");
+    assert.doesNotMatch(cell("generic").textContent, /OLD-42|private-accounting-id/);
+    assert.equal(cell("legacy").querySelector("p").textContent, "XERO-43");
+    assert.doesNotMatch(cell("legacy").textContent, /private-xero-id/);
+    assert.equal(cell("unnumbered").querySelector("p"), null);
+    assert.doesNotMatch(cell("unnumbered").textContent, /undefined|null|private-unnumbered-id|INV-|XERO-/);
+    for (const id of ["generic", "legacy", "unnumbered"]) {
+      for (const action of ["view-invoice", "download-invoice", "reconcile-payment"]) {
+        assert.ok(cell(id).querySelector(`[data-testid="button-${action}-${id}"]`));
+      }
+    }
+    assert.match(cell("generic").textContent, /Accounting: failed/);
+    assert.match(cell("generic").textContent, /Payment sync needs review/);
+    assert.match(cell("unlinked").textContent, /No invoice linked/);
+    assert.match(cell("unlinked").textContent, /This historical fee has no linked invoice/);
+    assert.doesNotMatch(cell("unlinked").textContent, /UNLINKED-REFERENCE/);
+    assert.equal(cell("unlinked").querySelector("button"), null);
+    assert.deepEqual(history, before);
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("organisation invoice view and download keep targeting the history record for every linked reference variant", async () => {
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  const originalClick = dom.window.HTMLAnchorElement.prototype.click;
+  const downloads = [];
+  URL.createObjectURL = () => "blob:invoice-preview";
+  URL.revokeObjectURL = () => {};
+  dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push(this.download); };
+  try {
+    for (const [id, fields, number] of [
+      ["generic", { accounting_invoice_id: "provider-id", accounting_invoice_number: "INV-42",
+        xero_invoice_number: "OLD-42" }, "INV-42"],
+      ["legacy", { xero_invoice_id: "legacy-provider-id", xero_invoice_number: "XERO-43" }, "XERO-43"],
+      ["unnumbered", { accounting_invoice_id: "unnumbered-provider-id" }, null],
+    ]) {
+      await mounted({ history: [{ id, membership_year: "2025/2026", ...fields }] }, async ({ container, calls }) => {
+        await act(async () => container.querySelector(`[data-testid="button-view-invoice-${id}"]`).click());
+        assert.equal(document.querySelector('[data-testid="text-invoice-modal-title"]').textContent,
+          number ? `Invoice ${number}` : "Invoice Preview");
+        assert.match(document.querySelector('[data-testid="iframe-invoice-pdf"]').src, /^blob:invoice-preview#/);
+        await act(async () => container.querySelector(`[data-testid="button-download-invoice-${id}"]`).click());
+        assert.deepEqual(calls.map(call => call.url), [
+          `/api/membership-invoice/${id}?inline=true`,
+          `/api/membership-invoice/${id}`,
+        ]);
+        assert.ok(calls.every(call => call.options.credentials === "include"));
+        assert.equal(downloads.at(-1), `membership-invoice-${number || id}.pdf`);
+      });
+    }
+  } finally {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+    dom.window.HTMLAnchorElement.prototype.click = originalClick;
+  }
+});
 
 test("current-year review warns locally without displaying a fee or blocking next-year simulation and history", async () => {
   await mounted({

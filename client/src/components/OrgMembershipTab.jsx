@@ -1823,6 +1823,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                           </div>
                         ) : invoiceId ? (
                           <div className="flex flex-col items-center gap-1">
+                            {invoiceNumber && (
+                              <p className="text-xs text-muted-foreground">{invoiceNumber}</p>
+                            )}
                             {(record.accounting_sync_status || record.accounting_sync_error) && (
                               <div className="max-w-56 text-center">
                                 {record.accounting_sync_status && (
