@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isTicketClosed } from '../../shared/ticketRelease.js';
 import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
 import { scopeEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -123,7 +124,7 @@ export default async function handler(req, res) {
     if (eventIds.length > 0) {
       const { data: ticketClasses, error: tcError } = await supabase
         .from('complex_event_ticket_class')
-        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, audience_mode, selected_member_ids, organization_type_enabled, organization_type_field_id, organization_type_values')
+        .select('*')
         .in('complex_event_id', eventIds)
         .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true });
@@ -145,7 +146,8 @@ export default async function handler(req, res) {
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
     const capacityEvents = await projectPublicShoppingAvailability(supabase, tenant.id, 'complex', rawEvents || []);
     const events = capacityEvents.map(event => {
-      const allTicketClasses = filterViewerTickets(ticketClassesByEvent[event.id] || [], viewer, tenant.id);
+      const allTicketClasses = filterViewerTickets(ticketClassesByEvent[event.id] || [], viewer, tenant.id)
+        .filter(ticket => !isTicketClosed(ticket));
       const allPrices = allTicketClasses
         .map(tc => Number(tc.price))
         .filter(p => Number.isFinite(p));
@@ -156,6 +158,7 @@ export default async function handler(req, res) {
           const vis = tc.visibility_mode || 'members_only';
           return vis === 'members_and_public' || vis === 'public_only';
         })
+        .filter(tc => !isTicketClosed(tc))
         .map(tc => ({
           id: tc.id,
           name: tc.name,
@@ -171,6 +174,8 @@ export default async function handler(req, res) {
           early_bird_deadline: tc.early_bird_deadline || null,
           release_at: tc.release_at ?? null,
           release_timezone: tc.release_timezone ?? null,
+          close_at: tc.close_at ?? null,
+          close_timezone: tc.close_timezone ?? null,
           linked_track_ids: tc.linked_track_ids || [],
           all_tracks: tc.all_tracks
         }));

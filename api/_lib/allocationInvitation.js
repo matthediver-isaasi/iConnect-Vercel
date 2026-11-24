@@ -53,7 +53,7 @@ function allocationTicketSnapshot(ticket) {
     'offer_type', 'bogo_logic_type', 'bogo_buy_quantity', 'bogo_get_free_quantity',
     'bulk_discount_threshold', 'bulk_discount_percentage',
     'available_count', 'is_unlimited_tickets', 'display_order',
-    'all_tracks', 'release_at', 'release_timezone',
+    'all_tracks', 'release_at', 'release_timezone', 'close_at', 'close_timezone',
   ];
   const result = {};
   for (const field of fields) {
@@ -138,7 +138,7 @@ export async function getPublicAllocationInvitationContext(db, token) {
 }
 
 export function claimAllocationInvitation(db, token, bookingKind, bookingId) {
-  return rpc(db, 'claim_sales_allocation_invitation', {
+  return rpc(db, 'claim_sales_allocation_invitation_with_event_seat', {
     p_token_hash: hashAllocationInviteToken(token),
     p_booking_kind: bookingKind,
     p_booking_id: bookingId,

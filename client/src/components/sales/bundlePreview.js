@@ -7,6 +7,7 @@ export function bundlePreviewLines(lines, products, bundles, categories) {
     const savedId = line.catalogue_id || line.catalogueId;
     if (savedId === line.bundleId && (line.sales_quote_bundle_component || line.components || line.bundleComponents)) return line;
     return { ...line, sales_quote_bundle_component: undefined, bundleComponents: (bundle?.items || []).map(item => {
+      if (item.kind === 'ticket') return { name: 'Ticket', quantity: item.quantity };
       const product = products.find(p => p.id === item.productId);
       const category = categories.find(c => c.id === product?.categoryId);
       return { quantity: item.quantity, name: product?.name || 'Unavailable product',

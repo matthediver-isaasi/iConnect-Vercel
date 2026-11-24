@@ -6,6 +6,7 @@ import { createSalesTicketRegistrationHandler } from '../public/sales-ticket-reg
 process.env.SESSION_SECRET = 'isolated-fulfilment-test-secret-not-production';
 const row = { id: '11111111-1111-4111-8111-111111111111', tenant_id: 'tenant', sale_id: 'sale',
   customer_email: 'accepted@example.test', status: 'pending' };
+const loadDeadlines = async () => ['Conference: register by 1 December 2030 12:00 UTC.'];
 test('bearer is deterministic per sale/tenant and never shared with another tenant', () => {
   assert.equal(customerFulfilmentToken(row), customerFulfilmentToken(row));
   assert.notEqual(customerFulfilmentToken(row), customerFulfilmentToken({ ...row, tenant_id: 'other' }));
@@ -28,12 +29,12 @@ test('durable claim suppresses concurrent/repeated sends; rejected delivery retr
   };
   const send = async message => {
     messages.push(message);
-    assert.equal(await deliverCustomerFulfilment(db, row, { send }), 'skipped');
+    assert.equal(await deliverCustomerFulfilment(db, row, { send, loadDeadlines }), 'skipped');
     return messages.length === 1 ? { success: false, ambiguousEffect: false } : { success: true, messageId: 'test-message' };
   };
-  assert.equal(await deliverCustomerFulfilment(db, row, { send }), 'pending');
-  assert.equal(await deliverCustomerFulfilment(db, row, { send }), 'sent');
-  assert.equal(await deliverCustomerFulfilment(db, row, { send }), 'skipped');
+  assert.equal(await deliverCustomerFulfilment(db, row, { send, loadDeadlines }), 'pending');
+  assert.equal(await deliverCustomerFulfilment(db, row, { send, loadDeadlines }), 'sent');
+  assert.equal(await deliverCustomerFulfilment(db, row, { send, loadDeadlines }), 'skipped');
   assert.equal(messages.length, 2);
   assert.equal(messages[0].to, 'accepted@example.test');
   assert.equal(messages[0].text, messages[1].text);
@@ -45,7 +46,7 @@ test('unknown provider outcomes are held for review rather than blindly resent',
     ? { data: 'permitted' } : name.startsWith('claim')
     ? { data: row } : (final = args.p_outcome, { data: true }),
   from: () => { const q = { select: () => q, eq: () => q, single: async () => ({ data: { slug: 'safe' } }) }; return q; } };
-  await deliverCustomerFulfilment(db, row, { send: async () => { throw new Error('timeout'); } });
+  await deliverCustomerFulfilment(db, row, { send: async () => { throw new Error('timeout'); }, loadDeadlines });
   assert.equal(final, 'attention');
 });
 test('capacity and cross-sale failures from transactional reservation cannot create registration URLs', async () => {

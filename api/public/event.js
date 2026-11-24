@@ -1,4 +1,5 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+import { isTicketClosed } from '../../shared/ticketRelease.js';
 import { projectSimpleEventCapacity } from '../_lib/simpleEventCapacity.js';
 import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
 import { createClient } from '@supabase/supabase-js';
@@ -130,7 +131,8 @@ export default async function handler(req, res) {
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
 
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
-    const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id);
+    const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id)
+      .filter(ticket => !isTicketClosed(ticket));
     const allPrices = allTicketClasses
       .map(tc => {
         if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
@@ -155,6 +157,7 @@ export default async function handler(req, res) {
         }
         return tc.is_public === true;
       })
+      .filter(tc => !isTicketClosed(tc))
       .map(tc => ({
         id: tc.id,
         name: tc.name,
@@ -174,6 +177,8 @@ export default async function handler(req, res) {
         early_bird_deadline: tc.early_bird_deadline || null,
         release_at: tc.release_at ?? null,
         release_timezone: tc.release_timezone ?? null,
+        close_at: tc.close_at ?? null,
+        close_timezone: tc.close_timezone ?? null,
         offer_type: tc.offer_type || 'none',
         bogo_logic_type: tc.bogo_logic_type || 'buy_x_get_y_free',
         bogo_buy_quantity: tc.bogo_buy_quantity || 0,

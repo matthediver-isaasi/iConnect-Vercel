@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { base44 } from "@/api/base44Client";
+import QuoteLineTicketSelect from "@/components/sales/QuoteLineTicketSelect";
 import { Archive, Boxes, ChevronDown, ChevronUp, Copy, FolderTree, Package, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -12,14 +14,14 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCatalogue, useCatalogueTaxOptions, useEventOptions } from "./useCatalogue";
-import { CATALOGUE_FIELDS, catalogueCopyForEditing, selectableCopyTaxId, productPricesForEditing, productPricesForSaving, bundlePricesForEditing, bundlePricesForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm";
+import { CATALOGUE_FIELDS, catalogueCopyForEditing, selectableCopyTaxId, productPricesForEditing, productPricesForSaving, bundlePricesForEditing, bundlePricesForSaving, bundleItemsForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm";
 import { useSalesSettings } from "@/components/sales/useSalesSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { providerTaxOptions, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 import BundleBillingGroups from "@/components/sales/BundleBillingGroups";
-import { groupsForEditing, groupsForSaving } from "@/components/sales/billingGroups";
+import { bundleItemLabel, groupsForEditing, groupsForSaving } from "@/components/sales/billingGroups";
 import ExhibitionInventory from "./ExhibitionInventory";
 import ProductSpaceRequirement from "@/components/sales/ProductSpaceRequirement";
 import BundleStockDialog from "./BundleStockDialog";
@@ -30,6 +32,12 @@ const singular = { categories: "category", products: "product", bundles: "bundle
 const blank = { categories: { name: "", code: "", description: "" }, products: { name: "", code: "", sku: "", categoryId: "", currency: "GBP", standardPriceMinor: "", minimumPriceMinor: "", costMinor: "", shortDescription: "", description: "", taxTreatment: "standard", taxRateBps: "", availableFrom: "", availableTo: "", eventReference: { kind: "", eventId: "", ticketTypeId: "" }, capacityMetadata: "", createTaskOnAcceptance: false }, bundles: { name: "", code: "", currency: "GBP", sellingPriceMinor: "", minimumPriceMinor: "", presentationMode: "bundle", availableFrom: "", availableTo: "", description: "", items: [] } };
 const money = (minor, currency = "GBP") => minor === null || minor === undefined || minor === "" ? "—" : new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(minor) / 100);
 const asList = (data) => Array.isArray(data) ? data : data?.items || data?.results || [];
+// Ticket selectors use full catalogue URLs; retain the catalogue client's
+// authentication and response-unwrapping conventions.
+const ticketRequest = async (path, options) => {
+  const response = await base44._apiRequest(path, options);
+  return response?.data ?? response;
+};
 
 function Field({ label, children, wide = false }) { return <div className={wide ? "sm:col-span-2" : ""}><Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</Label>{children}</div>; }
 
@@ -123,7 +131,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
       const stock = type === "products" ? row.productStock : row.bundleStock;
       return <TableRow key={row.id} className={archived ? "bg-slate-50/70 text-slate-500" : ""}>
         <TableCell><div className="font-semibold text-slate-900">{row.name}</div>{type === "bundles" && row.categoryId && <div className="text-xs text-blue-700">{categoryName(row.categoryId)}</div>}{(type === "categories" || showInternalCode) && row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell>
-        <TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{showSku && row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell>
+        <TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{showSku && row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${item.kind === "ticket" ? bundleItemLabel(item) : productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell>
         <TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline">{archived ? "Archived" : "Active"}</Badge>}</TableCell>
         {type !== "categories" && <TableCell><div className="text-sm">{stock ? stock.remaining === null ? "Unlimited" : `${stock.remaining} available` : "Stock unavailable"}</div><div className="text-xs text-slate-500">{stock ? `${stock.reserved} reserved` : "Reload to check stock"}</div>{stock?.requiresAttention && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-800">Holds need administrator review</Badge>}{canManage && onStock && <Button type="button" variant="link" size="sm" className="h-auto px-0 text-xs" disabled={!stock || (type === "products" && row.cartStockReady !== true)} onClick={() => onStock(row)} aria-label={`Edit stock for ${row.name}`}>Edit stock</Button>}{type === "products" && row.cartStockReady !== true && <p className="text-xs text-amber-700">Cart stock is not ready. Reload after the required database update.</p>}</TableCell>}
         {canManage && <TableCell><div className="flex justify-end gap-1">
@@ -220,7 +228,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
     if (type === "bundles") {
       try {
         if (categoriesLoading || productsLoading || catalogueError) throw new Error("Wait for categories and products to load successfully before saving.");
-        if ((form.items || []).some(item => !item.productId)) throw new Error("Choose a product for every included item, or remove the empty row.");
+        data.items = bundleItemsForSaving(form.items);
         Object.assign(data, bundlePricesForSaving(form));
         data.billingGroups = groupsForSaving(form.billingGroups, form.items, data.sellingPriceMinor, { copying: Boolean(config.copySource) });
         if (config.copySource) data.copySourceId = config.copySource.id;
@@ -228,7 +236,6 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
         setFormError(error.message);
         return;
       }
-      data.items = (form.items || []).filter((item) => item.productId).map((item) => ({ productId: item.productId, quantity: Number(item.quantity) }));
     }
     submitting.current = true;
     setSubmittingNow(true);
@@ -327,6 +334,9 @@ function ProductSelect(props) {
 function BundleFields({ form, update }) { return <><Field label="Currency"><Input required maxLength="3" value={form.currency || "GBP"} onChange={(e) => update("currency", e.target.value.toUpperCase())} /></Field><Field label={`Selling price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Selling price" required type="text" inputMode="decimal" placeholder="125.00" value={form.sellingPriceMinor ?? ""} onChange={(e) => update("sellingPriceMinor", e.target.value)} /><p className="mt-1 text-xs text-slate-500">Enter a currency amount, e.g. 125.00, excluding VAT.</p></Field><Field label={`Minimum price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Minimum price" type="text" inputMode="decimal" value={form.minimumPriceMinor ?? ""} onChange={(e) => update("minimumPriceMinor", e.target.value)} /></Field><Field label="Presentation mode"><Select value={form.presentationMode || "bundle"} onValueChange={(v) => update("presentationMode", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bundle">Single bundle line</SelectItem><SelectItem value="itemised">Itemised products</SelectItem></SelectContent></Select></Field><Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field><Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field></>; }
 export function BundleItems({ form, update, products, categories = [], loading = false }) {
   const items = form.items || [];
+  // Product categories occupy their own namespace. Even a user-created
+  // category whose ID is "ticket" cannot select the synthetic ticket kind.
+  const categoryValue = id => id ? `category:${id}` : "uncategorised";
   const add = () => update("items", [...items, { productId: "", quantity: 1, editorKey: crypto.randomUUID(), editorCategory: "" }]);
   const patch = (index, key, value) => update("items", items.map((item, i) => i === index ? { ...item, [key]: key === "quantity" ? Number(value) : value } : item));
   const move = (index, direction) => {
@@ -335,31 +345,40 @@ export function BundleItems({ form, update, products, categories = [], loading =
     update("items", next);
   };
   return <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-    <div className="mb-2 flex items-center justify-between"><Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Included products</Label><Button type="button" variant="outline" size="sm" onClick={add}><Plus className="mr-1 h-3.5 w-3.5" />Add item</Button></div>
+    <div className="mb-2 flex items-center justify-between"><Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Included items</Label><Button type="button" variant="outline" size="sm" onClick={add}><Plus className="mr-1 h-3.5 w-3.5" />Add item</Button></div>
     {items.map((item, index) => {
+      const ticket = item.kind === "ticket";
       const selected = products.find(product => String(product.id) === String(item.productId));
-      const category = item.editorCategory ?? (selected ? String(selected.categoryId || "uncategorised") : "");
-      const filtered = products.filter(product => String(product.categoryId || "uncategorised") === category && product.isActive !== false && !product.archivedAt);
+      const category = ticket ? "ticket" : item.editorCategory ?? (selected ? categoryValue(selected.categoryId) : "");
+      const filtered = products.filter(product => categoryValue(product.categoryId) === category && product.isActive !== false && !product.archivedAt);
       const available = products.some((product) => String(product.id) === String(item.productId) && product.isActive !== false && !product.archivedAt);
-      return <div key={item.editorKey || item.id || item.productId || index} className="mb-2 flex flex-wrap gap-2">
-        <ProductSelect aria-label={`Included category ${index + 1}`} disabled={loading} value={category} onChange={event => update("items", items.map((row, i) => i === index ? { ...row, editorCategory: event.target.value, productId: "" } : row))}>
+      return <div key={item.editorKey || item.componentId || item.id || item.productId || index} className="mb-2 flex flex-wrap gap-2">
+        <ProductSelect aria-label={`Included category ${index + 1}`} disabled={loading} value={category} onChange={event => {
+          const value = event.target.value;
+          if (value === category) return;
+          update("items", items.map((row, i) => i !== index ? row : value === "ticket"
+            ? { kind: "ticket", componentId: crypto.randomUUID(), eventReference: { kind: "", eventId: "", ticketTypeId: "" }, quantity: row.quantity, editorKey: row.editorKey || crypto.randomUUID() }
+            : { productId: "", quantity: row.quantity, editorKey: row.editorKey || crypto.randomUUID(), editorCategory: value }));
+        }}>
           <option value="">{loading ? "Loading categories…" : "Choose category"}</option>
+          <option value="ticket">Ticket</option>
           <option value="uncategorised">Uncategorised</option>
-          {category && category !== "uncategorised" && !categories.some(c => String(c.id) === category) && <option value={category}>Saved category (unavailable)</option>}
-          {categories.filter(c => c.isActive !== false && !c.archivedAt || String(c.id) === category).map(c => <option key={c.id} value={String(c.id)}>{c.name}{c.isActive === false || c.archivedAt ? " (archived)" : ""}</option>)}
+          {category && category !== "ticket" && category !== "uncategorised" && !categories.some(c => categoryValue(c.id) === category) && <option value={category}>Saved category (unavailable)</option>}
+          {categories.filter(c => c.isActive !== false && !c.archivedAt || categoryValue(c.id) === category).map(c => <option key={c.id} value={categoryValue(c.id)}>{c.name}{c.isActive === false || c.archivedAt ? " (archived)" : ""}</option>)}
         </ProductSelect>
-        <ProductSelect required disabled={loading || !category} aria-label={`Included product ${index + 1}`} className="min-w-36 flex-1 rounded-md border bg-white p-2 text-sm" value={String(item.productId || "")} onChange={(event) => patch(index, "productId", event.target.value)}>
+        {!ticket && <ProductSelect required disabled={loading || !category} aria-label={`Included product ${index + 1}`} className="min-w-36 flex-1 rounded-md border bg-white p-2 text-sm" value={String(item.productId || "")} onChange={(event) => patch(index, "productId", event.target.value)}>
           <option value="">{category && !filtered.length ? "No active products in this category" : "Choose product"}</option>
           {item.productId && !available && <option value={String(item.productId)}>Unavailable product ({item.productId}) — replace or remove</option>}
           {filtered.map((product) => <option key={product.id} value={String(product.id)}>{product.name}</option>)}
-        </ProductSelect>
-        <Input aria-label={`Quantity ${index + 1}`} className="w-20 bg-white" type="number" min="1" value={item.quantity} onChange={(e) => patch(index, "quantity", e.target.value)} />
+        </ProductSelect>}
+        <Input aria-label={`Quantity ${index + 1}`} className="w-20 bg-white" type="number" required min="1" step="1" value={item.quantity} onChange={(e) => patch(index, "quantity", e.target.value)} />
         <Button type="button" variant="ghost" size="icon" aria-label={`Move item ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)}><ChevronUp className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="icon" aria-label={`Move item ${index + 1} down`} disabled={index === items.length - 1} onClick={() => move(index, 1)}><ChevronDown className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="icon" aria-label={`Remove item ${index + 1}`} onClick={() => update("items", items.filter((_, i) => i !== index))}><X className="h-4 w-4" /></Button>
+        {ticket && <div className="w-full"><QuoteLineTicketSelect line={{ type: "ticket", eventReference: item.eventReference, quantity: item.quantity }} disabled={loading} request={ticketRequest} onChange={reference => patch(index, "eventReference", reference)} /></div>}
       </div>;
     })}
-    {items.length === 0 && <p className="py-3 text-sm text-slate-500">No products included yet.</p>}
+    {items.length === 0 && <p className="py-3 text-sm text-slate-500">No items included yet.</p>}
   </div>;
 }
 function Empty({ type, onCreate }) { const Icon = icon[type]; return <div className="flex min-h-72 flex-col items-center justify-center px-5 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Icon className="h-6 w-6" /></div><h2 className="mt-4 text-xl font-semibold text-slate-900">A clean catalogue begins here</h2><p className="mt-2 max-w-sm text-sm text-slate-600">Add your first {singular[type]} to give your sales team a well-organised starting point.</p>{onCreate && <Button className="mt-5 bg-blue-600 text-white hover:bg-blue-700" onClick={onCreate}><Plus className="mr-2 h-4 w-4" />Add {singular[type]}</Button>}</div>; }

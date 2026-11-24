@@ -130,6 +130,33 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
       const access = (await db.query(`SELECT has_function_privilege('${role}','update_sales_catalogue_bundle(uuid,uuid,timestamptz,jsonb,jsonb,text,text)','EXECUTE') AS allowed`)).rows[0];
       assert.equal(access.allowed, false);
     }
+    // Forward ticket components compose with the real atomic catalogue and
+    // billing writers above, rather than a second inventory implementation.
+    await db.query(`DROP TRIGGER IF EXISTS fail_billing_audit ON sales_audit_event;
+      ALTER TABLE event ADD COLUMN title text, ADD COLUMN start_date timestamptz, ADD COLUMN end_date timestamptz, ADD COLUMN waiting_list_enabled boolean;
+      ALTER TABLE complex_event ADD COLUMN title text, ADD COLUMN start_date timestamptz, ADD COLUMN end_date timestamptz, ADD COLUMN waiting_list_enabled boolean;
+      ALTER TABLE complex_event_ticket_class ADD COLUMN name text, ADD COLUMN is_group_ticket boolean, ADD COLUMN group_size integer;
+      CREATE TABLE sales_quote_bundle_component(product_id uuid NOT NULL,product_snapshot jsonb);
+      CREATE TABLE form_bundle_allocation(tenant_id uuid,bundle_id uuid);
+      CREATE TABLE form_bundle_selection(tenant_id uuid,bundle_id uuid);
+      INSERT INTO event(id,tenant_id,title,start_date,pricing_config) VALUES('${id(90)}','${id(1)}','Draft conference',now()+interval '90 days',
+        '{"ticket_classes":[{"id":"group","name":"Group","is_group_ticket":true,"group_size":4}]}');`);
+    await db.query(migration('202701240001_sales_ticket_event_discovery'));
+    await db.query(migration('202701240003_sales_bundle_ticket_components'));
+    const ticketItem = { kind: 'ticket', componentId: id(91), quantity: 3,
+      eventReference: { kind: 'simple', eventId: id(90), ticketTypeId: 'group' } };
+    const mixed = await create('bundles', { ...record, code: 'MIXED', billing_groups: [] }, [items[0], ticketItem]);
+    assert.equal(mixed.items[1].kind, 'ticket');
+    assert.equal(mixed.items[1].componentId, id(91));
+    assert.equal(mixed.items[1].eventReference.ticketTypeId, 'group');
+    assert.equal(mixed.items[0].productId, items[0].productId);
+    await assert.rejects(create('bundles', { ...record, code: 'BAD_TICKET', billing_groups: [] },
+      [{ ...ticketItem, componentId: id(92), quantity: 1.5 }]), /whole numbers/);
+    await assert.rejects(db.query(`INSERT INTO form_bundle_selection VALUES($1,$2)`, [id(1), mixed.id]), /cannot fulfil/);
+    await assert.rejects(db.query(`INSERT INTO form_bundle_allocation VALUES($1,$2)`, [id(1), mixed.id]), /cannot fulfil/);
+    await db.query(`UPDATE event SET waiting_list_enabled=true WHERE id='${id(90)}'`);
+    await assert.rejects(create('bundles', { ...record, code: 'WAITING', billing_groups: [] },
+      [{ ...ticketItem, componentId: id(93) }]), /no longer eligible/);
   } finally {
     await Promise.all(clients.map(c => c.end().catch(() => {})));
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);

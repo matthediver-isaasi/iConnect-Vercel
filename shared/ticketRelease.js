@@ -12,7 +12,7 @@ export function isTicketReleaseTimezone(value) {
   }
 }
 
-export function validateTicketRelease(ticket = {}) {
+function validateReleaseSchedule(ticket = {}) {
   const at = ticket?.release_at;
   const timezone = ticket?.release_timezone;
   if (at == null && timezone == null) return null;
@@ -34,14 +34,49 @@ export function validateTicketRelease(ticket = {}) {
   return null;
 }
 
+export function validateTicketClose(ticket = {}) {
+  const error = validateReleaseSchedule({ release_at: ticket.close_at, release_timezone: ticket.close_timezone });
+  if (error) return error.replaceAll('release', 'close');
+  if (ticket.close_at && ticket.release_at && Date.parse(ticket.close_at) <= Date.parse(ticket.release_at)) {
+    return 'Ticket auto close must be after its release date and time.';
+  }
+  return null;
+}
+
+export function validateTicketRelease(ticket = {}) {
+  return validateReleaseSchedule(ticket) || validateTicketClose(ticket);
+}
+
+export function isTicketClosed(ticket, nowMs = Date.now()) {
+  if (ticket?.close_at == null && ticket?.close_timezone == null) return false;
+  return Boolean(validateTicketClose(ticket)) || !Number.isFinite(Number(nowMs))
+    || Date.parse(ticket.close_at) <= Number(nowMs);
+}
+
+export function ticketRegistrationDeadline(event, ticket, nowMs = Date.now()) {
+  const closeError = validateTicketClose(ticket);
+  const dates = [event?.registration_closes_at, ticket?.close_at].filter(Boolean).map(Date.parse);
+  const invalid = Boolean(closeError) || dates.some(value => !Number.isFinite(value));
+  const deadline = dates.length && !invalid ? Math.min(...dates) : null;
+  const eventClosed = event?.event_state === 'closed' || (!event?.event_state && event?.status === 'closed')
+    || event?.status === 'cancelling' || event?.waiting_list_enabled === true;
+  return { closesAt: deadline === null ? null : new Date(deadline).toISOString(),
+    closed: eventClosed || invalid || deadline !== null && Number(nowMs) >= deadline,
+    reason: eventClosed ? 'The event is not accepting registrations or amendments.'
+      : invalid ? 'Registration timing is unavailable. Contact the organiser.'
+      : deadline !== null && Number(nowMs) >= deadline ? 'Registration and amendments are closed for this ticket.' : null };
+}
+
 /** Equality is released. Malformed persisted schedules fail closed. */
 export function isTicketReleased(ticket, nowMs = Date.now()) {
+  if (isTicketClosed(ticket, nowMs)) return false;
   if (ticket?.release_at == null && ticket?.release_timezone == null) return true;
   if (validateTicketRelease(ticket)) return false;
   return Number.isFinite(Number(nowMs)) && Date.parse(ticket.release_at) <= Number(nowMs);
 }
 
 export function ticketReleaseMessage(ticket) {
+  if (isTicketClosed(ticket)) return 'Registration and amendments are closed for this ticket.';
   if (validateTicketRelease(ticket) || !ticket?.release_at) {
     return 'This ticket is not available yet. Please contact the event organiser.';
   }

@@ -15,7 +15,7 @@ const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
 const built = await build({
-  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx";', loader: "js" },
+  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote, ticketLineError } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx";', loader: "js" },
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
   alias: { "@": `${process.cwd()}/client/src`, "@shared": `${process.cwd()}/shared` },
   plugins: [{
@@ -31,6 +31,106 @@ const built = await build({
       }));
     },
   }],
+});
+
+test("direct Ticket editor adds a non-catalogue line with one description, manual pricing and provider tax", async () => {
+  const zero = { provider: "xero", id: "ZERO", name: "Zero rated sales", rateBps: 0, selectable: true };
+  globalThis.quoteTaxFixture = { provider: "xero", items: [zero] };
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let current;
+  let changeForm;
+  function Fixture({ readOnly = false, canOverride = false }) {
+    const [form, setForm] = React.useState({ currency: "GBP", lines: [] });
+    current = form; changeForm = setForm;
+    return React.createElement(mod.exports.LinesEditor, { form, setForm, products: [], bundles: [], readOnly, canOverride });
+  }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = props => root.render(React.createElement(QueryClientProvider, { client: cache }, React.createElement(Fixture, props)));
+  try {
+    await act(async () => render({}));
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Ticket").click());
+    assert.equal(current.lines[0].type, "ticket");
+    assert.equal(current.lines[0].productId, "");
+    assert.equal(current.lines[0].bundleId, "");
+    assert.match(host.textContent, /Ticket selection/);
+    assert.equal(host.querySelectorAll('input[placeholder="Description"]').length, 1);
+    assert.equal(host.querySelector('[aria-label="Line description"]'), null);
+    assert.equal(host.querySelector('input[type="number"]').min, "1");
+    assert.equal(host.querySelector('input[type="number"]').step, "1");
+    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').disabled, false);
+    assert.equal(host.querySelector('[aria-label="Line 1 quoted price"]').disabled, true);
+    assert.equal(host.querySelector('input[max="100"]').disabled, true);
+    assert.match(host.textContent, /Choose a ticket event and ticket type/);
+    await act(async () => {
+      const input = host.querySelector('input[placeholder="Description"]');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "Negotiated forum places");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(current.lines[0].description, "Negotiated forum places");
+    const select = host.querySelector('[aria-label="Line 1 provider VAT code"]');
+    await act(async () => {
+      select.value = JSON.stringify(["xero", zero.id]);
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(current.lines[0].taxCode.id, zero.id);
+    assert.equal(current.lines[0].taxChanged, true);
+    await act(async () => {
+      const input = host.querySelector('[aria-label="Line 1 standard price"]');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "87.50");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(current.lines[0].standardUnitPriceMinorInput, "87.50");
+    assert.equal(current.lines[0].quotedUnitPriceMinorInput, "87.50");
+    await act(async () => render({ canOverride: true }));
+    assert.equal(host.querySelector('[aria-label="Line 1 quoted price"]').disabled, false);
+    await act(async () => render({ readOnly: true }));
+    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').disabled, true);
+    assert.equal(host.querySelector('input[placeholder="Description"]').disabled, true);
+    await act(async () => {
+      changeForm(old => ({ ...old, lines: [{ ...old.lines[0], type: "free_text", quantity: "1.25" }] }));
+      render({});
+    });
+    assert.equal(host.querySelector('input[type="number"]').step, "0.01");
+  } finally {
+    await act(async () => root.unmount()); cache.clear(); host.remove(); delete globalThis.quoteTaxFixture;
+  }
+});
+
+test("ticket validation requires a complete typed reference and positive whole quantity without restricting free text", () => {
+  const { ticketLineError } = mod.exports;
+  const line = { type: "ticket", quantity: "3", eventReference: { kind: "complex", eventId: "forum", ticketTypeId: "team" } };
+  assert.equal(ticketLineError(line), "");
+  assert.equal(ticketLineError({ ...line, eventReference: { ...line.eventReference, kind: "simple" } }), "");
+  for (const quantity of ["", "0", "-1", "1.5", "NaN", "Infinity"]) {
+    assert.match(ticketLineError({ ...line, quantity }), /positive whole number/);
+    assert.match(ticketLineError({ ...line, type: "product", quantity }), /positive whole number/);
+  }
+  for (const eventReference of [null, {}, { ...line.eventReference, kind: "other" }, { ...line.eventReference, ticketTypeId: "" }]) {
+    assert.match(ticketLineError({ ...line, eventReference }), /Choose a ticket event and ticket type/);
+  }
+  assert.equal(ticketLineError({ type: "free_text", quantity: "1.25" }), "");
+  assert.equal(ticketLineError({ type: "product", quantity: "1.25", eventReference: null }), "");
+});
+
+test("direct ticket normalization preserves explicit references and falls back to historical snapshots", () => {
+  const explicit = { kind: "complex", eventId: "forum", ticketTypeId: "team" };
+  const historical = { event_reference_kind: "simple", event_id: "previous", ticket_type_id: "pass" };
+  const lines = mod.exports.normalizeQuote({ currentVersion: { lines: [
+    { kind: "ticket", catalogueId: null, description: "Agreed places", quantity: "3", standardUnitPriceMinor: 8750, quotedUnitPriceMinor: 8125, eventReference: explicit, catalogue_snapshot: historical },
+    { catalogue_kind: "ticket", catalogue_id: null, description: "Saved places", quantity: "2", standard_unit_price_minor: 9375, quoted_unit_price_minor: 8875, catalogue_snapshot: historical },
+    { kind: "ticket", eventReference: null, catalogue_snapshot: historical },
+  ] } }).lines;
+  assert.equal(lines[0].type, "ticket");
+  assert.deepEqual(lines[0].eventReference, explicit);
+  assert.equal(lines[0].description, "Agreed places");
+  assert.equal(lines[0].standardUnitPriceMinor, 8750);
+  assert.equal(lines[0].quotedUnitPriceMinor, 8125);
+  assert.equal(lines[1].type, "ticket");
+  assert.deepEqual(lines[1].eventReference, { kind: "simple", eventId: "previous", ticketTypeId: "pass" });
+  assert.equal(lines[1].standardUnitPriceMinor, 9375);
+  assert.equal(lines[1].quotedUnitPriceMinor, 8875);
+  assert.equal(lines[2].eventReference, null);
 });
 
 const mixedLines = () => [

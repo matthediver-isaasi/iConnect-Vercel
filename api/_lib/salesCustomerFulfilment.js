@@ -4,12 +4,14 @@ import { hashAllocationInviteToken, deriveAllocationInviteToken, getPublicAlloca
 import { canonicalQuoteBaseUrl } from './salesQuoteDelivery.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { checkSalesAutomaticDelivery } from './salesCommunicationPolicy.js';
+import { purchaserAllocationAuthority, purchaserRegistrationSettings } from './salesPurchaserRoster.js';
+import { ticketRegistrationDeadline } from '../../shared/ticketRelease.js';
 
 export async function fulfilmentResult(query) {
   const { data, error } = await query;
   if (error) {
     if (error.code === 'P0002') throw new SalesHttpError(404, 'Registration link or allocation is unavailable');
-    if (['23514', '22023', '23505'].includes(error.code)) throw new SalesHttpError(409, error.message);
+    if (['23514', '22023', '23505', 'PT409', '40001', '40P01'].includes(error.code)) throw new SalesHttpError(409, error.message);
     throw error;
   }
   return data;
@@ -17,7 +19,9 @@ export async function fulfilmentResult(query) {
 export function customerFulfilmentToken(row) {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 16) throw new SalesHttpError(503, 'Registration links are not configured');
-  return createHmac('sha256', secret).update(JSON.stringify(['sales-customer-fulfilment-v1', row.tenant_id, row.sale_id, row.id])).digest('base64url');
+  const identity = ['sales-customer-fulfilment-v1', row.tenant_id, row.sale_id, row.id];
+  if (row.token_generation > 0) identity.push(row.token_generation);
+  return createHmac('sha256', secret).update(JSON.stringify(identity)).digest('base64url');
 }
 export async function resolveCustomerFulfilment(db, tenantId, token) {
   try {
@@ -32,28 +36,55 @@ export async function resolveCustomerFulfilment(db, tenantId, token) {
   }
 }
 export async function customerFulfilmentContext(db, row) {
+  const settings = await purchaserRegistrationSettings(db, row.tenant_id);
+  const tenant = await fulfilmentResult(db.from('tenant').select('name,header_logo_url,logo_url,primary_color')
+    .eq('id', row.tenant_id).maybeSingle());
   const allocations = await fulfilmentResult(db.from('sales_commercial_allocation')
     .select('id,event_reference_kind,event_id,ticket_type_id,event_snapshot,ticket_snapshot')
     .eq('tenant_id', row.tenant_id).eq('sale_id', row.sale_id));
   const ids = allocations.map(a => a.id);
   const totals = ids.length ? await fulfilmentResult(db.from('sales_commercial_allocation_totals')
     .select('allocation_id,allocated,named,reserved,remaining').eq('tenant_id', row.tenant_id).in('allocation_id', ids)) : [];
-  return { customerName: row.customer_name, expiresAt: row.expires_at,
+  const slots = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await fulfilmentResult(db.from('sales_purchaser_slot')
+      .select('id,allocation_id,version,details,booking_id').eq('tenant_id', row.tenant_id)
+      .eq('fulfilment_id', row.id).order('id').range(offset, offset + 199));
+    slots.push(...page);
+    if (page.length < 200) break;
+    if (offset >= 9800) throw new SalesHttpError(413, 'This roster is too large. Please contact the organiser.');
+  }
+  return { customerName: row.customer_name, expiresAt: row.expires_at, settings, serverNow: new Date().toISOString(),
+    branding: { name: tenant?.name || null, logoUrl: tenant?.header_logo_url || tenant?.logo_url || null,
+      primaryColor: tenant?.primary_color || null },
     allocations: await Promise.all(allocations.map(async a => {
       const t = totals.find(t => t.allocation_id === a.id);
+      const allocationSlots = slots.filter(slot => slot.allocation_id === a.id);
       if (!t) throw new SalesHttpError(409, 'Allocation totals are unavailable');
-      const event = await fulfilmentResult(db.from(a.event_reference_kind === 'complex' ? 'complex_event' : 'event')
-        .select(a.event_reference_kind === 'complex' ? 'title' : 'title,pricing_config')
-        .eq('tenant_id', row.tenant_id).eq('id', a.event_id).maybeSingle());
-      const ticket = a.event_reference_kind === 'complex'
-        ? await fulfilmentResult(db.from('complex_event_ticket_class').select('name')
-          .eq('tenant_id', row.tenant_id).eq('complex_event_id', a.event_id).eq('id', a.ticket_type_id).maybeSingle())
-        : event?.pricing_config?.ticket_classes?.find(t => String(t.id) === a.ticket_type_id);
+      let event, ticket, unavailable = false;
+      try { ({ event, ticket } = await purchaserAllocationAuthority(db, row, a.id)); }
+      catch (error) {
+        if (!(error instanceof SalesHttpError) || error.status !== 409
+          || !/^The purchased (event|ticket type) is unavailable$/.test(error.message)) throw error;
+        event = a.event_snapshot || {}; ticket = a.ticket_snapshot || {}; unavailable = true;
+      }
       return { id: a.id, eventKind: a.event_reference_kind,
+        requiresSelfRegistration: Boolean(event.member_group_id),
         eventName: event?.title || a.event_snapshot?.title || 'Event',
         ticketName: ticket?.name || a.ticket_snapshot?.name || 'Ticket',
-        remaining: Math.max(0, Number(t.remaining) - Number(t.named) - Number(t.reserved)),
-        registered: Number(t.named), allocated: Number(t.allocated) };
+        remaining: Math.max(0, Number(t.remaining) - Number(t.named)),
+        availableToAdd: Math.max(0, Number(t.remaining) - Number(t.named) - Number(t.reserved)
+          - allocationSlots.filter(slot => !slot.booking_id).length),
+        registered: Number(t.named), allocated: Number(t.allocated),
+        ...ticketRegistrationDeadline(event, ticket),
+        ...(unavailable ? { closed: true, availableToAdd: 0,
+          reason: 'This event or ticket is no longer available. Contact the organiser; purchased places have not been released.' } : {}),
+        timezone: ticket.close_timezone || event.timezone || 'UTC',
+        options: settings.collectOptions ? { dietary_options: event.dietary_options || [],
+          allergy_options: event.allergy_options || [], accessibility_options: event.accessibility_options || [] } : {},
+        slots: allocationSlots.map(({ allocation_id, booking_id, ...slot }) => ({
+          ...slot, status: booking_id ? 'registered' : 'draft',
+        })) };
     })) };
 }
 export async function registerCustomerDelegate(db, row, token, input) {
@@ -78,11 +109,27 @@ export async function registerCustomerDelegate(db, row, token, input) {
   return { registrationUrl: `${canonicalQuoteBaseUrl(tenant)}${path}${path.includes('?') ? '&' : '?'}allocation=${encodeURIComponent(invitationToken)}` };
 }
 
+export async function customerDeadlineLines(db, row) {
+  const allocations = await fulfilmentResult(db.from('sales_commercial_allocation')
+    .select('id').eq('tenant_id', row.tenant_id).eq('sale_id', row.sale_id));
+  return Promise.all(allocations.map(async allocation => {
+    const { event, ticket } = await purchaserAllocationAuthority(db, row, allocation.id);
+    const deadline = ticketRegistrationDeadline(event, ticket);
+    const name = `${event.title || 'Event'} — ${ticket.name || 'Ticket'}`;
+    if (deadline.closed) return `${name}: registration is closed; contact the organiser.`;
+    if (!deadline.closesAt) return `${name}: no registration deadline is currently set.`;
+    const zone = ticket.close_timezone || event.timezone || 'UTC';
+    return `${name}: register or amend by ${new Date(deadline.closesAt).toLocaleString('en-GB', {
+      timeZone: zone, dateStyle: 'full', timeStyle: 'long',
+    })} (${zone}).`;
+  }));
+}
+
 export async function deliverCustomerFulfilment(db, row, dependencies = {}) {
   const token = customerFulfilmentToken(row);
   const lease = randomUUID();
   const claimed = await fulfilmentResult(db.rpc('claim_sales_customer_fulfilment', {
-    p_id: row.id, p_hash: hashAllocationInviteToken(token), p_lease: lease,
+    p_id: row.id, p_hash: hashAllocationInviteToken(token), p_lease: lease, p_generation: row.token_generation || 0,
   }));
   if (!claimed) return 'skipped';
   let outcome = 'pending';
@@ -97,13 +144,20 @@ export async function deliverCustomerFulfilment(db, row, dependencies = {}) {
         tenantId: claimed.tenant_id, category: 'customer_fulfilment', id: row.id, claim: lease,
       });
       if (policy === 'suppressed') return 'suppressed';
+      const deadlineLines = await (dependencies.loadDeadlines || customerDeadlineLines)(db, claimed);
+      const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      const deadlineHtml = deadlineLines.length ? `<ul>${deadlineLines.map(line => `<li>${escape(line)}</li>`).join('')}</ul>` : '';
+      // Deadline discovery can yield; honour a policy edit made while preparing the email.
+      if (await checkSalesAutomaticDelivery(db, {
+        tenantId: claimed.tenant_id, category: 'customer_fulfilment', id: row.id, claim: lease,
+      }) === 'suppressed') return 'suppressed';
       sending = true;
       let timeout;
       const delivery = (dependencies.send || sendTenantEmail)({
         tenantId: claimed.tenant_id, to: claimed.customer_email,
-        subject: 'Register your event delegates',
-        text: `Your proposal has been accepted. Register delegates for your event tickets: ${url}`,
-        html: `<p>Your proposal has been accepted.</p><p><a href="${url}">Register your event delegates</a></p>`,
+        subject: 'Manage your event registrations',
+        text: `Your proposal has been accepted. Complete attendee details, save progress and return to amend registrations before each ticket's registration deadline. Purchased places are not automatically released at closure.\n${deadlineLines.join('\n')}\nManage registrations: ${url}`,
+        html: `<p>Your proposal has been accepted.</p><p>Complete attendee details, save progress and return to amend registrations before each ticket’s registration deadline. Each event’s current deadline is shown on your secure page. Purchased places are not automatically released at closure.</p>${deadlineHtml}<p><a href="${url}">Manage your event registrations</a></p>`,
       });
       let sent;
       try {
@@ -121,7 +175,7 @@ export async function deliverCustomerFulfilment(db, row, dependencies = {}) {
   return outcome;
 }
 export async function runCustomerFulfilment({ db, ...dependencies }) {
-  const rows = await fulfilmentResult(db.from('sales_customer_fulfilment').select('id,tenant_id,sale_id')
+  const rows = await fulfilmentResult(db.from('sales_customer_fulfilment').select('id,tenant_id,sale_id,token_generation')
     .in('status', ['pending', 'sending']).is('revoked_at', null).gt('expires_at', new Date().toISOString())
     .lte('next_attempt_at', new Date().toISOString()).order('next_attempt_at').limit(25));
   const counts = { sent: 0, suppressed: 0, pending: 0, attention: 0, skipped: 0, failed: 0 };

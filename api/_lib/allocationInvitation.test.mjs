@@ -79,7 +79,7 @@ test('claim hashes opaque token and fixes booking kind and id in RPC boundary', 
   const token = createAllocationInviteToken();
   const result = await claimAllocationInvitation(db, token, 'complex', 'booking-1');
   assert.equal(result.claimed, true);
-  assert.deepEqual(calls[0], ['claim_sales_allocation_invitation', {
+  assert.deepEqual(calls[0], ['claim_sales_allocation_invitation_with_event_seat', {
     p_token_hash: hashAllocationInviteToken(token),
     p_booking_kind: 'complex',
     p_booking_id: 'booking-1',

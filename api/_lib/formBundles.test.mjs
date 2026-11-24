@@ -12,7 +12,8 @@ const row = { id, name: 'Saved name', selling_price_minor: 12345, currency: 'GBP
 function dbFor(rows = [row], remaining = null) {
   const calls = [];
   return { calls, rpc: async () => ({ data: 1 }), from(table) {
-    const result = table === 'sales_catalogue_bundle' ? rows : [{ bundle_id: id, remaining }];
+    const result = table === 'sales_catalogue_bundle' ? rows
+      : table === 'sales_catalogue_bundle_item' ? [{ bundle_id: id, product_id: 'ordinary-product' }] : [{ bundle_id: id, remaining }];
     return { select() { return this; }, eq(k, v) { calls.push([table,k,v]); return this; },
       in() { return this; }, then(resolve) { resolve({ data: result }); } };
   } };
@@ -45,6 +46,7 @@ test('category filter exposes only tenant-scoped category names and preserves pr
   const db = { from(table) {
     const rows = table === 'sales_catalogue_bundle' ? [{ ...row, category_id: 'category-a' }]
       : table === 'sales_catalogue_category' ? [{ id: 'category-a', name: 'Bronze Exhibitor' }]
+        : table === 'sales_catalogue_bundle_item' ? [{ bundle_id: id, product_id: 'ordinary-product' }]
         : [{ bundle_id: id, remaining: 0 }];
     return { select() { return this; }, eq(k,v) { calls.push([table,k,v]); return this; },
       in(k,v) { calls.push([table,k,v]); return this; }, then(resolve) { resolve({ data: rows }); } };

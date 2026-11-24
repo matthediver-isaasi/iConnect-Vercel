@@ -5,6 +5,7 @@ import { SalesHttpError } from './salesAccess.js';
 import { getSalesSettings } from './salesFoundation.js';
 import { bundleBillingGroupErrors, resolveBillingGroups } from '../../shared/salesBillingConfiguration.js';
 import { formCartReady } from './formCart.js';
+import { assertSalesTicketEventSelectable } from './salesTicketEventOptions.js';
 
 const TABLES = {
   categories: 'sales_catalogue_category',
@@ -44,7 +45,7 @@ export function delegateCapacityFromTicket(ticket) {
 export async function resolveEventTicketReference(db, tenantId, reference) {
   if (!reference) return null;
   if (reference.kind === 'simple') {
-    const result = await db.from('event').select('id,tenant_id,pricing_config')
+    const result = await db.from('event').select('id,tenant_id,title,pricing_config')
       .eq('id', reference.eventId).eq('tenant_id', tenantId).maybeSingle();
     throwDb(result.error);
     if (!result.data) throw new SalesHttpError(400, 'Event reference does not belong to this tenant');
@@ -52,19 +53,23 @@ export async function resolveEventTicketReference(db, tenantId, reference) {
       ? result.data.pricing_config.ticket_classes : [];
     const ticket = tickets.find((candidate) => String(candidate.id) === reference.ticketTypeId);
     if (!ticket) throw new SalesHttpError(400, 'Ticket type does not belong to the referenced event');
-    return { ...reference, delegateCapacity: delegateCapacityFromTicket(ticket) };
+    return { ...reference, delegateCapacity: delegateCapacityFromTicket(ticket),
+      ...(result.data.title ? { eventTitle: result.data.title } : {}),
+      ...(ticket.name ? { ticketName: ticket.name } : {}) };
   }
-  const eventResult = await db.from('complex_event').select('id,tenant_id')
+  const eventResult = await db.from('complex_event').select('id,tenant_id,title')
     .eq('id', reference.eventId).eq('tenant_id', tenantId).maybeSingle();
   throwDb(eventResult.error);
   if (!eventResult.data) throw new SalesHttpError(400, 'Complex event reference does not belong to this tenant');
   const ticketResult = await db.from('complex_event_ticket_class')
-    .select('id,tenant_id,complex_event_id,is_group_ticket,group_size')
+    .select('id,tenant_id,complex_event_id,name,is_group_ticket,group_size')
     .eq('id', reference.ticketTypeId).eq('tenant_id', tenantId)
     .eq('complex_event_id', reference.eventId).maybeSingle();
   throwDb(ticketResult.error);
   if (!ticketResult.data) throw new SalesHttpError(400, 'Ticket class does not belong to the referenced complex event');
-  return { ...reference, delegateCapacity: delegateCapacityFromTicket(ticketResult.data) };
+  return { ...reference, delegateCapacity: delegateCapacityFromTicket(ticketResult.data),
+    ...(eventResult.data.title ? { eventTitle: eventResult.data.title } : {}),
+    ...(ticketResult.data.name ? { ticketName: ticketResult.data.name } : {}) };
 }
 
 const mapCategory = (row) => ({
@@ -140,7 +145,7 @@ async function hydrateBundles(db, tenantId, rows) {
     cartHolds = result.data || [];
   }
   const itemResult = await db.from('sales_catalogue_bundle_item')
-    .select('id,bundle_id,product_id,quantity,display_order')
+    .select('*')
     .eq('tenant_id', tenantId).in('bundle_id', rows.map((row) => row.id))
     .order('display_order', { ascending: true });
   throwDb(itemResult.error);
@@ -148,6 +153,8 @@ async function hydrateBundles(db, tenantId, rows) {
     ...row,
     items: (itemResult.data || []).filter((item) => item.bundle_id === row.id).map((item) => ({
       id: item.id, productId: item.product_id, quantity: item.quantity, displayOrder: item.display_order,
+      ...(item.component_kind === 'ticket' ? { kind: 'ticket', componentId: item.id,
+        eventReference: { kind: item.event_reference_kind, eventId: item.event_id, ticketTypeId: item.ticket_type_id } } : {}),
     })),
   }), bundleStock: (() => {
     const stock = stockResult.data?.find(s => s.bundle_id === row.id);
@@ -294,6 +301,12 @@ async function ensureCategory(db, tenantId, id) {
 
 async function ensureBundleProducts(db, tenantId, items) {
   if (!items) return;
+  for (const item of items.filter(item => item.kind === 'ticket')) {
+    await assertSalesTicketEventSelectable(db, tenantId, item.eventReference);
+    await resolveEventTicketReference(db, tenantId, item.eventReference);
+  }
+  items = items.filter(item => item.kind !== 'ticket');
+  if (!items.length) return;
   const result = await db.from(TABLES.products).select('id,is_active').eq('tenant_id', tenantId)
     .in('id', items.map((item) => item.productId));
   throwDb(result.error);
@@ -469,10 +482,11 @@ export async function setCatalogueActive(db, tenantId, actor, type, id, active) 
     }
   }
   if (active && type === 'bundles') {
-    const items = await db.from('sales_catalogue_bundle_item').select('product_id').eq('tenant_id', tenantId).eq('bundle_id', id);
+    const items = await db.from('sales_catalogue_bundle_item').select('*').eq('tenant_id', tenantId).eq('bundle_id', id);
     throwDb(items.error);
     if (!items.data?.length) throw new SalesHttpError(409, 'An empty bundle cannot be restored');
-    await ensureBundleProducts(db, tenantId, items.data.map((item) => ({ productId: item.product_id })));
+    await ensureBundleProducts(db, tenantId, items.data.map((item) => ({ productId: item.product_id,
+      kind: item.component_kind, eventReference: { kind: item.event_reference_kind, eventId: item.event_id, ticketTypeId: item.ticket_type_id } })));
   }
   if (active && type === 'products') {
     await ensureCategory(db, tenantId, current.data.category_id);

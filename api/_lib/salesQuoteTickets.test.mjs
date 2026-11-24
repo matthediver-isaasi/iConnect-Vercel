@@ -17,7 +17,10 @@ function database(kind, groupSize = 1) {
     complex_event_ticket_class: { id: ticketId, tenant_id: tenant, complex_event_id: eventId,
       is_group_ticket: groupSize > 1, group_size: groupSize },
   };
-  return { product, from(table) {
+  return { product, async rpc(name) {
+    assert.equal(name, 'sales_ticket_event_options');
+    return { data: { items: [{ id: eventId, eligible: true, ticketOptions: [{ id: ticketId }] }] } };
+  }, from(table) {
     const filters = [];
     return { select() { return this; }, eq(key, value) { filters.push([key, value]); return this; },
       async maybeSingle() {
@@ -27,6 +30,19 @@ function database(kind, groupSize = 1) {
   } };
 }
 for (const kind of ['simple', 'complex']) {
+  test(`${kind}: direct tickets need no catalogue product and preserve group places and commercial price`, async () => {
+    const db=database(kind,3);
+    const draft={currency:'GBP',lines:[{kind:'ticket',quantity:'2',standardUnitPriceMinor:10000,
+      quotedUnitPriceMinor:10000,eventReference:{kind,eventId,ticketTypeId:ticketId}}]};
+    assert.equal(validateQuoteDraft(draft).ok,true);
+    const prepared=await prepareQuoteDraft(db,tenant,{actorId:tenant},draft);
+    assert.equal(prepared.lines[0].catalogueId,null);
+    assert.equal(prepared.lines[0].catalogueSnapshot.component_kind,'ticket');
+    assert.equal(prepared.lines[0].quantity*prepared.lines[0].catalogueSnapshot.capacity_metadata.delegate_capacity,6);
+    assert.equal(prepared.lines[0].grossMinor,20000);
+    for(const quantity of ['0','1.5','-1']) assert.equal(validateQuoteDraft({...draft,lines:[{...draft.lines[0],quantity}]}).ok,false);
+    assert.equal(validateQuoteDraft({...draft,lines:[{...draft.lines[0],eventReference:null}]}).ok,false);
+  });
   test(`${kind}: ordinary product with proposal-local ticket overrides snapshots four £100 tickets as four places`, async () => {
     const db = database(kind);
     const eventReference = { kind, eventId, ticketTypeId: ticketId };

@@ -123,6 +123,78 @@ async function replace(fixture) {
   const select = fixture.host.querySelector('select[aria-label="Space for slot slot"]');
   await act(async () => { select.value = "new"; select.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
 }
+
+test("saved direct tickets roundtrip negotiated prices, description, reference and tax without a catalogue item", async () => {
+  const quote = freshQuote();
+  const reference = { kind: "complex", eventId: "learning-forum", ticketTypeId: "team-pass" };
+  quote.currentVersion.lines = [{
+    id: lineId, catalogue_kind: "ticket", catalogue_id: null, description: "Negotiated team places",
+    quantity: "3", standard_unit_price_minor: 8750, quoted_unit_price_minor: 8125, discount_bps: 375,
+    tax_rate_bps: 2000, catalogue_snapshot: {
+      event_reference_kind: reference.kind, event_id: reference.eventId, ticket_type_id: reference.ticketTypeId,
+      tax_code: { provider: "xero", id: "OUTPUT", name: "Standard sales VAT", rateBps: 2000 },
+    },
+  }];
+  const fixture = await mount({ quote });
+  try {
+    const save = button(fixture.host, "Save draft");
+    assert.equal(save.disabled, false);
+    await click(save); await settle();
+    const line = fixture.state.commands[0].lines[0];
+    assert.equal(line.kind, "ticket");
+    assert.equal(line.catalogueId, null);
+    assert.equal(line.description, "Negotiated team places");
+    assert.equal(line.quantity, "3");
+    assert.equal(line.standardUnitPriceMinor, 8750);
+    assert.equal(line.quotedUnitPriceMinor, 8125);
+    assert.equal(line.discountBps, 375);
+    assert.deepEqual(line.eventReference, reference);
+    assert.deepEqual(line.taxCode, { provider: "xero", id: "OUTPUT" });
+    assert.equal(line.id, lineId);
+  } finally { await fixture.close(); }
+});
+
+test("incomplete or fractional direct tickets cannot save or recalculate", async () => {
+  for (const [quantity, eventReference] of [
+    ["2", null],
+    ["2", { kind: "simple", eventId: "event", ticketTypeId: "" }],
+    ["1.5", { kind: "simple", eventId: "event", ticketTypeId: "pass" }],
+  ]) {
+    const quote = freshQuote();
+    quote.currentVersion.lines = [{
+      id: lineId, kind: "ticket", quantity, eventReference, description: "Negotiated places",
+      standardUnitPriceMinor: 8750, quotedUnitPriceMinor: 8750, tax_rate_bps: 0,
+    }];
+    const fixture = await mount({ quote });
+    try {
+      assert.equal(button(fixture.host, "Save draft").disabled, true);
+      assert.equal(button(fixture.host, "Recalculate").disabled, true);
+      await click(button(fixture.host, "Save draft"));
+      assert.equal(fixture.state.commands.length, 0);
+      assert.match(fixture.host.textContent, /Choose a ticket event and ticket type|positive whole number/);
+    } finally { await fixture.close(); }
+  }
+});
+
+test("product ticket references and free-text standard prices remain in save payloads", async () => {
+  const quote = freshQuote();
+  const reference = { kind: "simple", eventId: "forum", ticketTypeId: "individual" };
+  quote.currentVersion.lines = [
+    { id: lineId, kind: "product", catalogueId: "ticket-product", eventReference: reference, description: "Catalogue pass", quantity: "2", standardUnitPriceMinor: 9375, quotedUnitPriceMinor: 9375, tax_rate_bps: 0 },
+    { kind: "free_text", description: "Workshop support", quantity: "1.25", standardUnitPriceMinor: 7125, quotedUnitPriceMinor: 6875, tax_rate_bps: 0 },
+  ];
+  const fixture = await mount({ quote });
+  try {
+    await click(button(fixture.host, "Save draft")); await settle();
+    const [product, custom] = fixture.state.commands[0].lines;
+    assert.deepEqual(product.eventReference, reference);
+    assert.equal(product.catalogueId, "ticket-product");
+    assert.equal(custom.standardUnitPriceMinor, 7125);
+    assert.equal(custom.quotedUnitPriceMinor, 6875);
+    assert.equal(custom.quantity, "1.25");
+    assert.equal(Object.hasOwn(custom, "eventReference"), false);
+  } finally { await fixture.close(); }
+});
 test("issued proposal without an active link never submits revocation", async () => {
   const quote = freshQuote();
   quote.status = "issued";

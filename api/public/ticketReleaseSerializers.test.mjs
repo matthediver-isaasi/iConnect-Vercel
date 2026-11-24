@@ -44,6 +44,7 @@ async function handler(file) {
 function database(seed) {
   return {
     async rpc(name, args) {
+      if (name === 'event_funnel_discovery_ready') return {data:true,error:null};
       if (name === 'event_funnel_inventory_projection') return { data: [], error: null };
       assert.equal(name, 'simple_event_capacity');
       const event = seed.event.find(row => row.id === args.p_event_id);
@@ -80,7 +81,7 @@ function database(seed) {
 async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}, viewer = null) {
   const event = {
     id: 'event-a', tenant_id: 'tenant-a', title: 'Event', slug: 'event-a',
-    status: 'published', start_date: '2036-01-01T12:00:00Z',
+    status: 'published', start_date: '2036-01-01T12:00:00Z', event_funnel_discoverable:true,
     pricing_config: { ticket_classes: tickets, ...extraPricing },
     ...eventOverrides,
   };
@@ -141,6 +142,16 @@ for (const file of ['./event.js', './complex-event.js']) {
 }
 
 for (const file of ['./event.js', './events.js', './complex-event.js', './complex-events.js']) {
+  test(`${file}: closed tickets disappear without creating a legacy free fallback`, async () => {
+    const closed = {...scheduled,release_at:null,release_timezone:null,close_at:'2000-01-01T00:00:00Z',close_timezone:'UTC'};
+    const payload = await invoke(file,[closed]);
+    assert.deepEqual(payload.pricing_config.ticket_classes,[]);
+    assert.equal(payload.pricing_config.ticket_classes_configured,true);
+    assert.equal(payload.cheapest_price ?? null,null);
+    const open = await invoke(file,[{...closed,close_at:'2099-01-01T00:00:00Z'}]);
+    assert.equal(open.pricing_config.ticket_classes[0].close_at,'2099-01-01T00:00:00Z');
+    assert.equal(open.pricing_config.ticket_classes[0].close_timezone,'UTC');
+  });
   test(`${file} preserves future-release metadata and early bird prices without hiding upcoming tickets`, async () => {
     const payload = await invoke(file, [scheduled, { id: 'legacy', name: 'Legacy', price: 90, visibility_mode: 'public_only', is_unlimited_tickets: true }]);
     const tickets = payload.pricing_config.ticket_classes;

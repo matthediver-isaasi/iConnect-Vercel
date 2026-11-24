@@ -364,6 +364,46 @@ function RegistrationPricePaid({ attendee }) {
   );
 }
 
+function ReservedPlaces({ reservations }) {
+  if (!Array.isArray(reservations) || reservations.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Reserved places</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          These are purchased unnamed places, not attendees. They are not included in attendee or payment totals.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <caption className="sr-only">Reserved places purchased by booking organisations</caption>
+            <thead>
+              <tr className="border-b text-left">
+                {['Event', 'Ticket', 'Proposal number', 'Booking organisation', 'Places'].map(label => (
+                  <th key={label} scope="col" className={`pb-3 pr-4 font-medium text-muted-foreground whitespace-nowrap${label === 'Places' ? ' text-right' : ''}`}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {reservations.map(reservation => (
+                <tr key={reservation.allocationId} className="border-b last:border-0">
+                  <td className="py-3 pr-4">{reservation.eventName || '—'}</td>
+                  <td className="py-3 pr-4">{reservation.ticketName || '—'}</td>
+                  <td className="py-3 pr-4">{reservation.proposalNumber || '—'}</td>
+                  <td className="py-3 pr-4">{reservation.organizationName || '—'}</td>
+                  <td className="py-3 pr-4 text-right tabular-nums">{reservation.places ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function PaymentMethodBadge({ method }) {
   const label = paymentMethodLabel(method);
   if (method === 'public_invoice_po') return <Badge variant="outline">{label}</Badge>;
@@ -2224,6 +2264,8 @@ export default function EventRegistrationReport() {
               </CardContent>
             </Card>
           </div>
+
+          <ReservedPlaces reservations={reportData?.commercialReservations} />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">

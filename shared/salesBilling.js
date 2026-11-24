@@ -98,7 +98,7 @@ export function buildBillingSchedule({ lines, currency, recipient, timezone, tim
     if (weights.reduce((a, b) => a + b, 0) !== line.standardUnitPriceMinor) throw new Error('Bundle billing allocations must equal its selling price');
     const membership = ordered.flatMap(g => g.productIds);
     if (new Set(membership).size !== membership.length || membership.length !== line.components.length
-      || line.components.some(c => !membership.includes(c.productId))) throw new Error('Every bundle product must belong to exactly one billing group');
+      || line.components.some(c => !membership.includes(c.productId || c.componentId || c.productSnapshot?.billing_component_id))) throw new Error('Every bundle item must belong to exactly one billing group');
     const nets = allocateBillingMinor(line.netMinor, weights);
     const taxes = allocateBillingMinor(line.taxMinor, weights);
     ordered.forEach((group, index) => {
@@ -111,11 +111,11 @@ export function buildBillingSchedule({ lines, currency, recipient, timezone, tim
         bundleLineLabel: `Line ${linePosition + 1}: ${line.description || line.catalogueSnapshot?.name || 'Bundle'}`,
         bundleQuantity: line.quantity,
         invoiceLines: [{ name: group.name, description: bundleInvoiceDescription({ ...line, description: group.name },
-          line.components.filter(c => group.productIds.includes(c.productId))), quantity: '1', netMinor: nets[index],
+          line.components.filter(c => group.productIds.includes(c.productId || c.componentId || c.productSnapshot?.billing_component_id))), quantity: '1', netMinor: nets[index],
           taxMinor: taxes[index], grossMinor: nets[index] + taxes[index],
           taxCode: line.catalogueSnapshot?.tax_code || null, taxRateBps: line.taxRateBps }],
-        contents: line.components.filter(c => group.productIds.includes(c.productId)).map(c => ({
-          productId: c.productId, name: bundleProductName(c),
+        contents: line.components.filter(c => group.productIds.includes(c.productId || c.componentId || c.productSnapshot?.billing_component_id)).map(c => ({
+          productId: c.productId, componentId: c.componentId, name: bundleProductName(c),
           quantity: componentQuantity(line.quantity, c.quantity),
           componentQuantity: c.quantity, bundleQuantity: line.quantity,
         })), netMinor: nets[index], taxMinor: taxes[index], grossMinor: nets[index] + taxes[index],

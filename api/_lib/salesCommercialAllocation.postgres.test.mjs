@@ -450,6 +450,136 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     assert.equal(totalRace.filter(r=>r.status===0).length,1,JSON.stringify(totalRace));
     assert.doesNotMatch(totalRace.map(r=>r.stderr).join(''),/deadlock detected/i);
     assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${simpleEvent}')->>'used';`),String(used+1));
+    // New proposal Ticket lines exercise the same real acceptance transaction.
+    psql(psqlBin,args,`
+      ALTER TABLE sales_quote_line ADD COLUMN catalogue_kind text DEFAULT 'product',
+        ADD COLUMN catalogue_id uuid, ADD COLUMN bundle_id uuid, ADD COLUMN display_order integer DEFAULT 0;
+      ALTER TABLE sales_quote_line ADD CHECK (catalogue_kind IN ('product','bundle','free_text')) NOT VALID;
+      ALTER TABLE sales_quote_version ADD COLUMN customer_contact_snapshot jsonb DEFAULT '{"email":"purchaser@example.invalid"}',
+        ADD COLUMN billing_schedule jsonb;
+      ALTER TABLE event ADD COLUMN title text, ADD COLUMN start_date timestamptz,
+        ADD COLUMN end_date timestamptz, ADD COLUMN waiting_list_enabled boolean, ADD COLUMN registration_closes_at timestamptz;
+      ALTER TABLE complex_event ADD COLUMN tenant_id uuid, ADD COLUMN title text, ADD COLUMN start_date timestamptz, ADD COLUMN available_seats integer,
+        ADD COLUMN end_date timestamptz, ADD COLUMN waiting_list_enabled boolean;
+      ALTER TABLE complex_event_ticket_class ADD COLUMN name text, ADD COLUMN release_at timestamptz;
+      UPDATE complex_event SET tenant_id='${tenant}';
+      CREATE TABLE sales_catalogue_bundle_item(tenant_id uuid,component_kind text,event_reference_kind text,event_id uuid,ticket_type_id text);
+    `);
+    const quoteMigration=await readFile(new URL('../../supabase/migrations/20260909_sales_quotes.sql',import.meta.url),'utf8');
+    psql(psqlBin,args,quoteMigration.match(/CREATE OR REPLACE FUNCTION public\.transition_sales_quote[\s\S]*?END \$\$;/)[0]);
+    const billingMigration=await readFile(new URL('../../supabase/migrations/202610180003_sales_grouped_billing.sql',import.meta.url),'utf8');
+    psql(psqlBin,args,[...billingMigration.matchAll(/DO \$migration\$[\s\S]*?END \$migration\$;/g)]
+      .map(match=>match[0]).find(block=>block.includes('staff-scheduled-acceptance:')));
+    for (const name of ['202610180007_sales_quote_line_ticket_snapshot','202610180008_sales_customer_fulfilment','202701240001_sales_ticket_event_discovery',
+      '202701240002_sales_direct_ticket_lines','202701240004_sales_ticket_closure']) {
+      psql(psqlBin,args,await readFile(new URL('../../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+    }
+    const directEvent='20000000-0000-4000-8000-000000000011';
+    const directQuote='70000000-0000-4000-8000-000000000011';
+    const directVersion='71000000-0000-4000-8000-000000000011';
+    const directLine='72000000-0000-4000-8000-000000000011';
+    psql(psqlBin,args,`
+      INSERT INTO event(id,tenant_id,title,start_date,capacity_mode,total_capacity,pricing_config)
+      VALUES('${directEvent}','${tenant}','Future draft',now()+interval '90 days','total',5,
+        '{"ticket_classes":[{"id":"G","name":"Group","available_count":10,"is_group_ticket":true,"group_size":2}]}');
+      INSERT INTO sales_quote(id,tenant_id,current_version,row_version,opportunity_id)
+        VALUES('${directQuote}','${tenant}',1,1,'50000000-0000-4000-8000-000000000001');
+      INSERT INTO sales_quote_version(id,tenant_id,quote_id,version_number,status,gross_minor,currency)
+        VALUES('${directVersion}','${tenant}','${directQuote}',1,'sent',100,'GBP');
+      INSERT INTO sales_quote_line(id,tenant_id,quote_version_id,catalogue_kind,quantity,catalogue_snapshot)
+        VALUES('${directLine}','${tenant}','${directVersion}','ticket',2,
+          '{"event_reference_kind":"simple","event_id":"${directEvent}","ticket_type_id":"G","capacity_metadata":{"delegate_capacity":2}}');
+    `);
+    psql(psqlBin,args,`SELECT transition_sales_quote('${tenant}','${directQuote}',1,'accepted',NULL,'${actor}','member')`);
+    const acceptDirect = `SELECT confirm_sales_quote_sale('${tenant}','${directQuote}',2,'staff-scheduled-acceptance:${directVersion}','member','${actor}')`;
+    psql(psqlBin,args,acceptDirect);
+    psql(psqlBin,args,acceptDirect);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT count(*)||':'||max(allocated_places)
+      FROM sales_commercial_allocation WHERE event_id='${directEvent}'`),'1:4');
+    // Exact close boundary rejects both stale ordinary bookings and entitlement
+    // claims. Historical accepted evidence and places remain untouched.
+    psql(psqlBin,args,`UPDATE event SET pricing_config=jsonb_set(pricing_config,'{ticket_classes,0,close_at}',
+      to_jsonb((now()-interval '1 second')::text)) WHERE id='${directEvent}'`);
+    const closedBooking=await psqlAsync(psqlBin,args,`INSERT INTO booking(id,tenant_id,event_id,ticket_class_id,status)
+      VALUES('80000000-0000-4000-8000-000000000011','${tenant}','${directEvent}','G','confirmed');`);
+    assert.notEqual(closedBooking.status,0);
+    assert.match(closedBooking.stderr,/closed|unavailable/i);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT allocated_places FROM sales_commercial_allocation WHERE event_id='${directEvent}'`),'4');
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT count(*) FROM sales_customer_fulfilment`),'1');
+    psql(psqlBin,args,`
+      UPDATE event SET pricing_config=pricing_config #- '{ticket_classes,0,close_at}' WHERE id='${directEvent}';
+      ALTER TABLE booking ADD COLUMN attendee_first_name text, ADD COLUMN attendee_last_name text,
+        ADD COLUMN booking_reference text, ADD COLUMN check_in_token text;
+      CREATE FUNCTION event_funnel_held_places(uuid,text,uuid,text DEFAULT NULL,uuid DEFAULT NULL)
+        RETURNS bigint LANGUAGE sql AS $$ SELECT 0::bigint $$;
+    `);
+    const funnelInventory=await readFile(new URL('../../supabase/migrations/202701230003_event_funnel_inventory.sql',import.meta.url),'utf8');
+    psql(psqlBin,args,funnelInventory.match(/CREATE FUNCTION public\.event_funnel_counter_is_finite[\s\S]*?\$\$;/)[0]);
+    psql(psqlBin,args,await readFile(new URL('../../supabase/migrations/202701240005_sales_purchaser_roster.sql',import.meta.url),'utf8'));
+    psql(psqlBin,args,await readFile(new URL('../../supabase/migrations/202701240007_sales_legacy_event_capacity.sql',import.meta.url),'utf8'));
+    const fulfilmentId=psql(psqlBin,[...args,'-t','-A'],`SELECT id FROM sales_customer_fulfilment`);
+    const directAllocation=psql(psqlBin,[...args,'-t','-A'],`SELECT id FROM sales_commercial_allocation WHERE event_id='${directEvent}'`);
+    const rosterHash='e'.repeat(64), inviteHash='f'.repeat(64);
+    psql(psqlBin,args,`SELECT claim_sales_customer_fulfilment('${fulfilmentId}','${rosterHash}','90000000-0000-4000-8000-000000000011');
+      SELECT finish_sales_customer_fulfilment('${fulfilmentId}','90000000-0000-4000-8000-000000000011','sent');`);
+    const rosterCommand=`SELECT save_sales_purchaser_slot('${tenant}','${rosterHash}','${directAllocation}',
+      '91000000-0000-4000-8000-000000000011',0,'92000000-0000-4000-8000-000000000011',
+      '{"first_name":"Test","last_name":"Attendee","email":"roster@example.invalid"}',true,'${inviteHash}','{}');`;
+    psql(psqlBin,args,rosterCommand);
+    psql(psqlBin,args,rosterCommand);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT named FROM sales_commercial_allocation_totals WHERE allocation_id='${directAllocation}'`),'1');
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${directEvent}')->>'used'`),'4');
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT count(*) FROM booking WHERE event_id='${directEvent}'`),'1');
+    const legacyEvent='20000000-0000-4000-8000-000000000012';
+    psql(psqlBin,args,`INSERT INTO event(id,tenant_id,title,start_date,available_seats,is_unlimited_registration,pricing_config)
+      VALUES('${legacyEvent}','${tenant}','Legacy finite event',now()+interval '90 days',4,false,
+        '{"ticket_classes":[{"id":"L","available_count":100}]}');
+      INSERT INTO sales_quote(id,tenant_id,current_version,row_version,opportunity_id)
+      VALUES('70000000-0000-4000-8000-000000000012','${tenant}',1,1,'50000000-0000-4000-8000-000000000001');
+      INSERT INTO sales_quote_version(id,tenant_id,quote_id,version_number,status,gross_minor,currency)
+      VALUES('71000000-0000-4000-8000-000000000012','${tenant}','70000000-0000-4000-8000-000000000012',1,'accepted',100,'GBP');
+      INSERT INTO sales_quote_line(id,tenant_id,quote_version_id,catalogue_kind,quantity,catalogue_snapshot)
+      VALUES('72000000-0000-4000-8000-000000000012','${tenant}','71000000-0000-4000-8000-000000000012','ticket',3,
+      '{"event_reference_kind":"simple","event_id":"${legacyEvent}","ticket_type_id":"L","capacity_metadata":{"delegate_capacity":1}}');`);
+    const legacyRace=await Promise.all([
+      psqlAsync(psqlBin,args,`SELECT confirm_sales_quote_sale('${tenant}','70000000-0000-4000-8000-000000000012',1,'legacy-race','member','${actor}');`),
+      psqlAsync(psqlBin,args,`UPDATE event SET available_seats=available_seats-3 WHERE id='${legacyEvent}';`),
+    ]);
+    assert.equal(legacyRace.filter(r=>r.status===0).length,1,JSON.stringify(legacyRace));
+    assert.doesNotMatch(legacyRace.map(r=>r.stderr).join(''),/deadlock detected/i);
+    if(legacyRace[0].status!==0){
+      psql(psqlBin,args,`UPDATE event SET available_seats=4 WHERE id='${legacyEvent}';
+        SELECT confirm_sales_quote_sale('${tenant}','70000000-0000-4000-8000-000000000012',1,'legacy-race','member','${actor}');`);
+    }
+    const legacyAllocation=psql(psqlBin,[...args,'-t','-A'],`SELECT id FROM sales_commercial_allocation WHERE event_id='${legacyEvent}'`);
+    const legacyFulfilment=psql(psqlBin,[...args,'-t','-A'],`SELECT f.id FROM sales_customer_fulfilment f
+      JOIN sales_commercial_allocation a ON a.sale_id=f.sale_id WHERE a.id='${legacyAllocation}'`);
+    psql(psqlBin,args,`SELECT claim_sales_customer_fulfilment('${legacyFulfilment}','${'34'.repeat(32)}','90000000-0000-4000-8000-000000000012');
+      SELECT finish_sales_customer_fulfilment('${legacyFulfilment}','90000000-0000-4000-8000-000000000012','sent');`);
+    const legacyClaim=`SELECT save_sales_purchaser_slot('${tenant}','${'34'.repeat(32)}','${legacyAllocation}',
+      '91000000-0000-4000-8000-000000000012',0,'92000000-0000-4000-8000-000000000012',
+      '{"first_name":"Legacy","last_name":"Attendee","email":"legacy@example.invalid"}',true,'${'56'.repeat(32)}','{}');`;
+    psql(psqlBin,args,legacyClaim);
+    psql(psqlBin,args,legacyClaim);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT available_seats FROM event WHERE id='${legacyEvent}'`),'3');
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT named FROM sales_commercial_allocation_totals WHERE allocation_id='${legacyAllocation}'`),'1');
+    psql(psqlBin,args,`UPDATE event SET total_capacity=10 WHERE id='${directEvent}';
+      INSERT INTO sales_quote(id,tenant_id,current_version,row_version,opportunity_id)
+      VALUES('70000000-0000-4000-8000-000000000014','${tenant}',1,1,'50000000-0000-4000-8000-000000000001');
+      INSERT INTO sales_quote_version(id,tenant_id,quote_id,version_number,status,gross_minor,currency)
+      VALUES('71000000-0000-4000-8000-000000000014','${tenant}','70000000-0000-4000-8000-000000000014',1,'accepted',100,'GBP');
+      INSERT INTO sales_quote_line(id,tenant_id,quote_version_id,catalogue_kind,catalogue_id,bundle_id,quantity,catalogue_snapshot)
+      VALUES('72000000-0000-4000-8000-000000000014','${tenant}','71000000-0000-4000-8000-000000000014','bundle',
+        '73000000-0000-4000-8000-000000000014','73000000-0000-4000-8000-000000000014',2,'{}');
+      INSERT INTO sales_quote_bundle_component(id,tenant_id,quote_line_id,product_id,quantity,product_snapshot) VALUES
+      ('74000000-0000-4000-8000-000000000014','${tenant}','72000000-0000-4000-8000-000000000014',NULL,1,
+        '{"component_kind":"ticket","event_reference_kind":"simple","event_id":"${directEvent}","ticket_type_id":"G","capacity_metadata":{"delegate_capacity":2}}'),
+      ('74000000-0000-4000-8000-000000000015','${tenant}','72000000-0000-4000-8000-000000000014','${simpleProduct}',1,'{"name":"Ordinary component"}');
+      SELECT confirm_sales_quote_sale('${tenant}','70000000-0000-4000-8000-000000000014',1,'mixed-ticket-bundle','member','${actor}');
+      SELECT confirm_sales_quote_sale('${tenant}','70000000-0000-4000-8000-000000000014',1,'mixed-ticket-bundle','member','${actor}');`);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT count(*)||':'||max(allocated_places) FROM sales_commercial_allocation
+      WHERE quote_line_id='72000000-0000-4000-8000-000000000014'`),'1:4');
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${directEvent}')->>'used'`),'8');
   } finally {
     if (started) psql(pgCtl, ['-D', data, '-m', 'fast', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

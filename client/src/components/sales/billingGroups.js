@@ -1,6 +1,14 @@
 import { decimalToMinor, minorToDecimal } from "../../pages/sales/catalogueProductForm.js";
 
 export const presetSnapshot = (preset) => preset ? { id: preset.id, name: preset.name, days: Number(preset.days) } : null;
+export const bundleItemIdentity = item => item.productId || item.componentId;
+export function bundleItemLabel(item, products = []) {
+  if (item?.kind === "ticket") {
+    const reference = item.eventReference || {};
+    return ["Ticket", reference.kind, reference.eventId, reference.ticketTypeId].filter(Boolean).join(" / ");
+  }
+  return products.find(product => product.id === item?.productId)?.name || "Unavailable product";
+}
 export function percentageToBps(value) {
   const text = String(value ?? "").trim();
   if (!/^\d+(?:\.\d{1,2})?$/.test(text)) throw new Error("Enter a percentage with up to two decimal places.");
@@ -26,7 +34,7 @@ export const groupsForEditing = (groups = []) => groups.map(group => ({ ...struc
 
 export function groupsForSaving(groups = [], items = [], sellingMinor, { copying = false } = {}) {
   if (!groups.length) return [];
-  const products = items.filter(item => item.productId).map(item => item.productId);
+  const products = items.map(bundleItemIdentity).filter(Boolean);
   const assigned = groups.flatMap(group => group.productIds || []);
   if (products.some(id => assigned.filter(value => value === id).length !== 1)
     || assigned.some(id => !products.includes(id))) throw new Error("Assign every included product to exactly one billing group. Remove memberships for products no longer included.");
@@ -54,9 +62,11 @@ export function groupsForSaving(groups = [], items = [], sellingMinor, { copying
 export function suggestedGroupAmounts(groups, items, products, sellingMinor) {
   if (!groups.length) return [];
   let weights = groups.map(group => (group.productIds || []).reduce((sum, id) => {
+    const item = items.find(value => bundleItemIdentity(value) === id);
+    if (item?.kind === "ticket") throw new Error("Tickets have no catalogue standard price. Enter billing group allocations manually.");
     const product = products.find(value => value.id === id);
     if (!product || product.standardPriceMinor == null) throw new Error("Load all assigned product prices before applying suggestions. Unavailable prices are not treated as zero.");
-    const quantity = items.find(value => value.productId === id)?.quantity;
+    const quantity = item?.quantity;
     if (!Number.isSafeInteger(Number(quantity)) || Number(quantity) < 1) throw new Error("Use whole positive product quantities and remove stale memberships before applying suggestions.");
     return sum + BigInt(product?.standardPriceMinor || 0) * BigInt(quantity);
   }, 0n));

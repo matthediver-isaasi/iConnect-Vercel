@@ -51,6 +51,10 @@ export async function bundleOptions(db, form, fieldId) {
   const { data: stocks, error: stockError } = await db.from('form_bundle_stock')
     .select('bundle_id,remaining').eq('tenant_id', form.tenant_id).in('bundle_id', field.allowed_bundle_ids);
   if (stockError) throw stockError;
+  const components = await db.from('sales_catalogue_bundle_item').select('bundle_id,product_id')
+    .eq('tenant_id', form.tenant_id).in('bundle_id', field.allowed_bundle_ids);
+  if (components.error) throw components.error;
+  const unsupported = new Set((components.data || []).filter(item => item.product_id == null).map(item => item.bundle_id));
   // Expose only category labels attached to this form's tenant-scoped allowed bundles.
   const categoryIds = [...new Set((data || []).map(b => b.category_id).filter(Boolean))];
   let categories = [];
@@ -61,7 +65,7 @@ export async function bundleOptions(db, form, fieldId) {
     categories = result.data || [];
   }
   const now = Date.now();
-  return (data || []).filter(b => b.is_active && !b.archived_at
+  return (data || []).filter(b => !unsupported.has(b.id) && b.is_active && !b.archived_at
     && (!b.available_from || Date.parse(b.available_from) <= now)
     && (!b.available_to || Date.parse(b.available_to) >= now)).map(b => {
     const remaining = stocks?.find(s => s.bundle_id === b.id)?.remaining ?? null;

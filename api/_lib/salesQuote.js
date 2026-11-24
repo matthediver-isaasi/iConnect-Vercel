@@ -9,6 +9,7 @@ import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/sales
 import { resolvePercentageInstalments } from '../../shared/salesBillingConfiguration.js';
 import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 import { resolveEventTicketReference } from './salesCatalogue.js';
+import { assertSalesTicketEventSelectable } from './salesTicketEventOptions.js';
 import { prepareExhibitionLine, exhibitionError } from './salesExhibition.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
@@ -58,6 +59,7 @@ export async function freezeQuoteTicketProduct(db, tenantId, product, reference,
   const resolved = await resolveEventTicketReference(db, tenantId, reference);
   const sameReference = resolved && previousSnapshot?.event_reference_kind === resolved.kind
     && previousSnapshot.event_id === resolved.eventId && previousSnapshot.ticket_type_id === resolved.ticketTypeId;
+  if (resolved && !sameReference) await assertSalesTicketEventSelectable(db, tenantId, resolved);
   const delegateCapacity = sameReference && previousSnapshot.capacity_metadata?.delegate_capacity
     ? previousSnapshot.capacity_metadata.delegate_capacity : resolved?.delegateCapacity || 1;
   if (resolved && (!Number.isSafeInteger(Number(quantity)) || Number(quantity) <= 0
@@ -66,6 +68,8 @@ export async function freezeQuoteTicketProduct(db, tenantId, product, reference,
   }
   return { ...product, event_reference_kind: resolved?.kind || null,
     event_id: resolved?.eventId || null, ticket_type_id: resolved?.ticketTypeId || null,
+    ...(resolved?.eventTitle ? { event_title: sameReference ? previousSnapshot.event_title || resolved.eventTitle : resolved.eventTitle } : {}),
+    ...(resolved?.ticketName ? { ticket_name: sameReference ? previousSnapshot.ticket_name || resolved.ticketName : resolved.ticketName } : {}),
     capacity_metadata: { ...product.capacity_metadata, delegate_capacity: delegateCapacity } };
 }
 
@@ -78,7 +82,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
     && (previous.catalogue_id || null) === (line.catalogueId || null)
     && (!line.taxCode || (line.taxCode.provider === previous.catalogue_snapshot?.tax_code?.provider
       && line.taxCode.id === previous.catalogue_snapshot?.tax_code?.id));
-  if (line.kind === 'free_text') {
+  if (line.kind === 'free_text' || line.kind === 'ticket') {
     const taxCode = preserveTax ? previous.catalogue_snapshot?.tax_code || null
       : line.taxCode ? await resolveSalesTaxCode(db, tenantId, line.taxCode) : null;
     if (preserveTax || taxCode) line = { ...line, taxRateBps: preserveTax ? Number(previous.tax_rate_bps) : taxCode.rateBps };
@@ -86,7 +90,14 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
       throw new SalesHttpError(403, 'Catalogue price override capability required');
     }
     const amounts = calculateQuoteLine(line);
-    return { kind: 'free_text', catalogueId: null, catalogueSnapshot: taxCode ? { tax_code: taxCode } : null, description: line.description || '',
+    const snapshot = line.kind === 'ticket'
+      ? await freezeQuoteTicketProduct(db, tenantId, { name: line.description || 'Event ticket', tax_code: taxCode,
+        component_kind: 'ticket', standard_price_minor: line.standardUnitPriceMinor, currency: line.currency },
+        line.eventReference, amounts.quantity, previous?.catalogue_kind === 'ticket' ? previous.catalogue_snapshot : null)
+      : taxCode ? { tax_code: taxCode } : null;
+    if (line.kind === 'ticket' && !snapshot.event_id) throw new SalesHttpError(400, 'Select an event and ticket type');
+    return { kind: line.kind, catalogueId: null, catalogueSnapshot: snapshot,
+      description: line.description || (line.kind === 'ticket' ? `${snapshot.event_title || 'Event'} — ${snapshot.ticket_name || 'Ticket'}` : ''),
       quantity: amounts.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor,
       quotedUnitPriceMinor: line.quotedUnitPriceMinor, priceOverridden: line.standardUnitPriceMinor !== line.quotedUnitPriceMinor,
       discountBps: line.discountBps || 0, taxRateBps: line.taxRateBps || 0, ...amounts, components: [] };
@@ -138,6 +149,20 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
       .eq('tenant_id', tenantId).eq('bundle_id', item.id).order('display_order');
     if (error) throw error;
     components = await Promise.all((data || []).map(async (component) => {
+      if (component.component_kind === 'ticket') {
+        const reference = { kind: component.event_reference_kind, eventId: component.event_id, ticketTypeId: component.ticket_type_id };
+        const event = await one(db, reference.kind === 'complex' ? 'complex_event' : 'event', tenantId, reference.eventId, 'Ticket event');
+        const ticket = reference.kind === 'complex'
+          ? await one(db, 'complex_event_ticket_class', tenantId, reference.ticketTypeId, 'Ticket type')
+          : event.pricing_config?.ticket_classes?.find(t => String(t.id) === reference.ticketTypeId);
+        return { productId: null, componentId: component.id, quantity: component.quantity,
+          productSnapshot: await freezeQuoteTicketProduct(db, tenantId, {
+            component_kind: 'ticket', billing_component_id: component.id,
+            name: `${event.title} — ${ticket?.name || 'Ticket'}`, categoryName: 'Ticket',
+            // No inferred bundle value: existing pending attribution policy applies.
+            standard_price_minor: null,
+          }, reference, Number(amounts.quantity) * Number(component.quantity)) };
+      }
       const product = await one(db, 'sales_catalogue_product', tenantId, component.product_id, 'Bundle product');
       if (product.category_id && !categories.has(product.category_id)) {
         categories.set(product.category_id, one(db, 'sales_catalogue_category', tenantId, product.category_id, 'Bundle product category'));

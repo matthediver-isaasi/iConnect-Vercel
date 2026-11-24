@@ -1,4 +1,5 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+import { isTicketClosed } from '../../shared/ticketRelease.js';
 import { projectSimpleEventCapacity } from '../_lib/simpleEventCapacity.js';
 import { projectPublicShoppingAvailability } from '../_lib/eventFunnelAvailability.js';
 import { scopeEventFunnelDiscovery } from '../_lib/eventFunnelDiscovery.js';
@@ -137,7 +138,8 @@ export default async function handler(req, res) {
     const events = capacityEvents.map(rawEvent => {
       // Immediate events: suppress schedule fields and training agenda
       const event = suppressImmediateSchedule(rawEvent);
-      const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id);
+      const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id)
+        .filter(ticket => !isTicketClosed(ticket));
       const allPrices = allTicketClasses
         .map(tc => {
           if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
@@ -160,6 +162,7 @@ export default async function handler(req, res) {
           }
           return tc.is_public === true;
         })
+        .filter(tc => !isTicketClosed(tc))
         .map(tc => ({
           id: tc.id,
           name: tc.name,
@@ -177,7 +180,9 @@ export default async function handler(req, res) {
           early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
           early_bird_deadline: tc.early_bird_deadline || null,
           release_at: tc.release_at ?? null,
-          release_timezone: tc.release_timezone ?? null
+          release_timezone: tc.release_timezone ?? null,
+          close_at: tc.close_at ?? null,
+          close_timezone: tc.close_timezone ?? null
         }));
 
       return {

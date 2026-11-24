@@ -35,7 +35,7 @@ const EVENT_FIELDS = `id tenant_id title description summary slug start_date end
 const TICKET_FIELDS = `id name description price currency is_free visibility_mode audience_mode private_ticket_eligible
  organization_type_enabled organization_type_eligible role_ids role_match_only member_group_ids is_public
  is_group_ticket group_size group_cutoff_date early_bird_enabled early_bird_price early_bird_deadline
- release_at release_timezone offer_type bogo_logic_type bogo_buy_quantity bogo_get_free_quantity
+ release_at release_timezone close_at close_timezone offer_type bogo_logic_type bogo_buy_quantity bogo_get_free_quantity
  bulk_discount_threshold bulk_discount_percentage is_default available_count is_unlimited_tickets
  linked_track_ids all_tracks display_order`.split(/\s+/);
 

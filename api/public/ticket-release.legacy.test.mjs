@@ -63,7 +63,7 @@ test('legacy selectedTicketClassId alias and previously initialized default meta
 for (const configuredId of ['scheduled', 'default']) {
   test(`default cannot bypass authoritative configured future class ${configuredId}`, async () => {
     const harness = createLegacySimpleHarness({ event: { pricing_config: {
-      ticket_classes: [{ id: configuredId, release_at: '2099-01-01T00:00:00Z', release_timezone: 'UTC' }],
+      ticket_classes: [{ id: configuredId, visibility_mode:'members_and_public', release_at: '2099-01-01T00:00:00Z', release_timezone: 'UTC' }],
     } } });
     const payment = await harness.invoke('createStripePaymentIntent', {
       amount: 25, metadata: { event_id: 'event-a', ticket_class_id: 'default' },
@@ -73,7 +73,7 @@ for (const configuredId of ['scheduled', 'default']) {
       eventId: 'event-a', ticketsRequired: 1, totalCost: 0, selectedTicketClassId: 'default',
       paymentMethod: 'free', isGuestBooking: true, guestInfo: attendee, attendees: [attendee],
     });
-    assert.match(booking.response.error, /Invalid ticket class|Tickets available from/);
+    assert.match(booking.response.error, /Invalid ticket class|Tickets available from|A valid ticket class is required/);
     assert.equal(booking.bookings.length, 0);
     assert.ok(!booking.calls.some(call => call.provider || call.operation === 'insert' || call.operation === 'update' || call.rpc));
   });

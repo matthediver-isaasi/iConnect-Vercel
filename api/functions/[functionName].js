@@ -3642,7 +3642,7 @@ const functionHandlers = {
     }
 
     // Decrement available seats for the event (if not unlimited)
-    if (!publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
+    if (!allocationContext && !publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
       const seatsToDecrement = bookingAttendees.length;
       console.log(`[createOneOffEventBooking] Decrementing ${seatsToDecrement} seats for event ${eventId}`);
       

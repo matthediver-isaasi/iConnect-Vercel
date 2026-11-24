@@ -1002,7 +1002,7 @@ async function processBooking(req, res) {
       }
     }
 
-    if (!publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined) {
+    if (!allocationContext && !publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined) {
       const { data: newSeats, error: seatError } = await supabase.rpc('atomic_decrement_complex_event_seats', {
         p_event_id: event_id,
         p_count: totalAttendees
@@ -1019,7 +1019,7 @@ async function processBooking(req, res) {
     // (count-based, Task #1760). Only the event-level available_seats counter is
     // still maintained as a stored value; the post-verify guard below enforces
     // per-ticket-class limits atomically against confirmed-booking counts.
-    let seatsDecrementedForEvent = !publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined;
+    let seatsDecrementedForEvent = !allocationContext && !publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined;
 
     let bookingGroupRef = req.bookingCreditAttempt?.key || (selected_voucher_ids?.length && stripe_payment_intent_id
       ? `CE-${stripe_payment_intent_id}` : generateBookingReference());
@@ -1444,7 +1444,8 @@ async function processBooking(req, res) {
     if (allocationContext && !req.bookingCreditAttempt) {
       const coveredBooking = bookings.find((booking) => String(booking.ticket_class_id) === String(allocationContext.ticketTypeId));
       try {
-        await claimAllocationInvitation(supabase, allocationInvitationToken, 'complex', coveredBooking?.id);
+        const claim = await claimAllocationInvitation(supabase, allocationInvitationToken, 'complex', coveredBooking?.id);
+        seatsDecrementedForEvent = claim.eventSeatConsumed === true;
       } catch (claimError) {
         try {
           await rollbackFinancialDeductions();

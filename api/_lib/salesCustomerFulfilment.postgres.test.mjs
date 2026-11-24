@@ -93,6 +93,16 @@ test('disposable PostgreSQL: forward-only enqueue, immutable recipient, activati
       INSERT INTO sales_customer_fulfilment(tenant_id,sale_id,token_hash,expires_at,status,sent_at)
       VALUES('${tenant}','${id(30)}','${'d'.repeat(64)}',now()-interval '1 second','sent',now())`);
     assert.throws(() => resolve(tenant, 'd'.repeat(64)), /unavailable/);
+    sql(readFileSync('supabase/migrations/202701240006_sales_purchaser_link_renewal.sql', 'utf8'));
+    const expiredId = sql(`SELECT id FROM sales_customer_fulfilment WHERE token_hash='${'d'.repeat(64)}'`);
+    service(`SELECT renew_sales_customer_fulfilment('${tenant}','${'d'.repeat(64)}')`);
+    assert.equal(sql(`SELECT token_generation FROM sales_customer_fulfilment WHERE id='${expiredId}'`), '1');
+    assert.throws(() => resolve(tenant, 'd'.repeat(64)), /unavailable/, 'old bearer is never reactivated');
+    assert.equal(service(`SELECT claim_sales_customer_fulfilment('${expiredId}','${'e'.repeat(64)}','${id(50)}',0) IS NULL`), 't');
+    service(`SELECT claim_sales_customer_fulfilment('${expiredId}','${'e'.repeat(64)}','${id(50)}',1)`);
+    service(`SELECT finish_sales_customer_fulfilment('${expiredId}','${id(50)}','sent')`);
+    assert.ok(resolve(tenant, 'e'.repeat(64)));
+    assert.throws(() => sql(`UPDATE sales_customer_fulfilment SET customer_email='another@example.test'`), /immutable/);
     sql('UPDATE sales_customer_fulfilment SET revoked_at=now()');
     assert.throws(() => resolve(), /unavailable/);
     assert.throws(() => sql(`SET ROLE anon; SELECT resolve_sales_customer_fulfilment('${tenant}','${hash}')`), /permission denied/);

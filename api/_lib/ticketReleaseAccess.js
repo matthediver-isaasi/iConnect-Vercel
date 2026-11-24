@@ -1,4 +1,4 @@
-import { isTicketReleased, ticketReleaseMessage } from '../../shared/ticketRelease.js';
+import { isTicketReleased, ticketReleaseMessage, isTicketClosed } from '../../shared/ticketRelease.js';
 
 export class TicketReleaseAccessError extends Error {
   constructor(message, statusCode = 403) {
@@ -31,7 +31,7 @@ export function assertRequestedTicketsReleased({
       && allocationContext.eventKind === eventKind
       && String(allocationContext.eventId) === String(event.id)
       && String(allocationContext.ticketTypeId) === String(ticket.id);
-    if (!purchased && !isTicketReleased(ticket, now)) {
+    if (isTicketClosed(ticket, now) || !purchased && !isTicketReleased(ticket, now)) {
       throw new TicketReleaseAccessError(ticketReleaseMessage(ticket) || 'This ticket is not yet available');
     }
     return ticket;

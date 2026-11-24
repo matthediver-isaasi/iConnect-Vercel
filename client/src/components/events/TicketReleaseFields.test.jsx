@@ -5,10 +5,10 @@ import { JSDOM } from "jsdom";
 import ts from "typescript";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 Object.assign(globalThis, {
   window: dom.window,
   document: dom.window.document,
-  navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   HTMLInputElement: dom.window.HTMLInputElement,
   Node: dom.window.Node,
@@ -60,8 +60,8 @@ async function mountTicket(initial = {}, eventTimezone) {
       assert.ok(element, selector);
       await act(async () => element.click());
     },
-    async date(value) {
-      const input = container.querySelector('input[type="datetime-local"]');
+    async date(value, selector = 'input[type="datetime-local"]') {
+      const input = container.querySelector(selector);
       assert.ok(input);
       await act(async () => {
         Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, value);
@@ -106,10 +106,11 @@ test("legacy timezone conversion remains unchanged unless strict mode is opted i
 });
 
 test("hydrate and serialize preserve saved release timezone and normalize explicit offsets to UTC", () => {
-  assert.deepEqual(serializeTicketRelease(hydrateTicketRelease()), { release_at: null, release_timezone: null });
+  const noClose = { close_at: null, close_timezone: null };
+  assert.deepEqual(serializeTicketRelease(hydrateTicketRelease()), { release_at: null, release_timezone: null, ...noClose });
   const saved = { release_at: "2026-10-25T01:30:00+01:00", release_timezone: "Europe/London" };
-  assert.deepEqual(hydrateTicketRelease(saved), saved);
-  assert.deepEqual(serializeTicketRelease(saved), { release_at: "2026-10-25T00:30:00.000Z", release_timezone: "Europe/London" });
+  assert.deepEqual(hydrateTicketRelease(saved), { ...saved, ...noClose });
+  assert.deepEqual(serializeTicketRelease(saved), { release_at: "2026-10-25T00:30:00.000Z", release_timezone: "Europe/London", ...noClose });
   for (const invalid of [
     { release_at: saved.release_at },
     { release_timezone: saved.release_timezone },
@@ -136,7 +137,7 @@ test("enabling defaults timezone, freezes it against event changes, and clearing
       await ui.date("2026-06-10T12:00");
       assert.equal(ticketReleaseError(ui.ticket()), "");
       await ui.click('[role="switch"]');
-      assert.deepEqual(serializeTicketRelease(ui.ticket()), { release_at: null, release_timezone: null });
+      assert.deepEqual(serializeTicketRelease(ui.ticket()), { release_at: null, release_timezone: null, close_at: null, close_timezone: null });
     } finally { await ui.close(); }
   }
 });
@@ -177,8 +178,114 @@ test("pending gap/overlap/cleared inputs block save even when collapsed; overlap
     assert.equal(ui.ticket().release_at, null);
     await ui.click('[role="switch"]');
     assert.deepEqual(validateTicketReleases([ui.ticket()]), []);
-    assert.deepEqual(serializeTicketRelease(ui.ticket()), { release_at: null, release_timezone: null });
+    assert.deepEqual(serializeTicketRelease(ui.ticket()), { release_at: null, release_timezone: null, close_at: null, close_timezone: null });
   } finally { await ui.close(); }
+});
+
+test("auto close is optional, independently enabled, frozen against event timezone changes, and explicitly cleared", async () => {
+  for (const [eventTimezone, expected] of [[undefined, "Europe/London"], ["Asia/Tokyo", "Asia/Tokyo"]]) {
+    const ui = await mountTicket({}, eventTimezone);
+    try {
+      assert.equal(ui.ticket().close_at, null, "no invented deadline");
+      await ui.click('[data-testid="switch-ticket-close-ticket"]');
+      assert.equal(ui.ticket().close_timezone, expected);
+      assert.equal(ui.ticket().release_timezone, null, "close never enables release");
+      assert.match(ticketReleaseError(ui.ticket()), /auto close/);
+      assert.throws(() => serializeTicketRelease(ui.ticket()));
+      await ui.timezone("America/New_York");
+      assert.equal(ui.ticket().close_timezone, expected);
+      await ui.date("2026-06-10T12:00", '[data-testid="input-ticket-close-ticket"]');
+      assert.equal(ticketReleaseError(ui.ticket()), "");
+      assert.ok(serializeTicketRelease(ui.ticket()).close_at);
+      await ui.click('[data-testid="switch-ticket-close-ticket"]');
+      assert.equal(ui.ticket()._closeLocalValue, undefined);
+      assert.equal(ui.ticket()._closeError, "");
+      assert.deepEqual(serializeTicketRelease(ui.ticket()), {
+        release_at: null, release_timezone: null, close_at: null, close_timezone: null,
+      });
+    } finally { await ui.close(); }
+  }
+});
+
+test("auto close hydration and timezone edits preserve its instant and do not alter release", async () => {
+  const saved = {
+    release_at: "2026-06-10T11:00:00.000Z", release_timezone: "Europe/London",
+    close_at: "2026-10-25T01:30:00+01:00", close_timezone: "Europe/London",
+  };
+  assert.deepEqual(hydrateTicketRelease(saved), saved);
+  assert.equal(serializeTicketRelease(saved).close_at, "2026-10-25T00:30:00.000Z");
+  const ui = await mountTicket(saved, "Asia/Tokyo");
+  try {
+    const input = () => ui.container.querySelector('[data-testid="input-ticket-close-ticket"]');
+    assert.equal(input().value, "2026-10-25T01:30");
+    assert.equal(ui.container.querySelectorAll('input[type="radio"]').length, 0);
+    await ui.click('[data-testid="ticket-close-ticket"] [role="combobox"]');
+    await ui.click('[data-testid="option-timezone-America/New_York"]');
+    assert.equal(ui.ticket().close_at, saved.close_at);
+    assert.equal(ui.ticket().close_timezone, "America/New_York");
+    assert.equal(input().value, "2026-10-24T20:30");
+    assert.equal(ui.ticket().release_at, saved.release_at);
+    assert.equal(ui.ticket().release_timezone, saved.release_timezone);
+  } finally { await ui.close(); }
+});
+
+test("auto close DST gaps, overlaps and cleared input block serialization even after unmount", async () => {
+  const ui = await mountTicket({ close_at: "2026-06-10T11:00:00.000Z", close_timezone: "Europe/London" });
+  const selector = '[data-testid="input-ticket-close-ticket"]';
+  try {
+    await ui.date("2026-03-29T01:30", selector);
+    assert.equal(ui.ticket().close_at, null);
+    assert.match(ticketReleaseError(ui.ticket()), /does not exist/);
+    await ui.visible(false);
+    assert.throws(() => serializeTicketRelease(ui.ticket()));
+    await ui.visible(true);
+    assert.equal(ui.container.querySelector(selector).value, "2026-03-29T01:30");
+    await ui.date("2026-10-25T01:30", selector);
+    assert.match(ticketReleaseError(ui.ticket()), /occurs twice/);
+    assert.equal(validateTicketReleases([ui.ticket()]).length, 1);
+    await ui.click('input[type="radio"][value="2026-10-25T01:30:00.000Z"]');
+    assert.equal(serializeTicketRelease(ui.ticket()).close_at, "2026-10-25T01:30:00.000Z");
+    await ui.date("", selector);
+    assert.ok(ticketReleaseError(ui.ticket()));
+    await ui.click('[data-testid="switch-ticket-close-ticket"]');
+    assert.deepEqual(validateTicketReleases([ui.ticket()]), []);
+  } finally { await ui.close(); }
+});
+
+test("changing close timezone clears unresolved wall-clock input without resolving it", async () => {
+  const ui = await mountTicket({ close_timezone: "Europe/London" });
+  try {
+    await ui.date("2026-10-25T01:30", '[data-testid="input-ticket-close-ticket"]');
+    await ui.click('[data-testid="ticket-close-ticket"] [role="combobox"]');
+    await ui.click('[data-testid="option-timezone-America/New_York"]');
+    assert.equal(ui.ticket().close_at, null);
+    assert.equal(ui.ticket()._closeLocalValue, undefined);
+    assert.equal(ui.ticket()._closeError, "");
+    assert.equal(ui.container.querySelector('[data-testid="input-ticket-close-ticket"]').value, "");
+    assert.throws(() => serializeTicketRelease(ui.ticket()));
+  } finally { await ui.close(); }
+});
+
+test("close validation rejects malformed schedules and close times at or before release", () => {
+  const close = { close_at: "2026-06-10T12:00:00Z", close_timezone: "Europe/London" };
+  for (const invalid of [
+    { close_at: close.close_at },
+    { close_timezone: close.close_timezone },
+    { ...close, close_at: "2026-06-10T12:00" },
+    { ...close, close_at: "2026-02-30T12:00:00Z" },
+    { ...close, close_timezone: "Invalid/Zone" },
+    { ...close, close_timezone: "GMT" },
+    { ...close, _closeError: "Unresolved pending input" },
+    { ...close, release_at: close.close_at, release_timezone: "UTC" },
+    { ...close, release_at: "2026-06-10T13:00:00Z", release_timezone: "UTC" },
+  ]) {
+    assert.ok(ticketReleaseError(invalid));
+    assert.equal(validateTicketReleases([{ ...invalid, name: "Member admission" }]).length, 1);
+    assert.throws(() => serializeTicketRelease(invalid));
+  }
+  assert.equal(ticketReleaseError({
+    ...close, release_at: "2026-06-10T11:59:00Z", release_timezone: "UTC",
+  }), "");
 });
 
 test("all active editors wire hydration, pre-save validation, and serialization and parse as JSX", () => {

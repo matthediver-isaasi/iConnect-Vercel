@@ -20,6 +20,13 @@ const built = await build({
   plugins: [{
     name: "isolated-catalogue-data",
     setup(b) {
+      b.onResolve({ filter: /\/QuoteLineTicketSelect$/ }, () => ({ path: "ticket-selector", namespace: "ticket-fixture" }));
+      b.onLoad({ filter: /.*/, namespace: "ticket-fixture" }, () => ({ resolveDir: process.cwd(), contents: `import React from "react";
+        export default function TicketSelect(props) {
+          globalThis.bundleTicketProps = props;
+          return React.createElement("button", {type:"button", disabled:props.disabled,
+            onClick:()=>props.onChange({kind:"event",eventId:"conference",ticketTypeId:"delegate"})}, "Select fixture ticket");
+        }` }));
       b.onResolve({ filter: /^\.\/useCatalogue$/ }, () => ({ path: "catalogue-hooks", namespace: "fixture" }));
       // Product editor requirements are a separate resource; keep this code
       // validation suite isolated from inventory APIs and auth contexts.
@@ -41,6 +48,101 @@ const EditDialog = (props) => React.createElement(RawEditDialog, { showInternalC
 globalThis.catalogueSettingsFixture = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false };
 after(() => dom.window.close());
 
+test("bundle ticket category cannot collide with editable category ids; selection, ordering and save retain ticket identity", async () => {
+  let saved;
+  const select = async (label, value) => act(async () => {
+    const control = document.querySelector(`[aria-label="${label}"]`);
+    control.value = value;
+    control.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  const click = async label => act(async () => document.querySelector(`[aria-label="${label}"]`).click());
+  await renderFixture(EditDialog, {
+    config: { type: "bundles", row: { id: "bundle", name: "Conference", code: "CONF", sellingPriceMinor: 12500,
+      items: [{ productId: "stand", quantity: 2 }, { productId: "lunch", quantity: 1 }] } },
+    categories: [{ id: "ticket", name: "User ticket category" }],
+    products: [{ id: "stand", categoryId: "ticket", name: "Stand" }, { id: "lunch", name: "Lunch" }],
+    events: {}, onClose() {}, onSave(data) { saved = data; },
+  }, async () => {
+    assert.equal(document.querySelector('[aria-label="Included category 1"]').value, "category:ticket");
+    await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "Add item").click());
+    await select("Included category 3", "ticket");
+    const initial = globalThis.bundleTicketProps;
+    assert.equal(initial.line.type, "ticket");
+    assert.equal(initial.line.quantity, 1);
+    assert.equal(typeof initial.request, "function");
+    assert.equal(document.querySelector('[aria-label="Included product 3"]'), null);
+    await act(async () => {
+      const input = document.querySelector('[aria-label="Quantity 3"]');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "1.5");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await submitForm();
+    assert.equal(saved, undefined);
+    assert.match(document.body.textContent, /positive whole quantity/);
+    await act(async () => {
+      const input = document.querySelector('[aria-label="Quantity 3"]');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "1");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await submitForm();
+    assert.equal(saved, undefined);
+    assert.match(document.body.textContent, /Choose an event and ticket type/);
+    await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "Select fixture ticket").click());
+    await click("Move item 3 up");
+    await submitForm();
+    assert.equal(saved.items[1].kind, "ticket");
+    const componentId = saved.items[1].componentId;
+    assert.match(componentId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(saved.items[1].eventReference, { kind: "event", eventId: "conference", ticketTypeId: "delegate" });
+    assert.deepEqual(saved.items[0], { productId: "stand", quantity: 2 });
+    assert.deepEqual(saved.items[2], { productId: "lunch", quantity: 1 });
+    await click("Move item 2 up");
+    await submitForm();
+    assert.equal(saved.items[0].componentId, componentId);
+    await click("Remove item 1");
+    await submitForm();
+    assert.deepEqual(saved.items, [{ productId: "stand", quantity: 2 }, { productId: "lunch", quantity: 1 }]);
+  });
+});
+
+for (const mode of ["row", "copySource"]) test(`mixed bundle ${mode} keeps ticket billing membership and renders identity`, async () => {
+  const componentId = crypto.randomUUID();
+  let saved;
+  const ticket = { kind: "ticket", componentId, quantity: 4,
+    eventReference: { kind: "event", eventId: "conference", ticketTypeId: "delegate" } };
+  await renderFixture(EditDialog, {
+    config: { type: "bundles", [mode]: { id: "bundle", name: "Conference", code: "CONF", sellingPriceMinor: 12500,
+      items: [{ productId: "stand", quantity: 2 }, ticket],
+      billingGroups: [{ id: "group", name: "On acceptance", productIds: ["stand", componentId], allocatedMinor: 12500,
+        timing: { kind: "acceptance", days: 0 }, paymentTerms: { id: "terms", name: "Fourteen days", days: 14 } }] } },
+    categories: [], products: [{ id: "stand", name: "Stand" }], events: {}, onClose() {},
+    onSave(data) { saved = data; },
+  }, async () => {
+    assert.match(document.body.textContent, /Ticket \/ event \/ conference \/ delegate/);
+    assert.doesNotMatch(document.body.textContent, /Unavailable product/);
+    const membership = document.querySelector('[aria-label="Billing group for product 2"]');
+    assert.ok(membership.value);
+    await submitForm();
+    const savedId = saved.items[1].componentId;
+    assert.equal(savedId === componentId, mode === "row");
+    assert.deepEqual(saved.billingGroups[0].productIds, ["stand", savedId]);
+    await act(async () => {
+      membership.value = "";
+      membership.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    saved = undefined;
+    await submitForm();
+    assert.equal(saved, undefined);
+    assert.match(document.body.textContent, /exactly one billing group/);
+    await act(async () => {
+      membership.value = document.querySelector('[aria-label="Billing group for product 1"]').value;
+      membership.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await submitForm();
+    assert.deepEqual(saved.billingGroups[0].productIds, ["stand", savedId]);
+  });
+});
+
 for (const mode of ["row", "copySource"]) test(`category-first bundle ${mode} preserves identity, order and strict payload`, async () => {
   const products = [{ id: "p1", categoryId: "c1", name: "Delegate ticket" },
     { id: "p2", categoryId: "c2", name: "Delegate ticket" }, { id: "p3", name: "Other" }];
@@ -58,20 +160,20 @@ for (const mode of ["row", "copySource"]) test(`category-first bundle ${mode} pr
     products, events: {}, onClose() {}, onSave(data) { saved = data; },
   }, async () => {
     const value = label => document.querySelector(`[aria-label="${label}"]`).value;
-    assert.equal(value("Included category 1"), "c1");
-    assert.equal(value("Included category 2"), "c2");
+    assert.equal(value("Included category 1"), "category:c1");
+    assert.equal(value("Included category 2"), "category:c2");
     assert.equal(value("Included category 3"), "uncategorised");
     assert.deepEqual([...document.querySelector('[aria-label="Included product 1"]').options].map(o => o.value), ["", "p1"]);
-    await select("Included category 1", "empty");
+    await select("Included category 1", "category:empty");
     assert.equal(value("Included product 1"), "");
     await submitForm();
     assert.equal(saved, undefined);
     await click("Move item 1 down");
-    assert.equal(value("Included category 2"), "empty");
-    await select("Included category 2", "c1");
+    assert.equal(value("Included category 2"), "category:empty");
+    await select("Included category 2", "category:c1");
     await select("Included product 2", "p1");
     await click("Remove item 1");
-    assert.equal(value("Included category 1"), "c1");
+    assert.equal(value("Included category 1"), "category:c1");
     assert.equal(value("Quantity 1"), "2");
     await select("Bundle category", "c2");
     await submitForm();
@@ -91,7 +193,7 @@ test("bundle loading and unavailable selections retain saved product IDs until e
     await act(async () => root.render(React.createElement(BundleItems, { ...props, loading: false,
       products: [{ id: "old", categoryId: "archived-category", name: "Old", isActive: false }],
       categories: [{ id: "archived-category", name: "Archive", isActive: false }] })));
-    assert.equal(document.querySelector('[aria-label="Included category 1"]').value, "archived-category");
+    assert.equal(document.querySelector('[aria-label="Included category 1"]').value, "category:archived-category");
     assert.match(document.querySelector('[aria-label="Included category 1"]').textContent, /Archive \(archived\)/);
     assert.equal(document.querySelector('[aria-label="Included product 2"]').value, "missing");
     assert.equal(items[0].productId, "old");

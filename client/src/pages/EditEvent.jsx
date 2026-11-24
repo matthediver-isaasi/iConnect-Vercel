@@ -1378,6 +1378,7 @@ export default function EditEvent() {
           const legacyPrice = config.ticket_price !== null && config.ticket_price !== undefined 
             ? Number(config.ticket_price) : null;
           const legacyTicket = {
+            ...hydrateTicketRelease(),
             id: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             name: isGroupLimited ? groupTicketTypeName : "Standard Ticket",
             price: legacyPrice !== null ? String(legacyPrice) : "",

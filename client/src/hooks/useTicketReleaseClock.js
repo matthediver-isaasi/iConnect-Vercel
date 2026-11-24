@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 // maximum timeout), and reconcile after sleep/backgrounding or clock changes.
 export function useTicketReleaseClock(tickets = []) {
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const scheduleKey = JSON.stringify(tickets.map(ticket => ticket?.release_at || null));
+  const scheduleKey = JSON.stringify(tickets.flatMap(ticket => [ticket?.release_at || null, ticket?.close_at || null]));
 
   useEffect(() => {
     let timer;

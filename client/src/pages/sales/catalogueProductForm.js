@@ -18,15 +18,36 @@ export function catalogueCopyForEditing(type, source, freshCode) {
   if (type === "bundles") {
     copy.copySourceId = source.id;
     Object.assign(copy, bundlePricesForEditing(source));
-    copy.items = (source.items || []).map(({ productId, quantity }) => ({ productId, quantity }));
+    const componentIds = new Map();
+    copy.items = (source.items || []).map(item => {
+      if (item.kind !== "ticket") return { productId: item.productId, quantity: item.quantity };
+      const componentId = crypto.randomUUID();
+      componentIds.set(item.componentId, componentId);
+      return { kind: "ticket", componentId, eventReference: structuredClone(item.eventReference), quantity: item.quantity };
+    });
     copy.billingGroups = (source.billingGroups || []).map((group, position) => ({
       id: crypto.randomUUID(), sourceGroupId: group.id, name: group.name, position,
-      productIds: [...group.productIds], allocatedMinor: group.allocatedMinor,
+      productIds: group.productIds.map(id => componentIds.get(id) || id), allocatedMinor: group.allocatedMinor,
       timing: structuredClone(group.timing), paymentTerms: structuredClone(group.paymentTerms),
       ...(group.issueDelayPreset ? { issueDelayPreset: structuredClone(group.issueDelayPreset) } : {}),
     }));
   }
   return copy;
+}
+
+export function bundleItemsForSaving(items = []) {
+  return items.map(item => {
+    const quantity = Number(item.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error("Use a positive whole quantity for every included item.");
+    if (item.kind === "ticket") {
+      const reference = item.eventReference || {};
+      if (!reference.kind || !reference.eventId || !reference.ticketTypeId) throw new Error("Choose an event and ticket type for every included ticket.");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.componentId || "")) throw new Error("Ticket identity is missing. Remove and add the ticket again.");
+      return { kind: "ticket", componentId: item.componentId, eventReference: { kind: reference.kind, eventId: reference.eventId, ticketTypeId: reference.ticketTypeId }, quantity };
+    }
+    if (!item.productId) throw new Error("Choose a product for every included item, or remove the empty row.");
+    return { productId: item.productId, quantity };
+  });
 }
 
 export function selectableCopyTaxId(source, items) {

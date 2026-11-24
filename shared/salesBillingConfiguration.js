@@ -54,7 +54,7 @@ export function bundleBillingGroupErrors(groups, items, sellingPriceMinor) {
       || group.timing?.kind !== 'acceptance' || group.issueDelayPreset.days !== group.timing.days)) errors.push('Issue-delay selection must match invoice timing');
   });
   if (Array.isArray(items)) {
-    const products = new Set(items.map(item => item.productId));
+    const products = new Set(items.map(item => item.productId || item.componentId));
     if (products.size !== membership.size || [...products].some(id => !membership.has(id))) errors.push('Assign every bundle product to exactly one billing group');
   }
   if (Number.isSafeInteger(sellingPriceMinor) && total !== BigInt(sellingPriceMinor)) errors.push('Group allocations must equal the bundle selling price exactly');

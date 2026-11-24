@@ -10,6 +10,7 @@ import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js
 import { registrationGroupMatches } from '../../shared/eventRegistrationSearch.mjs';
 import { addUnifiedBookingReportStatus } from '../_lib/unifiedBookingReport.js';
 import { addFunnelInvoiceReportStatus } from '../_lib/eventFunnelInvoiceReaders.js';
+import { salesEventReservations } from '../_lib/salesEventReservations.js';
 
 // Never log provider messages/details: they can contain query values or HTML.
 export function reportQueryFailure(stage, error) {
@@ -1157,6 +1158,7 @@ export default async function handler(req, res, publicPoOnly = false) {
       bookingGroups,
       organizations,
       commercialAllocations,
+      commercialReservations: publicPoOnly ? [] : await salesEventReservations(supabase, tenantId, commercialAllocations),
       summary,
       hasZoomForSelectedEvents,
       hasAttendanceForSelectedEvents,

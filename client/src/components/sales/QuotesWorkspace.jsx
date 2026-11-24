@@ -237,6 +237,18 @@ function lineTotals(line) {
   }
 }
 
+export function ticketLineError(line) {
+  if (line.type !== "ticket" && !(line.type === "product" && line.eventReference)) return "";
+  const reference = line.eventReference;
+  if (!reference?.eventId || !reference?.ticketTypeId || !["simple", "complex"].includes(reference.kind)) {
+    return "Choose a ticket event and ticket type.";
+  }
+  if (!Number.isSafeInteger(Number(line.quantity)) || Number(line.quantity) < 1) {
+    return "Ticket quantity must be a positive whole number.";
+  }
+  return "";
+}
+
 export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride, exhibitionDisabled = true, onExhibitionSelect, onDeleteHeldLine }) {
   const { singular } = useQuoteNaming();
   const taxOptions = useCatalogueTaxOptions(!readOnly);
@@ -249,15 +261,15 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
     patch(index, { [`${type}Id`]: id, eventReference: type === "product" ? source?.eventReference || null : undefined, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined, ...(type === "product" ? { taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 0), taxCode: source?.taxCode || null, legacyTax: false, taxChanged: false } : {}) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
-  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
+  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles, tickets or a custom line. Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("ticket")}><Plus className="mr-1 h-3.5 w-3.5" />Ticket</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
     {!form.lines.length ? <p className="rounded-lg border border-dashed py-10 text-center text-sm text-slate-500">No lines yet.</p> : <div className="space-y-3">{form.lines.map((line, index) => {
       const totals = readOnly ? persistedLineAmounts(line) : lineTotals(line);
       return <div key={line.key} className="min-w-0 rounded-xl border bg-slate-50/50 p-3">
-        {line.type === "product" && <QuoteLineTicketSelect line={line} disabled={readOnly} request={request} onChange={eventReference => patch(index, { eventReference })} />}
+        {(line.type === "product" || line.type === "ticket") && <QuoteLineTicketSelect line={line} disabled={readOnly} request={request} onChange={eventReference => patch(index, { eventReference })} />}
         <div className="grid gap-3 [&>div]:min-w-0" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))" }}>
           <div><Label>Description / item</Label>{line.type === "product" || line.type === "bundle" ? <Select disabled={readOnly} value={String(line[`${line.type}Id`] || "")} onValueChange={(id) => choose(index, line.type, id)}><SelectTrigger className="bg-white"><SelectValue placeholder={`Choose ${line.type}`} /></SelectTrigger><SelectContent>{(line.type === "product" ? products : bundles).map((item) => <SelectItem key={idOf(item)} value={String(idOf(item))}>{nameOf(item)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={line.description} onChange={(e) => patch(index, { description: e.target.value })} placeholder="Description" />}</div>
-          <div><Label>Quantity</Label><Input disabled={readOnly} type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => patch(index, { quantity: e.target.value })} /></div>
-          <div><Label>Standard unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || line.type !== "free_text"} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
+          <div><Label>Quantity</Label><Input disabled={readOnly} type="number" min={line.type === "ticket" || line.eventReference ? "1" : "0"} step={line.type === "ticket" || line.eventReference ? "1" : "0.01"} value={line.quantity} onChange={(e) => patch(index, { quantity: e.target.value })} /></div>
+          <div><Label>Standard unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || !["free_text", "ticket"].includes(line.type)} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
           <div><Label>Quoted unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} quoted price`} disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="text" inputMode="decimal" value={quotePriceText(line, "quotedUnitPriceMinor")} onChange={(e) => patch(index, { quotedUnitPriceMinorInput: e.target.value })} /></div>
           <div><Label>Discount %</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to apply discounts" : ""} type="number" min="0" max="100" step=".01" value={Number(line.discountBps || 0) / 100} onChange={(e) => patch(index, { discountBps: Math.round(Number(e.target.value) * 100) })} /></div>
           <div><Label>Tax/VAT %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
@@ -270,7 +282,8 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
         </div>
         {lineRequiresExhibition(line, products, bundles) && <QuoteExhibitionSpaces line={line} quoteId={form.id} eventId={form.eventId} readOnly={readOnly} disabled={exhibitionDisabled} onSelect={(slotKey, spaceId) => onExhibitionSelect?.(line.key, slotKey, spaceId)} />}
         {quotePriceError(line) && <p role="alert" className="mt-2 text-sm text-rose-700">{quotePriceError(line)}</p>}
-        {line.type !== "free_text" && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
+        {ticketLineError(line) && !readOnly && <p role="alert" className="mt-2 text-sm text-rose-700">{ticketLineError(line)}</p>}
+        {(line.type === "product" || line.type === "bundle") && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
         <div className="mt-3">
           <Label>Provider VAT code</Label>
           {line.type === "product" || readOnly ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the selected product’s provider code automatically."}</p> : <>
@@ -398,7 +411,7 @@ function QuoteEditor() {
   const contactsError = !savedContacts.length && opportunity.isError;
   const opportunityName = opportunity.data?.name || nameOf(quote.opportunity || quote.opportunity_snapshot) || quote.opportunity_name || "";
   const totals = useMemo(() => readOnly ? persistedQuoteAmounts(form) : form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form, readOnly]);
-  const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line)));
+  const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line) || ticketLineError(line)));
   const [schedulePreview, setSchedulePreview] = useState(null);
   // Parameter overrides let an inventory command persist the entire draft
   // atomically, without first replacing the currently displayed server state.
@@ -412,7 +425,11 @@ function QuoteEditor() {
     scheduledBilling: Boolean(form.scheduledBilling), remainderPaymentTermsId: form.scheduledBilling ? form.remainderPaymentTermsId || null : null,
     billingMode: form.billingMode || "groups",
     percentageInstalments: form.scheduledBilling && form.billingMode === "percentage" ? percentageInstalmentsForSaving(form.percentageInstalments) : [],
-    lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), ...exhibitionSelectionPayload(line), ...(line.type === "product" ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
+    lines: form.lines.map((line) => {
+      const error = ticketLineError(line);
+      if (error) throw new Error(error);
+      return { ...quoteLineIdentityForSaving(line), ...exhibitionSelectionPayload(line), ...(["product", "ticket"].includes(line.type) ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(["free_text", "ticket"].includes(line.type) ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) };
+    }),
     expectedVersion: quote.rowVersion,
   });
   const preview = useMutation({

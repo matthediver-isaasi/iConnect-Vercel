@@ -30,7 +30,12 @@ async function loadHandler(kind) {
       exports.push(`export default function(...args) { return globalThis.${slot}.dependency(${JSON.stringify(names.trim())}, args); }`);
     }
     if (specifier.endsWith('/session.js') && !/\bgetSession\b/.test(names)) exports.push(`export function getSession(...args) { return globalThis.${slot}.dependency('getSession', args); }`);
-    replacements.set(specifier, exports.join('\n'));
+    const previous = replacements.get(specifier) || '';
+    replacements.set(specifier, previous + '\n' + exports.filter(source => {
+      const name = source.match(/export (?:function|const) (\w+)/)?.[1];
+      return name ? !new RegExp(`export (?:function|const) ${name}\\b`).test(previous)
+        : !previous.includes('export default');
+    }).join('\n'));
   }
   const result = await build({
     entryPoints: [path], bundle: true, write: false, platform: 'node', format: 'esm',
@@ -59,13 +64,14 @@ async function loadHandler(kind) {
 
 const email = 'person@example.test';
 const attendee = { email, first_name: 'Test', last_name: 'Person' };
-function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, completed = false,
+function fixture({ release = '2099-01-01T12:00:00Z', close = null, noTickets = false, completed = false,
   allocation = false, ticketReadError = false, intentStatus = 'succeeded', bound = true,
   scheduledFree = false, soleTicket = false, otherScheduled = false, missingPaymentEmail = false, privateAudience = false, authenticated = false, selected = true } = {}) {
   const tickets = noTickets ? [] : [
     { id: 'open', name: 'Open', price: 10, visibility_mode: 'members_and_public' },
     { id: 'scheduled', name: 'Scheduled', price: scheduledFree ? 0 : 10, is_free: scheduledFree, visibility_mode: 'members_and_public',
-      release_at: release, release_timezone: release ? 'Europe/London' : null },
+      release_at: release, release_timezone: release ? 'Europe/London' : null,
+      close_at: close, close_timezone: close ? 'UTC' : null },
   ];
   if (soleTicket) tickets.splice(0, 1);
   if (privateAudience) Object.assign(tickets.find(t => t.id === 'scheduled'), {
@@ -80,6 +86,7 @@ function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, complete
     booking: completed ? [{ id: 'booked', tenant_id: 'tenant', event_id: 'event', stripe_payment_intent_id: 'pi_paid', booking_reference: 'BK1', status: 'confirmed' }] : [],
     complex_event_booking: completed ? [{ id: 'booked', tenant_id: 'tenant', event_id: 'event', stripe_payment_intent_id: 'pi_paid' }] : [],
     member: [{ id: authenticated ? '12345678-1234-1234-1234-123456789012' : 'member', tenant_id: 'tenant', email }], organization: [],
+    program_registration_attempt: [],
   };
   const effects = [], unexpected = [];
   const paymentIntent = {
@@ -123,13 +130,22 @@ function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, complete
   };
   return {
     rows, db, effects, unexpected, event, tickets,
-    dependency(name) {
+    dependency(name, args = []) {
       if (name === 'createClient') return db;
       if (name === 'resolveTenantFromRequest') return { id: 'tenant' };
       if (name === 'getTenantContext') return { tenantId: 'tenant' };
       if (name === 'getSessionMember') return authenticated ? rows.member[0] : null;
       if (name === 'getSession') return authenticated ? { data: { memberId: rows.member[0].id } } : null;
       if (name === 'loadEventPaymentPolicy') return {};
+      if (name === 'assertEventCodeOfConduct') return null;
+      if (name === 'createsGuestAccounts') return false;
+      if (name === 'runBookingCreditAttempt') return args[0].work();
+      if (name === 'hasRegistrationAssociation') return false;
+      if (name === 'prepareEventInvoiceAddressPolicy') return null;
+      if (name === 'createFunnelGuardedLegacyIntent') return args[0].stripe.paymentIntents.create(args[0].parameters);
+      if (name === 'quoteProgramPurchase') return { remainingMinor:1000,binding:'fixture',memberId:'member',programId:'program' };
+      if (name === 'programRegistrationFingerprint') return 'fixture-program-fingerprint';
+      if (name === 'recoverEventRegistrationConsent') return null;
       if (name === 'assertEventPaymentMethodsAllowed') return;
       if (name === 'enforceAttendeeJobTitles' || name === 'checkBookingAttendeeJobTitles') return null;
       if (name === 'needsPublicTicketMemberCreation') return false;
@@ -154,7 +170,7 @@ function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, complete
   };
 }
 async function invoke(kind, options = {}, override = {}) {
-  const state = fixture(options);
+  const state = fixture({ ...options, ...(kind === 'simple-program' && !options.privateAudience ? { authenticated:true } : {}) });
   globalThis[slot] = state;
   globalThis.fetch = state.fetch;
   process.env.SUPABASE_URL = 'https://fixture.invalid';
@@ -164,6 +180,7 @@ async function invoke(kind, options = {}, override = {}) {
     ? { amount: 10, metadata: { event_id: 'event', ticket_class_id: 'scheduled' } }
     : kind === 'simple-booking' || kind === 'simple-program'
       ? { eventId: 'event', ticketsRequired: 1, totalCost: 10, ticketClassId: 'scheduled',
+          registrationAttemptId:'11111111-1111-4111-8111-111111111111',
           paymentMethod: 'free', isGuestBooking: true, guestInfo: attendee, attendees: [attendee], memberEmail: email }
       : kind === 'complex-intent'
         ? { event_id: 'event', ticket_class_id: 'scheduled' }
@@ -179,12 +196,18 @@ async function invoke(kind, options = {}, override = {}) {
 }
 const kinds = ['simple-intent', 'complex-intent', 'simple-booking', 'complex-booking', 'simple-program'];
 for (const kind of kinds) {
+  test(`${kind}: stale requests cannot purchase closed tickets`, async () => {
+    const result = await invoke(kind,{release:null,close:'2000-01-01T00:00:00Z'});
+    assert.match(result.res.body.error,/closed/i);
+    assert.deepEqual(result.effects,[]);
+    assert.deepEqual(result.unexpected,[]);
+  });
   test(`${kind}: private ticket rejects guest before financial effects despite forged identity`, async () => {
     const result = await invoke(kind, { privateAudience: true, release: null }, {
       memberId: '12345678-1234-1234-1234-123456789012', private_ticket_eligible: true,
       allocationContext: { tenantId: 'tenant', eventId: 'event', ticketTypeId: 'scheduled' },
     });
-    assert.match(result.res.body.error, /access to this ticket/);
+    assert.match(result.res.body.error, /access to this ticket|Sign in to use programme tickets/);
     assert.deepEqual(result.effects, []);
   });
 }
@@ -326,7 +349,7 @@ test('simple event payment cannot omit the event identifier', async () => {
   assert.deepEqual(result.effects, []);
 });
 test('non-event program payment remains valid', async () => {
-  const result = await invoke('simple-intent', {}, { metadata: { program_name: 'program' } });
+  const result = await invoke('simple-intent', {}, { purchaseRequestId:'isolated-program-request', metadata: { program_name: 'program' } });
   assert.equal(result.res.body.success, true);
 });
 test('forged donation flag does not bypass a scheduled ticket', async () => {

@@ -66,7 +66,7 @@ import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
-import { isTicketReleased } from "../../../shared/ticketRelease.js";
+import { isTicketReleased, isTicketClosed } from "../../../shared/ticketRelease.js";
 
 // Training agenda grouped by day with the same collapse behaviour/styling as
 // the complex-event schedule (ComplexEventSchedule.jsx ScheduleGrid): chevron +
@@ -873,6 +873,8 @@ export function EventDetailsExperience({
           price: Number(tc.price) || 0,
           release_at: tc.release_at ?? null,
           release_timezone: tc.release_timezone ?? null,
+          close_at: tc.close_at ?? null,
+          close_timezone: tc.close_timezone ?? null,
           role_ids: Array.isArray(tc.role_ids) ? tc.role_ids : [],
           member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
           is_default: Boolean(tc.is_default),
@@ -955,7 +957,7 @@ export function EventDetailsExperience({
   // - Members & Public: Same as Members Only + visible to non-logged-in visitors
   // - Public Only: ONLY visible/purchasable by non-logged-in visitors
   const isTicketPurchasable = (ticket) => {
-    if (!ticket) return false;
+    if (!ticket || isTicketClosed(ticket, releaseNowMs)) return false;
     if (allocationMode && String(ticket.id) === allocationContext.ticketTypeId) return true;
     if (ticket.organization_type_enabled && (!currentMemberInfo || ticket.organization_type_eligible !== true)) return false;
     if (!waitingListEnabled && !isTicketReleased(ticket, releaseNowMs)) return false;
@@ -1013,13 +1015,14 @@ export function EventDetailsExperience({
   // For logged-in users: tickets they have access to based on visibility and role
   const availableTicketClasses = useMemo(() => {
     if (!isOneOffEvent || !pricingConfig) return [];
+    const openTickets = allNormalizedTickets.filter(ticket => !isTicketClosed(ticket, releaseNowMs));
     if (allocationMode) {
-      return allNormalizedTickets.filter((ticket) => String(ticket.id) === allocationContext.ticketTypeId);
+      return openTickets.filter((ticket) => String(ticket.id) === allocationContext.ticketTypeId);
     }
     
     // For logged-in members, filter based on visibility_mode and role_match_only
     if (currentMemberInfo) {
-      return allNormalizedTickets.filter(tc => {
+      return openTickets.filter(tc => {
         // Public-only tickets are NOT visible to logged-in members
         if (tc.visibility_mode === 'public_only') return false;
 
@@ -1041,11 +1044,11 @@ export function EventDetailsExperience({
     
     // For non-logged-in users: if admin enabled allowGuestsToViewAllTickets, show ALL tickets
     if (allowGuestsToViewAllTickets) {
-      return allNormalizedTickets;
+      return openTickets;
     }
     
     // Otherwise only show tickets that include public visibility
-    return allNormalizedTickets.filter(tc => {
+    return openTickets.filter(tc => {
       if (tc.organization_type_enabled) return false;
       if (tc.visibility_mode !== 'members_and_public' && tc.visibility_mode !== 'public_only') {
         return false;
@@ -1059,7 +1062,7 @@ export function EventDetailsExperience({
       }
       return true;
     });
-  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets, allocationMode, allocationContext?.ticketTypeId]);
+  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets, allocationMode, allocationContext?.ticketTypeId, releaseNowMs]);
   
   // Auto-select first available PURCHASABLE ticket class
   // Also reset selection if currently selected ticket becomes non-purchasable

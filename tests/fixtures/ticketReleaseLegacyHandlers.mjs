@@ -115,11 +115,21 @@ export function createLegacySimpleHarness({ event: eventInput = {}, sessionMembe
   } };
   const state = {
     rows, calls, unexpected, paymentIntents, db,
-    dependency(name) {
+    dependency(name, args = []) {
       calls.push({ dependency: name });
       if (name === 'createClient') return db;
       if (name === 'resolveTenantFromRequest') return { id: event.tenant_id };
       if (name === 'getTenantContext') return { tenantId: event.tenant_id };
+      if (name === 'assertEventCodeOfConduct' || name === 'prepareEventInvoiceAddressPolicy'
+        || name === 'recoverEventRegistrationConsent' || name === 'optionalEventRegistrationConsent'
+        || name === 'finalizeBookingCredit') return null;
+      if (name === 'scheduleEventFollowUps') return { error:null };
+      if (name === 'runBookingCreditAttempt') return args[0].work();
+      if (name === 'hasRegistrationAssociation' || name === 'createsGuestAccounts') return false;
+      if (name === 'createFunnelGuardedLegacyIntent') return args[0].stripe.paymentIntents.create(args[0].parameters);
+      if (name === 'loadEventPaymentPolicy') return {};
+      if (name === 'assertEventPaymentMethodsAllowed') return;
+      if (name === 'bookingCreditInvoiceInput') return args[1];
       if (name === 'getSessionMember') return sessionMember;
       if (name === 'needsPublicTicketMemberCreation') return false;
       if (name === 'loadPublicTicketPurchase') return null;

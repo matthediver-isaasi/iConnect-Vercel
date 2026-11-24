@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { listQuoteEventOptions } from '../../_lib/salesQuoteEventOptions.js';
+import { listSalesTicketEventOptions } from '../../_lib/salesTicketEventOptions.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
   SALES_CAPABILITIES, validateCatalogueBundle, validateCatalogueCategory,
@@ -37,9 +38,13 @@ export function createSalesCatalogueHandler(dependencies = {}) {
         dependencies,
       );
       if (isEventOptions) {
+        res.setHeader('Cache-Control', 'private, no-store');
         if (req.method !== 'GET') {
           res.setHeader('Allow', 'GET');
           return res.status(405).json({ error: 'Method not allowed' });
+        }
+        if (req.query?.ticketEvents === 'true') {
+          return res.status(200).json(await listSalesTicketEventOptions(db, actor.tenantId, req.query));
         }
         if (req.query?.quoteEvents === 'true') {
           return res.status(200).json(await listQuoteEventOptions(db, actor.tenantId, req.query));

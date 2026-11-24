@@ -62,7 +62,7 @@ import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { allocationCartUnitPrice, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
-import { isTicketReleased, ticketReleaseMessage } from "../../../shared/ticketRelease.js";
+import { isTicketReleased, isTicketClosed, ticketReleaseMessage } from "../../../shared/ticketRelease.js";
 
 
 function TrackAccessIndicator({ ticket, tracks }) {
@@ -594,6 +594,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const releaseNowMs = useTicketReleaseClock(ticketClasses);
   const isReleaseBlocked = useCallback((ticket) => {
+    if (isTicketClosed(ticket, releaseNowMs)) return true;
     if (waitingListEnabled) return false;
     if (allocationContext?.ticketTypeId && String(ticket?.id) === String(allocationContext.ticketTypeId)) return false;
     return !isTicketReleased(ticket, releaseNowMs);
@@ -650,6 +651,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const availableTicketClasses = useMemo(() => {
     return ticketClasses.filter(tc => {
+      if (isTicketClosed(tc, releaseNowMs)) return false;
       if (allocationContext?.ticketTypeId
         && String(tc.id) === String(allocationContext.ticketTypeId)
         && (tc.audience_mode !== 'selected_members' || tc.allocation_ticket_eligible === true)) return true;
@@ -671,7 +673,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const groupMatches = (memberGroupIds || []).some(g => ticketGroupIds.includes(g));
       return roleMatches || groupMatches;
     });
-  }, [ticketClasses, isGuest, userRoleId, memberGroupIds, allocationContext?.ticketTypeId]);
+  }, [ticketClasses, isGuest, userRoleId, memberGroupIds, allocationContext?.ticketTypeId, releaseNowMs]);
 
   const isTicketRestricted = (tc) => {
     if (tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext?.ticketTypeId)) return false;
@@ -1534,6 +1536,7 @@ export function ComplexEventDetailExperience({
     };
 
     const visibleTickets = allTickets.filter(tc => {
+      if (isTicketClosed(tc)) return false;
       if (tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext?.ticketTypeId)) return true;
       if (tc.audience_mode === 'selected_members') return !isGuest && tc.private_ticket_eligible === true;
       if (tc.organization_type_enabled && (isGuest || tc.organization_type_eligible !== true)) return false;

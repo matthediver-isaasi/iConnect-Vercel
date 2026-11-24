@@ -257,18 +257,23 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
     if (line.exhibitionSelections !== undefined && (!Array.isArray(line.exhibitionSelections) || line.exhibitionSelections.length > 1000 || line.exhibitionSelections.some(p => !p || typeof p.slotKey !== 'string' || p.slotKey.length > 300 || !UUID_RE.test(p.spaceId || '')))) errors.push('Invalid exhibition selections');
     if (line.eventReference != null) {
       const ref = line.eventReference;
-      if (line.kind !== 'product' || !['simple', 'complex'].includes(ref.kind)
+      if (!['product', 'ticket'].includes(line.kind) || !['simple', 'complex'].includes(ref.kind)
         || !UUID_RE.test(ref.eventId || '') || typeof ref.ticketTypeId !== 'string' || !ref.ticketTypeId.trim()
         || (ref.kind === 'complex' && !UUID_RE.test(ref.ticketTypeId))
         || Object.keys(ref).some(key => !['kind', 'eventId', 'ticketTypeId'].includes(key))) {
-        errors.push(`lines[${index}].eventReference must identify an event and ticket type on a product line`);
+        errors.push(`lines[${index}].eventReference must identify an event and ticket type on a product or ticket line`);
       }
     }
     if (line.id != null && !UUID_RE.test(line.id)) errors.push(`lines[${index}].id is invalid`);
     for (const key of Object.keys(line)) if (!lineAllowed.has(key)) errors.push(`Unknown lines[${index}] field: ${key}`);
-    if (!['product', 'bundle', 'free_text'].includes(line.kind) || (line.kind !== 'free_text' && !UUID_RE.test(line.catalogueId || '')) || (line.kind === 'free_text' && line.catalogueId != null)) errors.push(`lines[${index}] must identify a product, bundle, or free_text item`);
+    if (!['product', 'bundle', 'ticket', 'free_text'].includes(line.kind)
+      || (['product', 'bundle'].includes(line.kind) && !UUID_RE.test(line.catalogueId || ''))
+      || (['free_text', 'ticket'].includes(line.kind) && line.catalogueId != null)) errors.push(`lines[${index}] must identify a product, bundle, ticket, or free_text item`);
+    if (line.kind === 'ticket' && (!line.eventReference || !Number.isSafeInteger(Number(line.quantity)) || Number(line.quantity) < 1)) {
+      errors.push(`lines[${index}] requires an event, ticket type and positive whole ticket quantity`);
+    }
     try { parseQuoteQuantity(line.quantity); } catch (error) { errors.push(`lines[${index}].quantity: ${error.message}`); }
-    for (const price of ['standardUnitPriceMinor', 'quotedUnitPriceMinor']) if ((line.kind === 'free_text' || price in line) && (!isMinorUnitAmount(line[price]) || line[price] < 0)) errors.push(`lines[${index}].${price} must be a non-negative safe integer`);
+    for (const price of ['standardUnitPriceMinor', 'quotedUnitPriceMinor']) if ((['free_text', 'ticket'].includes(line.kind) || price in line) && (!isMinorUnitAmount(line[price]) || line[price] < 0)) errors.push(`lines[${index}].${price} must be a non-negative safe integer`);
     if ('discountBps' in line && (!Number.isInteger(line.discountBps) || line.discountBps < 0 || line.discountBps > 10000)) errors.push(`lines[${index}].discountBps is invalid`);
     if ('taxRateBps' in line && (!Number.isInteger(line.taxRateBps) || line.taxRateBps < 0 || line.taxRateBps > 100000)) errors.push(`lines[${index}].taxRateBps is invalid`);
     optionalText(errors, line.description, `lines[${index}].description`, 20000);
@@ -519,6 +524,21 @@ export function validateCatalogueBundle(value, { patch = false } = {}) {
   if (Array.isArray(value.items)) {
     const ids = new Set();
     value.items.forEach((item, index) => {
+      if (item?.kind === 'ticket') {
+        const ref = item.eventReference;
+        if (!UUID_RE.test(item.componentId || '') || item.productId != null
+          || !ref || !SALES_EVENT_REFERENCE_KINDS.includes(ref.kind) || !UUID_RE.test(ref.eventId || '')
+          || typeof ref.ticketTypeId !== 'string' || !ref.ticketTypeId.trim()
+          || (ref.kind === 'complex' && !UUID_RE.test(ref.ticketTypeId))
+          || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 100000) {
+          errors.push(`items[${index}] requires a ticket component identity, event, ticket type and positive whole quantity`);
+        }
+        const key = `ticket:${ref?.kind}:${ref?.eventId}:${ref?.ticketTypeId}`;
+        if (ids.has(key) || ids.has(item.componentId)) errors.push(`items[${index}] duplicates a ticket component`);
+        ids.add(key); ids.add(item.componentId);
+        return;
+      }
+      if (item?.kind != null && item.kind !== 'product') errors.push(`items[${index}] has an unknown component kind`);
       if (!isObject(item) || !UUID_RE.test(item.productId || '') || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 100000) errors.push(`items[${index}] must contain a productId UUID and positive integer quantity`);
       else if (ids.has(item.productId)) errors.push(`items[${index}] duplicates productId`);
       else ids.add(item.productId);
