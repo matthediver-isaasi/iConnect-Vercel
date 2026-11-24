@@ -98,7 +98,15 @@ test('waiting list storage: isolation, idempotency, atomicity, withdrawal and bo
     // Existing member paths still register and withdraw after the migration.
     const finalId=sql(create(event,'simple','40000000-0000-4000-8000-000000000006'));
     const finalEntry=sql(`SELECT id FROM event_waiting_entry WHERE registration_id='${finalId}' AND member_id='${member}';`);
+    const unrelatedId=sql(create(event,'simple','40000000-0000-4000-8000-000000000007','hash',[
+      {first_name:'Separate',last_name:'Attendee',email:'separate@example.invalid',ticket_name:'Standard',advertised_price:120,currency:'gbp'},
+    ]));
+    const finalColleague=sql(`SELECT id FROM event_waiting_entry WHERE registration_id='${finalId}' AND member_id='${colleague}';`);
+    sql(`SELECT withdraw_event_waiting_entry('${other}','${member}','${finalEntry}','registration');`,false);
+    sql(`SELECT withdraw_event_waiting_entry('${tenant}','${colleague}','${finalColleague}','registration');`,false);
+    sql(`SELECT withdraw_event_waiting_entry('${tenant}','${colleague}','${finalEntry}','attendee');`,false);
     assert.equal(sql(`SELECT withdraw_event_waiting_entry('${tenant}','${member}','${finalEntry}','registration');`),'2');
+    assert.equal(sql(`SELECT count(*) FROM event_waiting_entry WHERE registration_id='${unrelatedId}' AND status='active';`),'1','same-event separate registration remains active');
     // Read-only admin listing includes guests; ordinary member filters do not.
     assert.equal(sql(`SELECT count(*) FROM event_waiting_entry WHERE id='${guestEntry}' AND status='active';`),'1');
     assert.equal(sql(`SELECT count(*) FROM event_waiting_entry WHERE id='${guestEntry}' AND (booker_member_id='${member}' OR member_id='${member}');`),'0');

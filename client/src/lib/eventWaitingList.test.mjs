@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { waitingListAttendee, resolveWaitingListAttempt, withdrawWaitingListEntries } from './eventWaitingList.mjs';
+import { waitingListAttendee, resolveWaitingListAttempt, withdrawWaitingListEntries, waitingListGroupCount } from './eventWaitingList.mjs';
 import { resolveEventCtaLabel } from './eventCtaLabel.js';
 
 test('waiting attendee payload retains preferences and omits all client pricing/payment fields', () => {
@@ -37,6 +37,24 @@ test('attendee withdrawal preserves colleagues; explicit registration withdrawal
 });
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+test('group eligibility requires active colleagues in the exact owned registration', () => {
+  const member = { id: 'me', tenant_id: 'tenant' };
+  const self = { id: 'a', registration_id: 'r1', tenant_id: 'tenant', booker_member_id: 'me', member_id: 'me', status: 'active', can_manage_registration: true };
+  const colleague = { ...self, id: 'b', member_id: 'colleague' };
+  assert.equal(waitingListGroupCount([self], self, member), 0);
+  assert.equal(waitingListGroupCount([self, colleague], self, member), 2);
+  for (const change of [{ registration_id: 'r2' }, { status: 'withdrawn' }, { tenant_id: 'other' }, { booker_member_id: 'other' }, { member_id: 'me' }]) {
+    assert.equal(waitingListGroupCount([self, { ...colleague, ...change }], self, member), 0);
+  }
+  assert.equal(waitingListGroupCount([self, colleague], { ...self, can_manage_registration: false }, member), 0);
+  assert.equal(waitingListGroupCount([self, colleague], colleague, { ...member, id: 'colleague' }), 0);
+  assert.equal(waitingListGroupCount([colleague], self, member), 0);
+  assert.equal(waitingListGroupCount([self, colleague], self, null), 0);
+  const external = { ...colleague, member_id: null };
+  assert.equal(waitingListGroupCount([self, external], self, member), 2);
+  assert.equal(waitingListGroupCount([colleague, { ...external, id: 'c' }], colleague, member), 2);
+});
+
 test('waiting mode branches before payment hooks mount, and uses only the waiting endpoint', () => {
   const payment = source('../components/booking/PaymentOptions.jsx');
   const checkout = source('../components/booking/WaitingListCheckout.jsx');
@@ -75,7 +93,7 @@ test('capacity bypass is scoped to waiting mode and ticket availability checks r
 
 test('waiting list ignores ticket release schedules without weakening normal booking gates', () => {
   assert.match(source('../pages/EventDetails.jsx'), /if \(!waitingListEnabled && !isTicketReleased\(ticket, releaseNowMs\)\) return false/);
-  assert.match(source('../pages/ComplexEventDetail.jsx'), /isReleaseBlocked = useCallback\(\(ticket\) => {\s*if \(waitingListEnabled\) return false/);
+  assert.match(source('../pages/ComplexEventDetail.jsx'), /isReleaseBlocked = useCallback\(\(ticket\) => {\s*if \(isTicketClosed\(ticket, releaseNowMs\)\) return true;\s*if \(waitingListEnabled\) return false/);
 });
 
 test('campaign editor supports direct waiting-list audience for save and previews with the shared event picker', () => {
@@ -95,7 +113,8 @@ test('waiting-list cards advertise interest even when normal capacity is exhaust
 test('waiting cards retain internal complex detail navigation instead of external overrides', () => {
   const card = source('../components/events/EventCard.jsx');
   assert.match(card, /event\.waiting_list_enabled !== true && event\.cta_override_url/);
-  assert.match(card, /window\.location\.href = event\.is_complex[\s\S]*?session-events/);
+  assert.match(card, /const destination = event\.waiting_list_enabled !== true[\s\S]*?: event\.is_complex[\s\S]*?session-events/);
+  assert.match(card, /window\.location\.href = destination/);
 });
 
 test('detail distinguishes slug and ID service errors and retries the failed lookup', () => {

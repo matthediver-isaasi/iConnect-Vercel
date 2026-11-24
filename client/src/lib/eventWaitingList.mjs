@@ -22,6 +22,20 @@ export function resolveWaitingListAttempt(previous, payload, createId) {
   return previous?.fingerprint === fingerprint ? previous : { fingerprint, key: createId() };
 }
 
+// Ownership alone is not enough to offer a group action. Use the complete
+// active member feed, never an event-level count or the dialog's old snapshot.
+export function waitingListGroupCount(entries, entry, member) {
+  if (!member?.id || !member.tenant_id || !entry?.registration_id ||
+      entry.can_manage_registration !== true || entry.booker_member_id !== member.id ||
+      entry.tenant_id !== member.tenant_id) return 0;
+  const active = entries.filter(row => row.status === 'active' &&
+    row.registration_id === entry.registration_id && row.tenant_id === member.tenant_id &&
+    row.booker_member_id === member.id);
+  if (!active.some(row => row.id === entry.id) || active.length < 2 ||
+      !active.some(row => row.member_id !== member.id)) return 0;
+  return active.length;
+}
+
 export function withdrawWaitingListEntries(entries, target) {
   return entries.filter(entry => target.scope === 'registration'
     ? entry.registration_id !== target.entry.registration_id
