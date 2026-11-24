@@ -4,8 +4,8 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight,
-  Download, Eye, GitCompare, History, Loader2, PackagePlus,
-  Plus, RefreshCw, Search, Send, Trash2,
+  Archive, Download, Eye, GitCompare, History, Loader2, PackagePlus,
+  Plus, RefreshCw, Search, Send, Trash2, RotateCcw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,29 +192,83 @@ function statusBadge(status) {
 export function QuotesList({ opportunityId = "" }) {
   const naming = useQuoteNaming();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
+  const [lifecycleError, setLifecycleError] = useState("");
+  const submitting = useMemo(() => new Set(), []);
   const query = useQuery({
-    queryKey: ["sales-quotes", search, status, page, opportunityId],
+    queryKey: ["sales-quotes", search, status, page, opportunityId, archived],
     queryFn: () => {
       const params = new URLSearchParams({ search, page: String(page), limit: "20" });
       if (opportunityId) params.set("opportunityId", opportunityId);
       if (status !== "all") params.set("status", status);
+      params.set("archived", String(archived));
       return request(`/api/sales/quotes?${params}`);
     },
   });
+  const lifecycle = useMutation({
+    mutationFn: ({ row, action }) => request(`/api/sales/quotes/${encodeURIComponent(idOf(row))}${action === "delete" ? "" : `?action=${action}`}`, {
+      method: action === "delete" ? "DELETE" : "POST",
+      body: JSON.stringify({ expectedVersion: row.row_version ?? row.rowVersion, ...(action === "delete" ? { confirmDelete: true } : {}) }),
+    }),
+    onSuccess: async (_result, { row, action }) => {
+      setLifecycleError("");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["sales-quotes"] }),
+        qc.invalidateQueries({ queryKey: ["opportunity"] }),
+        qc.invalidateQueries({ queryKey: ["opportunities"] }),
+        qc.invalidateQueries({ queryKey: ["sales-reports"] }),
+      ]);
+      qc.removeQueries({ queryKey: ["sales-quote", idOf(row)] });
+      if (action === "delete") setPage(1);
+    },
+    onError: async (error, variables) => {
+      const blockers = error?.payload?.blockers;
+      const blockerText = Array.isArray(blockers) ? blockers.map((item) => typeof item === "string" ? item : item?.message || item?.reason).filter(Boolean).join(" ") : "";
+      setLifecycleError([error?.payload?.message || error?.payload?.error || error?.message || "The proposal could not be updated. Please try again.", blockerText].filter(Boolean).join(" "));
+      if (error?.status === 409 || error?.status === 412) {
+        if (variables?.row) qc.removeQueries({ queryKey: ["sales-quote", idOf(variables.row)] });
+        await qc.refetchQueries({ queryKey: ["sales-quotes"], type: "active" });
+      }
+    },
+    onSettled: (_data, _error, variables) => { if (variables) submitting.delete(String(idOf(variables.row))); },
+  });
+  const runLifecycle = (event, row, action) => {
+    event.stopPropagation();
+    const id = String(idOf(row));
+    if (submitting.has(id) || lifecycle.isPending) return;
+    const expectedVersion = row.row_version ?? row.rowVersion;
+    if (expectedVersion == null) {
+      setLifecycleError("This proposal is missing its current record version. Refresh the list before trying again.");
+      return;
+    }
+    const message = action === "archive"
+      ? `Archive this ${naming.singular}? It will be hidden from Active proposals. This does not cancel payments, invoices, bookings or release reservations.`
+      : action === "restore"
+        ? `Restore this ${naming.singular} to Active proposals?`
+        : `Permanently delete this ${naming.singular}? Only unused drafts can be deleted. This is irreversible. Proposals with delivery, signature, financial or inventory history cannot be deleted.`;
+    if (!window.confirm(message)) return;
+    submitting.add(id);
+    setLifecycleError("");
+    lifecycle.mutate({ row, action });
+  };
   const rows = list(query.data);
   const total = Number(query.data?.total ?? rows.length);
   const pages = Math.max(1, Number(query.data?.totalPages || query.data?.total_pages || Math.ceil(total / 20)));
+  const canManage = query.data?.permissions?.canManage === true;
   return <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row">
       <div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder={`Search ${naming.singular}, customer or opportunity…`} /></div>
+      <Select value={archived ? "archived" : "active"} onValueChange={(value) => { setArchived(value === "archived"); setPage(1); setLifecycleError(""); }}><SelectTrigger aria-label="Proposal visibility" className="w-full sm:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select>
       <Select value={status} onValueChange={(value) => { setStatus(value); setPage(1); }}><SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{["draft", "issued", "sent", "accepted", "converted", "rejected", "declined", "expired", "superseded"].map((item) => <SelectItem value={item} key={item} className="capitalize">{item}</SelectItem>)}</SelectContent></Select>
       <Button onClick={() => navigate(`${quotePath(naming, "new")}${opportunityId ? `?opportunityId=${encodeURIComponent(opportunityId)}` : ""}`)}><Plus className="mr-2 h-4 w-4" />Create {naming.singular}</Button>
     </div>
-    {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No {naming.plural} found</h3><p className="mt-1 text-sm text-slate-500">Create a {naming.singular} from an opportunity to start building your offer.</p></CardContent></Card> :
-      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">{naming.singular}</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Net</th><th className="px-4 py-3 text-right">Tax/VAT</th><th className="px-4 py-3 text-right">Gross</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); const amounts = persistedQuoteAmounts(row); return <tr key={idOf(row)} onClick={() => navigate(quotePath(naming, idOf(row)))} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || `Draft ${naming.singular}`}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.net, row.currency)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.tax, row.currency)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(amounts.gross, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
+    {lifecycleError && <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{lifecycleError}</div>}
+    {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No {archived ? "archived " : ""}{naming.plural} found</h3><p className="mt-1 text-sm text-slate-500">{archived ? "Archived proposals stay available here and can be restored at any time." : `Create a ${naming.singular} from an opportunity to start building your offer.`}</p></CardContent></Card> :
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">{naming.singular}</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Net</th><th className="px-4 py-3 text-right">Tax/VAT</th><th className="px-4 py-3 text-right">Gross</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); const amounts = persistedQuoteAmounts(row); const rowArchived = Boolean(row.archived_at || row.archivedAt); const busy = lifecycle.isPending && String(idOf(row)) === String(lifecycle.variables?.row && idOf(lifecycle.variables.row)); return <tr key={idOf(row)} onClick={() => navigate(quotePath(naming, idOf(row)))} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || `Draft ${naming.singular}`}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}{rowArchived && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5">Archived</span>}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.net, row.currency)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.tax, row.currency)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(amounts.gross, row.currency)}</td><td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>{canManage && (archived ? <div className="inline-flex gap-1"><Button size="sm" variant="outline" disabled={busy} onClick={(event) => runLifecycle(event, raw, "restore")}><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Restore</Button><Button size="sm" variant="outline" className="text-rose-700 hover:text-rose-800" disabled={busy} onClick={(event) => runLifecycle(event, raw, "delete")}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete permanently</Button></div> : <Button size="sm" variant="outline" disabled={busy} onClick={(event) => runLifecycle(event, raw, "archive")}><Archive className="mr-1.5 h-3.5 w-3.5" />Archive</Button>)}</td></tr>; })}</tbody></table></div></Card>}
     {pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} {naming.plural} · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page === pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
   </div>;
 }

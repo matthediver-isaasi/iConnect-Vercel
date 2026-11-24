@@ -81,7 +81,7 @@
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
 - [Sales and Projects policies](sales-project-policy-index.md) — tasks, billing, agreements, catalogue/ticket capacity, bearer safety and exhibition event authority.
-- [Opportunity archive policy](opportunity-archive-policy.md) — archive first; linked proposals or commercial records block permanent deletion, not financial processing.
+- [Sales archive policy](opportunity-archive-policy.md) — archive first; linked records block opportunity deletion, and proposal deletion is limited to unused drafts.
 - [Opportunity Silent mode](sales-silent-mode-policy.md) — per-opportunity automatic delivery only; manual sends and OTP stay unchanged, and suppressed occurrences never replay.
 - [Proposal ticket assignment](proposal-ticket-assignment-policy.md) — future drafts are selectable; optional closure never forfeits unnamed purchases or authorises live operations.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.

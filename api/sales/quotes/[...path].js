@@ -91,7 +91,37 @@ export function createSalesQuotesHandler(dependencies = {}) {
         res.setHeader('Cache-Control', 'private, no-store');
         return res.status(200).json(await quoteSenderOptions(db, quote, actor));
       }
-      if (read && !id) return res.status(200).json(await listQuotes(db, actor.tenantId, req.query || {}));
+      if (read && !id) {
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json({
+          ...await listQuotes(db, actor.tenantId, req.query || {}),
+          permissions: { canManage: await can(SALES_CAPABILITIES.MANAGE_QUOTES) },
+        });
+      }
+      if (id && ((req.method === 'POST' && ['archive', 'restore'].includes(action))
+        || (req.method === 'DELETE' && !action))) {
+        if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) {
+          throw new SalesHttpError(400, 'expectedVersion is required');
+        }
+        if (req.method === 'DELETE' && req.body?.confirmDelete !== true) {
+          throw new SalesHttpError(400, 'Confirm permanent deletion before continuing');
+        }
+        const { data, error } = await db.rpc('set_sales_quote_archive', {
+          p_tenant: actor.tenantId, p_quote: id, p_version: req.body.expectedVersion,
+          p_action: req.method === 'DELETE' ? 'delete' : action,
+          p_actor: actor.actorId, p_actor_type: actor.actorType,
+        });
+        if (error) {
+          const status = ['PT409', '23503', '23514'].includes(error.code) ? 409
+            : error.code === 'P0002' ? 404
+            : ['PGRST202', '42883'].includes(error.code) ? 503
+            : error.code === '22023' ? 400 : 500;
+          throw new SalesHttpError(status, status === 503
+            ? 'Proposal archive support requires the database update.' : error.message);
+        }
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(data);
+      }
       if (read && id && !action) {
         const quote = await getQuote(db, actor.tenantId, id);
         const [canManage, canOverridePrices, canManageAccounting] = await Promise.all([
@@ -217,10 +247,10 @@ export function createSalesQuotesHandler(dependencies = {}) {
           body.expectedVersion, body, allowOverride);
         return res.status(id ? 200 : 201).json(result);
       }
-       if ((req.method === 'DELETE' && id && !action) || (req.method === 'POST' && id && ['exhibition-cancel','exhibition-reopen'].includes(action))) {
+       if (req.method === 'POST' && id && ['exhibition-cancel','exhibition-reopen'].includes(action)) {
          if (!Number.isInteger(req.body?.expectedVersion)) throw new SalesHttpError(400, 'expectedVersion is required');
          const result = await db.rpc('sales_exhibition_terminal', { p_tenant: actor.tenantId, p_quote: id,
-           p_version: req.body.expectedVersion, p_action: req.method === 'DELETE' ? 'delete' : action === 'exhibition-cancel' ? 'cancel' : 'reopen', p_actor: actor.actorId });
+           p_version: req.body.expectedVersion, p_action: action === 'exhibition-cancel' ? 'cancel' : 'reopen', p_actor: actor.actorId });
          exhibitionError(result.error);
          return res.status(200).json(result.data);
        }

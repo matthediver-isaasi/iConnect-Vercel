@@ -380,7 +380,8 @@ export async function listQuotes(db, tenantId, filters = {}) {
   if (!ids.length) return { items: [], total: 0, page, pageSize, totalPages: 1 };
   const { data: versions, error: versionError } = await db.from('sales_quote_version').select('*').eq('tenant_id', tenantId).in('quote_id', ids);
   if (versionError) throw versionError;
-  const filtered = (data || []).filter(root => !root.exhibition_deleted_at).map((root) => {
+  const filtered = (data || []).filter(root => !root.exhibition_deleted_at
+    && Boolean(root.archived_at) === (filters.archived === true || filters.archived === 'true')).map((root) => {
     const currentVersion = (versions || []).find((v) => v.quote_id === root.id && v.version_number === root.current_version);
     return { ...root, ...currentVersion, id: root.id, versionId: currentVersion?.id, currentVersion };
   })
