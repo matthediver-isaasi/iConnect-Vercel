@@ -32,7 +32,7 @@ const compiled = await build({
       contents: {
         scope: 'export const useSalesSettingsScope=()=>({scopeKey:"tenant-test",ready:true}); export const useQuoteNaming=()=>({singular:"proposal",plural:"proposals"});',
         router: 'import React from "react"; export const useParams=()=>({id:"quote"}); export const useLocation=()=>({search:""}); export const useNavigate=()=>()=>{}; export const Link=({children})=><span>{children}</span>;',
-        tax: 'export const useCatalogueTaxOptions=()=>({data:{items:[]},isPending:false,isError:false});',
+        tax: 'export const useCatalogueTaxOptions=()=>globalThis.quoteExhibitionFixture.taxOptions || ({data:{items:[]},isPending:false,isError:false});',
         opportunity: 'export const useQuoteOpportunity=()=>globalThis.quoteExhibitionFixture.opportunity || {ready:true,contacts:[]}; export const opportunityContacts=()=>[]; export const clearOpportunityContacts=(form)=>form;',
         api: 'export const base44={_apiRequest:(...args)=>globalThis.quoteExhibitionFixture.json(...args)};',
         toast: 'export const useToast=()=>({toast:(value)=>globalThis.quoteExhibitionFixture.toasts.push(value)});',
@@ -473,6 +473,37 @@ test("issued read-only proposal cannot reload its billing address from the organ
     assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').disabled, true);
     assert.equal(fixture.host.querySelector('[aria-label="Address line 1"]').value, "Old address line");
     assert.equal(fixture.state.commands.length, 0);
+  } finally { await fixture.close(); }
+});
+
+test("new free-text lines display the sales default VAT and submit its provider identity", async () => {
+  const code = { provider: "xero", id: "OUTPUT2", name: "Standard sales VAT", rateBps: 2000, selectable: true };
+  const fixture = await mount({ taxOptions: { data: { provider: "xero", items: [code], defaultProductTaxCode: code }, isPending: false, isError: false } });
+  try {
+    await click(button(fixture.host, "Free text")); await settle();
+    const select = fixture.host.querySelector('[aria-label="Line 2 provider VAT code"]');
+    assert.equal(select.selectedOptions[0].textContent, code.name);
+    await click(button(fixture.host, "Save draft")); await settle();
+    assert.deepEqual(fixture.state.commands[0].lines[1].taxCode, { provider: "xero", id: code.id });
+    assert.equal(fixture.state.commands[0].lines[0].taxRateBps, 2000);
+  } finally { await fixture.close(); }
+});
+
+test("a free-text line added while VAT is loading gets the default when loading completes", async () => {
+  const quote = freshQuote();
+  quote.currentVersion.lines = [];
+  const fixture = await mount({ quote, taxOptions: { isPending: true, isError: false } });
+  try {
+    await click(button(fixture.host, "Free text")); await settle();
+    const code = { provider: "quickbooks", id: "7", name: "Zero rated sales", rateBps: 0, selectable: true };
+    fixture.state.taxOptions = { data: { provider: "quickbooks", items: [code], defaultProductTaxCode: code }, isPending: false, isError: false };
+    await click(button(fixture.host, "Free text")); await settle();
+    for (const select of fixture.host.querySelectorAll('select[aria-label$="provider VAT code"]')) {
+      assert.equal(select.selectedOptions[0].textContent, code.name);
+    }
+    await click(button(fixture.host, "Save draft")); await settle();
+    assert.equal(fixture.state.commands[0].lines.length, 2);
+    for (const line of fixture.state.commands[0].lines) assert.deepEqual(line.taxCode, { provider: "quickbooks", id: "7" });
   } finally { await fixture.close(); }
 });
 

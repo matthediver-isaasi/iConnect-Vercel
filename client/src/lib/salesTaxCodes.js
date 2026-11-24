@@ -20,6 +20,21 @@ export function providerTaxOptions(payload) {
   return (payload?.items || []).map((code) => ({ ...code, provider: code.provider || provider }));
 }
 
+// Defaults apply only to new, untouched free-text lines, never saved tax evidence.
+export function applyDefaultFreeTextTax(lines, payload) {
+  if (payload?.defaultProductTaxCodeUnavailable) return lines;
+  const key = taxCodeKey(payload?.defaultProductTaxCode);
+  const code = key && providerTaxOptions(payload).find(item => taxCodeKey(item) === key && item.selectable);
+  if (!code) return lines;
+  let changed = false;
+  const next = lines.map(line => {
+    if (line.type !== "free_text" || line.persistedLineId || line.legacyTax || line.taxChanged || line.taxCode) return line;
+    changed = true;
+    return { ...line, taxCode: code, taxRateBps: code.rateBps };
+  });
+  return changed ? next : lines;
+}
+
 export function savedLineTaxCode(line) {
   const snapshot = line?.catalogueSnapshot || line?.catalogue_snapshot;
   return snapshot?.tax_code || snapshot?.taxCode || line?.taxCode || null;

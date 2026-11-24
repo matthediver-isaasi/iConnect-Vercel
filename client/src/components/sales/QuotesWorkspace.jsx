@@ -39,7 +39,7 @@ import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } fr
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 import { persistedLineAmounts, persistedQuoteAmounts } from "./quoteDisplayAmounts";
 import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
-import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
+import { applyDefaultFreeTextTax, persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import QuoteBillingSettings from "./QuoteBillingSettings";
 import BillingSchedule from "./BillingSchedule";
 import { billingScheduleOf, percentageInstalmentsForEditing, percentageInstalmentsForSaving } from "./billingGroups";
@@ -307,8 +307,17 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
   const { singular } = useQuoteNaming();
   const taxOptions = useCatalogueTaxOptions(!readOnly);
   const taxItems = providerTaxOptions(taxOptions.data);
+  useEffect(() => {
+    if (readOnly || taxOptions.isPending || taxOptions.isError) return;
+    setForm(old => {
+      const lines = applyDefaultFreeTextTax(old.lines, taxOptions.data);
+      return lines === old.lines ? old : { ...old, lines };
+    });
+  }, [readOnly, taxOptions.data, taxOptions.isPending, taxOptions.isError, setForm]);
   const patch = (index, changes) => setForm((old) => ({ ...old, lines: old.lines.map((line, i) => i === index ? { ...line, ...changes } : line) }));
-  const add = (type) => setForm((old) => ({ ...old, lines: [...old.lines, { ...emptyLine(), type }] }));
+  const add = (type) => setForm((old) => ({ ...old, lines: [...old.lines, ...applyDefaultFreeTextTax(
+    [{ ...emptyLine(), type }], !taxOptions.isPending && !taxOptions.isError ? taxOptions.data : null,
+  )] }));
   const choose = (index, type, id) => {
     const source = (type === "product" ? products : bundles).find((item) => String(idOf(item)) === String(id));
     const price = type === "product" ? pick(source, "standardPriceMinor", "standard_price_minor", 0) : pick(source, "sellingPriceMinor", "selling_price_minor", 0);

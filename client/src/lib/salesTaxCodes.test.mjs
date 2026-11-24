@@ -1,12 +1,41 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, selectedProviderTaxCode, taxCodeKey, taxCodeLabel } from "./salesTaxCodes.js";
+import { applyDefaultFreeTextTax, persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, selectedProviderTaxCode, taxCodeKey, taxCodeLabel } from "./salesTaxCodes.js";
 
 const items = [
   { provider: "xero", id: "OUTPUT", name: "Sales VAT", rateBps: 2000, selectable: true },
   { provider: "xero", id: "OTHER", name: "Other VAT", rateBps: 2000, selectable: true },
   { provider: "quickbooks", id: "OUTPUT", rateBps: 725, selectable: true },
 ];
+
+test("new free-text lines inherit the default provider identity and rate and serialize it for server validation", () => {
+  for (const code of [items[0], items[2], { ...items[0], rateBps: 0 }]) {
+    const lines = [{ type: "free_text", taxCode: null, taxRateBps: 0 }];
+    const payload = { provider: code.provider, items: [{ ...code, provider: undefined }], defaultProductTaxCode: code };
+    const result = applyDefaultFreeTextTax(lines, payload);
+    assert.equal(result[0].taxRateBps, code.rateBps);
+    assert.deepEqual(quoteLineTaxForSaving(result[0], providerTaxOptions(payload)), { taxCode: { provider: code.provider, id: code.id } });
+    assert.equal(applyDefaultFreeTextTax(result, payload), result);
+  }
+});
+
+test("defaults loaded later never replace saved, legacy, explicitly selected or catalogue line taxes", () => {
+  const lines = [
+    { type: "free_text", persistedLineId: "saved", taxRateBps: 500 },
+    { type: "free_text", legacyTax: true, taxRateBps: 725 },
+    { type: "free_text", taxChanged: true, taxCode: items[1] },
+    { type: "free_text", taxCode: items[2] },
+    ...["product", "bundle", "ticket"].map(type => ({ type })),
+  ];
+  assert.equal(applyDefaultFreeTextTax(lines, { items, defaultProductTaxCode: items[0] }), lines);
+  const fresh = [{ type: "free_text" }];
+  assert.equal(applyDefaultFreeTextTax(fresh, undefined), fresh);
+  assert.equal(applyDefaultFreeTextTax(fresh, { items }), fresh);
+  assert.equal(applyDefaultFreeTextTax(fresh, { items, defaultProductTaxCode: items[0], defaultProductTaxCodeUnavailable: true }), fresh);
+  assert.equal(applyDefaultFreeTextTax(fresh, { items: [{ ...items[0], selectable: false }], defaultProductTaxCode: items[0] }), fresh);
+  assert.equal(applyDefaultFreeTextTax(fresh, { items, defaultProductTaxCode: { ...items[0], provider: "other" } }), fresh);
+  assert.equal(applyDefaultFreeTextTax(fresh, { items, defaultProductTaxCode: items[0] })[0].taxRateBps, 2000);
+});
 
 test("VAT labels use only natural names, never provider or internal IDs", () => {
   assert.equal(taxCodeLabel(items[0]), "Sales VAT");
