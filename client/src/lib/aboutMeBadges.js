@@ -1,10 +1,15 @@
 export function mergeLibraryBadges(groupRoleBadges = [], directBadges = []) {
   const merged = [];
-  const seen = new Set();
+  const positions = new Map();
   for (const badge of [...groupRoleBadges, ...directBadges]) {
-    if (!badge?.id || seen.has(badge.id)) continue;
-    seen.add(badge.id);
-    merged.push(badge);
+    if (!badge?.id) continue;
+    if (positions.has(badge.id)) {
+      const index = positions.get(badge.id);
+      merged[index] = { ...merged[index], ...badge };
+    } else {
+      positions.set(badge.id, merged.length);
+      merged.push(badge);
+    }
   }
   return merged;
 }

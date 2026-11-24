@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getMemberBadgePanelState } from "@/lib/memberBadgePanelState";
+import BadgeEventDetails from "@/components/BadgeEventDetails";
 
 async function request(memberId, options) {
   const response = await fetch(`/api/admin/members/${memberId}/badges`, {
@@ -117,8 +118,9 @@ export default function MemberBadgesTab({ memberId, enabled = true }) {
                       <Badge variant={award.status === "active" ? "default" : "secondary"}>{award.status === "active" ? "Active" : "Revoked"}</Badge>
                     </div>
                     {award.badge?.description && <p className="text-sm text-muted-foreground mt-1">{award.badge.description}</p>}
+                    <BadgeEventDetails events={award.speaker_events} />
                     <div className="text-xs text-muted-foreground mt-2 space-y-1">
-                      <p>Awarded {formatDateTime(award.awarded_at)} by {award.awarded_by_label}</p>
+                      <p>Awarded date: {formatDateTime(award.awarded_at)} by {award.awarded_by_label}</p>
                       {award.revoked_at && <p>Revoked {formatDateTime(award.revoked_at)} by {award.revoked_by_label || "Staff member"}</p>}
                     </div>
                   </div>

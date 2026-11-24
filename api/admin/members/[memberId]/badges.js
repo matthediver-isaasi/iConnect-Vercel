@@ -2,6 +2,7 @@ import { supabase } from '../../../_lib/database.js';
 import { getTenantContext } from '../../../_lib/tenantContext.js';
 import { checkBadgeWriteAccess, checkMemberBadgeTargetAccess } from '../../../_lib/badgeAccess.js';
 import { awardSourceLabel, resolveBadgeActor } from '../../../_lib/memberBadgeAttribution.js';
+import { resolveMemberBadgeEvents } from '../../../_lib/memberBadgeEvents.js';
 
 async function loadScopedMember(tenantId, memberId) {
   return supabase
@@ -20,8 +21,10 @@ async function listMemberBadges(tenantId, memberId) {
     .eq('member_id', memberId)
     .order('awarded_at', { ascending: false });
   if (error) throw error;
+  const events = await resolveMemberBadgeEvents(supabase, { tenantId, memberId, awards: data || [] });
   return (data || []).map((row) => ({
     ...row,
+    speaker_events: events.get(row.id) || [],
     status: row.revoked_at ? 'revoked' : 'active',
     awarded_by_label: awardSourceLabel(row),
   }));

@@ -13,5 +13,16 @@ test('derived badges remain and direct overlap does not create duplicate cards',
     { id: 'direct-only' },
   ]);
   assert.deepEqual(badges.map((badge) => badge.id), ['shared', 'group-only', 'direct-only']);
-  assert.equal(badges[0], group);
+  assert.equal(badges[0].name, 'Direct duplicate');
+});
+
+test('group/direct overlap preserves award dates, distinct events and download fields', () => {
+  const events = [{ event_id: 'one' }, { event_id: 'two' }];
+  const badges = mergeLibraryBadges([{ id: 'shared', image_url: '/group.png' }, { id: 'group' }], [
+    { id: 'shared', name: 'Speaker', awarded_at: '2026-01-01', speaker_events: events },
+  ]);
+  assert.equal(badges.length, 2);
+  assert.equal(badges[0].image_url, '/group.png');
+  assert.equal(badges[0].awarded_at, '2026-01-01');
+  assert.deepEqual(badges[0].speaker_events, events);
 });

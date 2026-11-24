@@ -64,6 +64,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { mergeLibraryBadges } from "@/lib/aboutMeBadges";
+import BadgeEventDetails, { formatBadgeEventDate } from "@/components/BadgeEventDetails";
 import { confirmedProfilePatch, profileQueryKey, synchronizeProfile } from "@/lib/profileSynchronization";
 import { communicationPreferencesKey, invalidateJobAlertPreferences } from "@/lib/jobAlerts.mjs";
 import { useCanvasMembershipSummary } from "@/hooks/useCanvasMembershipSummary";
@@ -2362,6 +2363,10 @@ export default function PreferencesPage() {
                         {badge.description}
                       </p>
                     )}
+                    <div className="text-center w-full min-w-0">
+                      <BadgeEventDetails events={badge.speaker_events} />
+                      {badge.awarded_at && <p className="text-xs text-slate-600 mb-3">Awarded date: {formatBadgeEventDate(badge.awarded_at)}</p>}
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"

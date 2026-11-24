@@ -6,6 +6,8 @@ function databaseReturning(rows) {
   const filters = [];
   const query = {
     select() { return this; },
+    order() { return this; },
+    range() { return this; },
     eq(column, value) { filters.push(['eq', column, value]); return this; },
     is(column, value) { filters.push(['is', column, value]); return this; },
     then(resolve) { resolve({ data: rows, error: null }); },
@@ -27,6 +29,12 @@ test('active self awards return badge display fields and scope by tenant and mem
     ['eq', 'member_id', 'member-1'],
     ['is', 'revoked_at', null],
     ['eq', 'badge.is_active', true],
+    ['from', 'speaker_recognition'],
+    ['eq', 'tenant_id', 'tenant-1'],
+    ['eq', 'member_id', 'member-1'],
+    ['from', 'speaker_award_grant'],
+    ['eq', 'tenant_id', 'tenant-1'],
+    ['eq', 'member_id', 'member-1'],
   ]);
 });
 
