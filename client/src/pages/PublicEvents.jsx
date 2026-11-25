@@ -3,6 +3,7 @@ import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useQuery } from "@tanstack/react-query";
+import { filterListedEvents } from "@shared/eventListing.js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,13 +119,13 @@ export default function PublicEventsPage() {
   const viewerKey = useTicketViewerKey(sessionValidated ? memberInfo : null);
   const { data: allSimpleEvents = [], isLoading: isLoadingSimple } = useQuery({
     queryKey: ['public-events', ...viewerKey],
-    queryFn: async () => await publicClient.listEvents() || [],
+    queryFn: async () => filterListedEvents(await publicClient.listEvents()),
     staleTime: 0
   });
 
   const { data: allComplexEvents = [], isLoading: isLoadingComplex } = useQuery({
     queryKey: ['public-complex-events', ...viewerKey],
-    queryFn: async () => await publicClient.listComplexEvents() || [],
+    queryFn: async () => filterListedEvents(await publicClient.listComplexEvents()),
     staleTime: 0
   });
 

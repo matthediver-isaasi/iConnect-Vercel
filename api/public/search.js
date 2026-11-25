@@ -131,7 +131,7 @@ export default async function handler(req, res) {
     // Content entities are skipped entirely in microsite-only mode.
     const emptyResult = { data: [] };
     const contentQuery = (builder) => (micrositeOnly ? Promise.resolve(emptyResult) : builder);
-    const eventQuery = query => micrositeOnly ? Promise.resolve(emptyResult) : readEventFunnelDiscovery({db:supabase,query});
+    const eventQuery = query => micrositeOnly ? Promise.resolve(emptyResult) : readEventFunnelDiscovery({db:supabase,query:query.not('is_private','is',true)});
 
     const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult, complexEventsResult] = await Promise.all([
       eventQuery(supabase

@@ -75,6 +75,11 @@
       "type": "boolean",
       "description": "If true, event is featured and displayed prominently at the top of event listings"
     },
+    "is_private": {
+      "type": "boolean",
+      "default": false,
+      "description": "Private (unlisted) event: active and bookable by direct link, but left out of the Events calendar, group event lists, search and sitemap. Canvas event widgets still show it."
+    },
     "attached_documents": {
       "type": "array",
       "description": "Public documents (programmes, agendas, info packs) rendered on the event page. PDFs open in an in-page viewer; other files open in a new tab.",

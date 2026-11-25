@@ -17,7 +17,7 @@ const FIELDS_TO_COPY = [
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent', 'allow_public_invoice_po',
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'event_timing', 'timezone',
   'organization_id', 'program_id', 'attached_documents', 'documents_section_title',
-  'member_group_id', 'group_event_public', 'is_training',
+  'member_group_id', 'group_event_public', 'is_private', 'is_training',
   'speaker_display_mode', 'sponsor_display_mode', 'speaker_award_config'
 ];
 

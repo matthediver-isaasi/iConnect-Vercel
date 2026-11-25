@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import PrivateEventToggle from "@/components/events/PrivateEventToggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -682,6 +683,7 @@ export default function CreateComplexEvent() {
     waiting_list_enabled: false,
     event_state: "active",
     is_featured: false,
+    is_private: false,
     timezone: "Europe/London",
     available_seats: "",
     internal_reference: "",
@@ -1232,6 +1234,7 @@ export default function CreateComplexEvent() {
         waiting_list_enabled: existingEvent.waiting_list_enabled === true,
         event_state: loadedEventState,
         is_featured: existingEvent.is_featured === true,
+        is_private: existingEvent.is_private === true,
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
@@ -2032,6 +2035,7 @@ export default function CreateComplexEvent() {
         waiting_list_enabled: formData.waiting_list_enabled === true,
         event_state: formData.event_state,
         is_featured: formData.is_featured || false,
+        ...(!isGroupLimited ? { is_private: formData.is_private === true } : {}),
         timezone: formData.timezone,
         available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats, 10) : null),
         is_unlimited_registration: unlimitedSeats,
@@ -2865,6 +2869,9 @@ export default function CreateComplexEvent() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {!isGroupLimited && (
+                  <PrivateEventToggle checked={formData.is_private} onCheckedChange={(checked) => updateField("is_private", checked)} />
+                )}
                 {/* Program vs One-off Toggle */}
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                   <div className="space-y-0.5">

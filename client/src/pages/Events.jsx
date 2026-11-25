@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
+import { filterListedEvents, isPrivateEvent } from "@shared/eventListing.js";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useTbcSectionNavigation } from "@/hooks/useTbcSectionNavigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -317,14 +318,25 @@ export default function EventsPage({
   // Apply group event visibility to complex events (simple events are already
   // filtered inside useEventsData). Public complex group events are visible to
   // everyone; group-only ones only to admins/members of the group; anon never.
-  const visibleComplexEvents = useMemo(
+  const groupVisibleComplexEvents = useMemo(
     () => filterGroupEventVisibility(complexEvents, { isAdmin, myGroupIds }),
     [complexEvents, isAdmin, myGroupIds]
   );
 
+  // Private (unlisted) events stay off the calendar for everyone except event
+  // admins, who see them labelled. Canvas widgets use their own data paths.
+  const listedSimpleEvents = useMemo(
+    () => filterListedEvents(simpleEvents, { isAdmin }),
+    [simpleEvents, isAdmin]
+  );
+  const visibleComplexEvents = useMemo(
+    () => filterListedEvents(groupVisibleComplexEvents, { isAdmin }),
+    [groupVisibleComplexEvents, isAdmin]
+  );
+
   const events = useMemo(() => {
-    return [...simpleEvents, ...visibleComplexEvents];
-  }, [simpleEvents, visibleComplexEvents]);
+    return [...listedSimpleEvents, ...visibleComplexEvents];
+  }, [listedSimpleEvents, visibleComplexEvents]);
 
   const canViewAttendees = !!memberInfo
     && !resolvedIsFeatureExcluded?.('events.browse-events.view-attendees');
@@ -333,8 +345,8 @@ export default function EventsPage({
     [visibleComplexEvents],
   );
   const simpleEventIds = useMemo(
-    () => simpleEvents.map((event) => event.id).filter(Boolean),
-    [simpleEvents],
+    () => listedSimpleEvents.map((event) => event.id).filter(Boolean),
+    [listedSimpleEvents],
   );
   // Event click tracking is intentionally opted into only by this page.
   // Administrative controls never count; only CTA activations do, so direct
@@ -1943,7 +1955,7 @@ export default function EventsPage({
                           : null;
                         const showPricesOnCard = showPricesSetting?.setting_value === 'true';
                         const eventParsedTypes = parseEventTypes(event.event_type);
-                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
+                        const hasBadges = isPrivateEvent(event) || event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
                         const descriptionText = event.summary || stripHtmlTags(event.description);
 
                         return (
@@ -1967,6 +1979,9 @@ export default function EventsPage({
                               )}
                               {hasBadges && (
                                 <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
+                                  {isPrivateEvent(event) && (
+                                    <Badge variant="secondary" className="bg-slate-800/90 text-white border-slate-700 shadow-sm" data-testid={`badge-private-event-${event.id}`}>Private</Badge>
+                                  )}
                                   {event.status === 'draft' && (
                                     <Badge variant="warning" className="shadow-sm">Draft</Badge>
                                   )}
@@ -2315,7 +2330,7 @@ export default function EventsPage({
                       : null;
                     const showPricesOnCard = showPricesSetting?.setting_value === 'true';
                     const eventParsedTypes = parseEventTypes(event.event_type);
-                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
+                    const hasBadges = isPrivateEvent(event) || event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
                     const descriptionText = event.summary || stripHtmlTags(event.description);
 
                     return (
@@ -2341,6 +2356,11 @@ export default function EventsPage({
 
                           {hasBadges && (
                             <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
+                              {isPrivateEvent(event) && (
+                                <Badge variant="secondary" className="bg-slate-800/90 text-white border-slate-700 shadow-sm" data-testid={`badge-private-event-${event.id}`}>
+                                  Private
+                                </Badge>
+                              )}
                               {event.status === 'draft' && (
                                 <Badge variant="warning" className="shadow-sm">
                                   Draft

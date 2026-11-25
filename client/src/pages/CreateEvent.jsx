@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import PrivateEventToggle from "@/components/events/PrivateEventToggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -224,6 +225,7 @@ export default function CreateEvent() {
   const [bookingReplacementTitle, setBookingReplacementTitle] = useState("");
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isFeatured, setIsFeatured] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
@@ -1223,6 +1225,7 @@ export default function CreateEvent() {
       booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
+      is_private: !isGroupLimited && isPrivate === true,
       attached_documents: attachedDocuments,
       documents_section_title: documentsSectionTitle.trim() || null,
       dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
@@ -1874,6 +1877,7 @@ export default function CreateEvent() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
               {/* Program vs One-off Toggle (hidden for group-limited events — group events are always one-off free events) */}
               {!isGroupLimited && (
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">

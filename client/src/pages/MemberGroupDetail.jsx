@@ -88,6 +88,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { filterGroupEventVisibility } from "@/hooks/useEventsData";
+import { filterListedEvents } from "@shared/eventListing.js";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { parseEventTypes } from "@/lib/utils";
 import { fetchEventAttendeeCounts } from "@/lib/eventAttendeeCounts";
@@ -1484,7 +1485,7 @@ function AuthenticatedMemberGroupDetail() {
   // locked CTAs instead). Dormant bespoke RSVP events are hidden by the
   // shared helper.
   const accessibleGroupEvents = useMemo(() => {
-    const visible = filterGroupEventVisibility(groupEventsRaw, {
+    const visible = filterGroupEventVisibility(filterListedEvents(groupEventsRaw, { isAdmin: isEventAdmin }), {
       isAdmin: isEventAdmin,
       // Always pass groupId so non-members see this group's private events too;
       // the lock is applied at the CTA level via canAccessGroupContent.

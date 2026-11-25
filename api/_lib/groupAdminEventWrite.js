@@ -75,6 +75,8 @@ function isFreeTicket(tc) {
 function normalizeHiddenGroupEventFields(out) {
   if (!out || typeof out !== 'object') return;
   if ('is_featured' in out) out.is_featured = false;
+  // Private (unlisted) is a tenant-admin listing choice; group admins never change it.
+  if ('is_private' in out) delete out.is_private;
   if ('status' in out && out.status === 'tbc') out.status = 'published';
   if ('qr_on_confirmation' in out) out.qr_on_confirmation = false;
   if ('show_seat_count' in out) out.show_seat_count = true;

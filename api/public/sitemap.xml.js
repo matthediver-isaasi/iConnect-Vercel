@@ -99,6 +99,7 @@ return async function handler(req, res) {
       .eq('tenant_id', tenant.id)
       .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
       .is('member_group_id', null)
+      .not('is_private', 'is', true)
       .order('start_date', { ascending: false })});
 
     if (eventsResult.error?.code === '42703') {
@@ -108,6 +109,7 @@ return async function handler(req, res) {
         .select('id, slug, start_date, status')
         .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
         .is('member_group_id', null)
+        .not('is_private', 'is', true)
         .order('start_date', { ascending: false })});
     }
 

@@ -1293,6 +1293,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
           .eq('tenant_id', tenant.id)
           .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
           .is('member_group_id', null)
+          .not('is_private', 'is', true)
           .order('start_date', { ascending: true })
           .limit(50)});
         if (result.error?.code === '42703') {
@@ -1301,6 +1302,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
             .select('id, title, slug, start_date, location, summary, status')
             .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
             .is('member_group_id', null)
+            .not('is_private', 'is', true)
             .order('start_date', { ascending: true })
             .limit(50)});
         }

@@ -85,7 +85,8 @@ export default async function handler(req, res) {
         booking_replacement_title,
         filter_tags,
         member_group_id,
-        group_event_public
+        group_event_public,
+        is_private
       `)
       .eq('tenant_id', tenant.id)
       .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
@@ -226,6 +227,7 @@ export default async function handler(req, res) {
         booking_replacement_cta_label: event.booking_replacement_cta_label || null,
         booking_replacement_title: event.booking_replacement_title || null,
         filter_tags: event.filter_tags || [],
+        is_private: event.is_private === true,
         agenda_summary: event.is_training ? (agendaByEvent[event.id] || []) : undefined
       };
     });

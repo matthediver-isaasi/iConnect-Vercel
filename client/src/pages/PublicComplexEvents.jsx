@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useQuery } from "@tanstack/react-query";
+import { filterListedEvents } from "@shared/eventListing.js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,7 @@ export default function PublicComplexEvents() {
 
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['public-complex-events', ...viewerKey],
-    queryFn: async () => await publicClient.listComplexEvents() || [],
+    queryFn: async () => filterListedEvents(await publicClient.listComplexEvents()),
     staleTime: 0
   });
 

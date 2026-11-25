@@ -180,3 +180,4 @@
 - [Slate admin surface](admin-dark-surface.md) — on navy admin pages use `dark admin-dark-surface` card scope so shared light components stay readable.
 - [Cancelled DD/card restart supersession](cancelled-dd-restart-supersession.md) — confirmed-cancelled individual DD or Stripe card plan restarts immediately via supersession receipt; old debt/dates kept.
 - [Org membership year replacement](org-membership-year-replacement.md) — exact gross credits, QBO single-tax limit, re-price without the replaced row; replaced rows excluded everywhere.
+- [Private (unlisted) events](private-event-listing.md) — hidden from /Events, group lists, search and sitemap; Canvas event widgets must still show them.

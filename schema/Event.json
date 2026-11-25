@@ -150,6 +150,11 @@
       "type": "boolean",
       "description": "If true, event is featured and displayed prominently at the top of event listings"
     },
+    "is_private": {
+      "type": "boolean",
+      "default": false,
+      "description": "Private (unlisted) event: active and bookable by direct link, but left out of the Events calendar, group event lists, search and sitemap. Canvas event widgets still show it."
+    },
     "xero_account_code": {
       "type": "string",
       "description": "Optional Xero nominal ledger / account code for this event. Overrides the system default xero_sales_account_code when generating invoices."

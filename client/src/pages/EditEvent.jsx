@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import PrivateEventToggle from "@/components/events/PrivateEventToggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -253,6 +254,7 @@ export default function EditEvent() {
   // Event state: active, draft, or closed - affects visibility/registration
   const [eventState, setEventState] = useState("active");
   const [isFeatured, setIsFeatured] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
 
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
@@ -1445,6 +1447,7 @@ export default function EditEvent() {
         });
       
       setIsFeatured(event.is_featured === true);
+      setIsPrivate(event.is_private === true);
       setWaitingListEnabled(event.waiting_list_enabled === true);
 
       // Load timing and state from event with migration for old status values
@@ -1933,6 +1936,7 @@ export default function EditEvent() {
       booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
+      ...(!isGroupLimited ? { is_private: isPrivate === true } : {}),
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
@@ -2641,6 +2645,7 @@ export default function EditEvent() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
               {/* Program vs One-off Toggle */}
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                 <div className="space-y-0.5">
