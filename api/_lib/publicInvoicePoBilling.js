@@ -4,6 +4,7 @@ import {validRecoverySnapshot,validRecoveryTaxIntent} from './eventInvoiceRecove
 import {loadComplexReleaseTickets} from './ticketReleaseAccess.js';
 import {loadPublicPoBooker} from './publicPoBooker.js';
 import {publicInvoicePoBillingContact} from '../../shared/publicInvoicePoAddress.js';
+import {savePurchaserInvoicingAddress} from './purchaserInvoicingAddress.js';
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status});};
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 export function publicPoInvoiceLines(preview, accountCode) {
@@ -111,5 +112,7 @@ export async function generatePublicPoInvoice(db,tenantId,actorId,input){
    },
  });
  if(!result.queued)fail('The invoice could not be queued. Check the accounting configuration before retrying.',503);
+ // Fill the booker's member invoicing fields from checkout if still empty.
+ await savePurchaserInvoicingAddress({db,tenantId,memberId:p.public.member.id,details:p.public.originalBooker});
  return (await loadPublicPoBilling(db,tenantId,input.bookingId,input.isComplex)).public;
 }

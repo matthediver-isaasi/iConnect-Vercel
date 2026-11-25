@@ -4,6 +4,7 @@ import {
 } from './publicTicketMemberCreation.js';
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import {hasRegistrationAssociation,resolveRegistrationAssociations} from './eventRegistrationAssociations.js';
+import { savePurchaserInvoicingAddress, purchaserMemberId } from './purchaserInvoicingAddress.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const unavailable = () => new PublicTicketMemberError(
@@ -124,6 +125,7 @@ export function assertPublicTicketPaymentEvidence(paymentIntent, purchase, tenan
 
 export async function completePublicTicketMembers({
   db, purchase, tenantId, bookingIds, paymentStatus, paymentIntentId = null,
+  purchaserInvoicingDetails = null,
 }) {
   if (!purchase) return { state: 'not_applicable' };
   if ((!['paid', 'free'].includes(paymentStatus) && !(paymentStatus==='unpaid'&&(purchase.snapshot?.association_role_id || purchase.snapshot?.guest_accounts))) || !bookingIds?.length) {
@@ -147,6 +149,12 @@ export async function completePublicTicketMembers({
   try {
     const result = await db.rpc('provision_public_ticket_members', { p_purchase_id: purchase.id });
     if (result.error || !result.data) return { state: 'retryable', code: 'provisioning_unavailable' };
+    if (result.data.state === 'completed' && purchaserInvoicingDetails) {
+      // Invoice / PO: copy the checkout invoice address onto the purchaser's
+      // new member record. Optional; never affects the committed booking.
+      const memberId = await purchaserMemberId(db, purchase.id);
+      if (memberId) await savePurchaserInvoicingAddress({ db, tenantId, memberId, details: purchaserInvoicingDetails });
+    }
     return result.data;
   } catch {
     // Preserve the ready evidence and original purchase identity after an
@@ -188,5 +196,6 @@ export async function recoverPublicTicketMembers({ db, purchase, loadPaymentInte
   return completePublicTicketMembers({
     db, purchase, tenantId: purchase.tenant_id, bookingIds: purchase.booking_ids,
     paymentStatus, paymentIntentId: purchase.stripe_payment_intent_id,
+    purchaserInvoicingDetails: paymentStatus === 'unpaid' ? bookings[0]?.purchaser_context?.details || null : null,
   });
 }

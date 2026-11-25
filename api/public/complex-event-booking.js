@@ -1467,6 +1467,7 @@ async function processBooking(req, res) {
       bookingIds: bookings.map(booking => booking.id),
       paymentStatus: confirmedPaymentMethod === 'card' ? 'paid' : validatedRemainingBalance === 0 ? 'free' : 'unpaid',
       paymentIntentId: stripe_payment_intent_id,
+      purchaserInvoicingDetails: confirmedPaymentMethod === PUBLIC_INVOICE_PO ? purchaserContext?.details || null : null,
     }) : { state: 'not_applicable' };
     const invoiceRecovery = req.bookingCreditAttempt?.contract ? req.bookingCreditAttempt.invoiceRecovery || { status: 'needs_review', queued: false }
       : confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0

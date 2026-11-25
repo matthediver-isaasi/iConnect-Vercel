@@ -3700,6 +3700,7 @@ const functionHandlers = {
       bookingIds: createdBookings.map(booking => booking.id),
       paymentStatus: paymentMethod === 'card' ? 'paid' : validatedRemainingBalance === 0 ? 'free' : 'unpaid',
       paymentIntentId: stripePaymentIntentId,
+      purchaserInvoicingDetails: paymentMethod === PUBLIC_INVOICE_PO ? purchaserContext?.details || null : null,
     }) : { state: 'not_applicable' };
     const invoiceRecovery = req.bookingCreditAttempt?.contract ? req.bookingCreditAttempt.invoiceRecovery || { status: 'needs_review', queued: false }
       : paymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0

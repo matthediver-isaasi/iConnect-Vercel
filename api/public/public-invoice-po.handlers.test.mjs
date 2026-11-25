@@ -73,6 +73,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
     booking: [], complex_event_booking: [], member: memberEmail ? [{ id: 'member-email', email: memberEmail, tenant_id: 'tenant-a', status: 'active' }] : [],
     system_settings: [{ tenant_id: 'tenant-a', setting_key: 'xero_invoice_enabled', setting_value: 'true' }],
     event_email: [], scheduled_email: [], complex_event_session: [], organization: [],
+    public_ticket_member_link: [], invoicing_address_private: [],
   };
   const calls = [];
   const paymentIntent = {
@@ -147,10 +148,14 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
       if (name === 'provision_public_ticket_members') {
         const receipt = rows.public_ticket_member_purchase.find(row => row.id === args.p_purchase_id);
         assert.equal(receipt.state, 'ready');
-        for (const person of receipt.snapshot.people) rows.member.push({
-          ...person.identity, tenant_id: receipt.tenant_id, role_id: person.role_id,
-          login_enabled: false, show_in_directory: false,
-        });
+        for (const [index, person] of receipt.snapshot.people.entries()) {
+          const id = `provisioned-${index + 1}`;
+          rows.member.push({
+            id, ...person.identity, tenant_id: receipt.tenant_id, role_id: person.role_id,
+            login_enabled: false, show_in_directory: false,
+          });
+          rows.public_ticket_member_link.push({ purchase_id: receipt.id, member_id: id, participation: person.links });
+        }
         receipt.state = 'completed';
         return { data: { state: 'completed', created: receipt.snapshot.people.length } };
       }
@@ -327,6 +332,11 @@ for (const kind of ['simple', 'complex']) {
     assert.ok(receipt.snapshot.people.every(p=>p.guest_account && !p.association));
     assert.equal(receipt.completion_evidence.status,'unpaid');
     assert.ok(result.calls.some(c=>c.rpc==='provision_public_ticket_members'));
+    const buyer=result.rows.public_ticket_member_link.find(l=>l.participation.some(p=>p.kind==='purchaser'));
+    assert.ok(buyer,'purchaser received a member record');
+    assert.deepEqual(result.rows.invoicing_address_private,[{id:'invoicing_address_private-1',tenant_id:'tenant-a',owner_type:'member',
+      owner_id:buyer.member_id,invoicing_address_line1:'1 Road',invoicing_address_line2:null,invoicing_city:'London',
+      invoicing_region:null,invoicing_postal_code:'N1 1AA',invoicing_country:'United Kingdom'}],'checkout invoice address saved on the purchaser record');
     assert.deepEqual(result.unexpected,[]);
   });
   for (const refundFails of [false, true]) {

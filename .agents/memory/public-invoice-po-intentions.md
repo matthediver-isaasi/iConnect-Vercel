@@ -94,3 +94,14 @@ Historical standard public Invoice / PO registrations cannot prove pre-offer lis
 **Why:** The booking writer divided the offer-adjusted total across attendees, and did not persist the original gross price or offer snapshot. A stored amount can equally represent an undiscounted ticket or a BOGO/bulk-discounted share. Today's editable catalogue is not historical evidence.
 
 **How to apply:** Report known discounted totals, but explicitly mark gross price and discount unavailable without authoritative historical evidence. Do not silently reconstruct from current ticket settings, and do not expand report-only fixes into checkout changes or backfills.
+Non-member Invoice / PO checkout addresses are copied onto the purchaser's member
+record (private core invoicing fields) fill-only: when provisioning creates the
+purchaser, and again when an admin generates the invoice. Never overwrite an
+address already saved on the member; the booking's frozen details remain the
+invoice authority.
+
+**Why:** Owner asked (Nov 2026) for the checkout invoice address to be stored on
+the member record as well as used on the invoice.
+
+**How to apply:** Copy failures must never fail a committed booking. Card
+bookings keep using the Stripe charge billing address and are not copied.

@@ -1,5 +1,7 @@
 import { INVOICING_ADDRESS_KEYS, invoicingAddressError, resolveStoredInvoicingAddress } from './invoicingAddress.js';
 
+export { INVOICING_ADDRESS_KEYS, invoicingAddressError };
+
 export function normalizePublicInvoicePoAddress(info = {}) {
   return Object.fromEntries(INVOICING_ADDRESS_KEYS.map(key => [
     key, typeof info?.[key] === 'string' ? info[key].trim() : '',
