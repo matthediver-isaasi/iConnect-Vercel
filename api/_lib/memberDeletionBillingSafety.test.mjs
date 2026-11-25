@@ -94,7 +94,16 @@ test('Stripe card agreement left active is resolved only by provider-confirmed p
     assert.equal(result.status, 409);
     assert.equal(result.blockers[0].id, 'a');
   }
-  // No linked plan, a still-active plan, or a GoCardless agreement are never inferred resolved.
+  // GoCardless: a subscription-only stop leaves the mandate (and agreement)
+  // active; a webhook-confirmed cancelled subscription plan resolves it.
+  const gcAgreement = row('active', { provider: 'gocardless' });
+  const gcPlan = row('payment_plan_cancelled', { id: 'p', provider: 'gocardless', billing_agreement_id: 'a', gocardless_subscription_id: 'SB1' });
+  assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [gcAgreement],
+    membership_payment_plans: [gcPlan], membership_payment_status_history: [history('webhook')] }), scope)).success, true);
+  assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [gcAgreement],
+    membership_payment_plans: [gcPlan], membership_payment_status_history: [history('admin')] }), scope)).status, 409);
+  // No linked plan, a still-active plan, or a plan without a provider
+  // subscription (dynamic Direct Debit collection) are never inferred resolved.
   assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [agreement],
     membership_payment_status_history: [history('webhook')] }), scope)).status, 409);
   assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [agreement],

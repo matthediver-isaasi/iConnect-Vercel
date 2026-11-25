@@ -1,14 +1,15 @@
 // Read-only lifecycle gate. Never cancel providers or alter financial evidence here.
 const TERMINAL = new Set(['payment_plan_cancelled', 'cancelled', 'canceled', 'completed', 'finished', 'expired', 'incomplete_expired']);
 const TABLES = ['membership_billing_agreements', 'membership_payment_plans'];
-const PLAN_COLUMNS = 'id,status,provider,billing_agreement_id,stripe_subscription_id';
+const PLAN_COLUMNS = 'id,status,provider,billing_agreement_id,stripe_subscription_id,gocardless_subscription_id';
+const SUBSCRIPTION_COLUMN = { stripe: 'stripe_subscription_id', gocardless: 'gocardless_subscription_id' };
 export const BILLING_DELETION_WARNING = 'Removing membership access does not cancel Stripe or GoCardless payments. Resolve recurring agreements separately with explicit cancellation authority, then retry. Financial history will be retained.';
 
 export async function checkMemberDeletionBilling(db, { memberId, organizationId, tenantId }) {
   const blockers = [];
   const failures = [];
   const agreementIds = [];
-  const openStripeAgreements = [];
+  const openProviderAgreements = [];
   const plans = new Map();
   function inspect(row, table) {
     if (table === TABLES[1]) {
@@ -22,8 +23,10 @@ export async function checkMemberDeletionBilling(db, { memberId, organizationId,
       status: row.status || 'unknown',
     };
     // A Stripe card agreement keeps its own status after Stripe ends the
-    // subscription. Decide it only after its linked plans are known.
-    if (table === TABLES[0] && row.provider === 'stripe') openStripeAgreements.push(blocker);
+    // subscription, and a GoCardless agreement stays active while its mandate
+    // does after a subscription-only stop. Decide them only after their linked
+    // plans are known.
+    if (table === TABLES[0] && SUBSCRIPTION_COLUMN[row.provider]) openProviderAgreements.push({ ...blocker, providerKey: row.provider });
     else blockers.push(blocker);
   }
   // Do not treat missing tables/columns or denied reads as an empty account.
@@ -61,13 +64,15 @@ export async function checkMemberDeletionBilling(db, { memberId, organizationId,
       failures.push('linked_payment_plans');
     }
   }
-  // Resolved only by provider-confirmed cancellation of every linked plan:
-  // the plan was moved to payment_plan_cancelled by a Stripe webhook or
-  // reconciliation, never by a local/admin status edit alone.
-  for (const agreement of openStripeAgreements) {
+  // Resolved only by provider-confirmed cancellation of every linked
+  // subscription plan: the plan was moved to payment_plan_cancelled by a
+  // provider webhook or reconciliation, never by a local/admin status edit
+  // alone. Plans without a provider subscription (for example dynamic Direct
+  // Debit collections) are never inferred stopped.
+  for (const { providerKey, ...agreement } of openProviderAgreements) {
     const linked = [...plans.values()].filter(plan => plan.billing_agreement_id === agreement.id);
-    const cancelled = linked.length > 0 && linked.every(plan => plan.provider === 'stripe'
-      && plan.status === 'payment_plan_cancelled' && plan.stripe_subscription_id);
+    const cancelled = linked.length > 0 && linked.every(plan => plan.provider === providerKey
+      && plan.status === 'payment_plan_cancelled' && plan[SUBSCRIPTION_COLUMN[providerKey]]);
     if (!cancelled || failures.length) { blockers.push(agreement); continue; }
     try {
       let query = db.from('membership_payment_status_history').select('entity_id')

@@ -2975,10 +2975,29 @@ export default function MemberDetail() {
                 {deletionBilling.data?.blockers?.map((item) => (
                   <p key={`${item.kind}-${item.id}`}>{item.provider} {item.kind}: {item.status} ({item.id})</p>
                 ))}
+                {deletionBilling.data?.code === 'RECURRING_BILLING_UNRESOLVED' && (
+                  <p className="mt-2" data-testid="text-delete-member-cancel-first">
+                    This member still has recurring payments set up. Cancel their membership first using
+                    {' '}<strong>Cancel membership</strong> on the Membership tab. Once Stripe or GoCardless confirms the
+                    payments have stopped, recheck here and the member can be deleted.
+                  </p>
+                )}
                 {(deletionBilling.isError || deletionBilling.data?.success === false) && (
-                  <Button variant="outline" size="sm" onClick={() => deletionBilling.refetch()} disabled={deletionBilling.isFetching}>
-                    Recheck after resolving billing
-                  </Button>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Button variant="outline" size="sm" onClick={() => deletionBilling.refetch()} disabled={deletionBilling.isFetching}>
+                      Recheck after resolving billing
+                    </Button>
+                    {deletionBilling.data?.code === 'RECURRING_BILLING_UNRESOLVED' && (
+                      <Button variant="outline" size="sm" data-testid="button-delete-member-open-membership" onClick={() => {
+                        setShowDeleteDialog(false);
+                        setDeleteConfirmText('');
+                        setActiveTab('membership');
+                        setSearchParams(searchForMemberTab(searchParams, 'membership'), { replace: true });
+                      }}>
+                        Go to Membership tab
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
               <p className="text-sm">

@@ -1,6 +1,7 @@
 import {createMemberCancellationAuthority} from './memberCancellationAuthority.js';
 import {createMemberCancellationExecution} from './memberCancellationExecution.js';
 import {amendmentResult} from './memberAmendmentSettlement.js';
+import {readMembershipChangePolicy} from './membershipChangePolicy.js';
 
 export const MEMBER_CANCELLATION_PROTOCOL='cancellation-v1';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -106,5 +107,55 @@ export function createMemberCancellationRequests({
   }
   return {record,provider};
  }
- return {preview,confirm,recover,recoverKey,withdraw,records};
+ // Read-only summary for the CRM "Cancel membership" action. It decides only
+ // whether to offer the action; preview/confirm re-verify everything.
+ async function status(context){
+  check(context);
+  const today=now().toISOString().slice(0,10);
+  const read=async query=>{
+   const {data,error}=await query;
+   if(error)fail('Cancellation status could not be verified.');
+   return data;
+  };
+  const member=await read(db.from('member').select('id,membership_cancelled')
+   .eq('tenant_id',context.tenantId).eq('id',context.memberId).maybeSingle());
+  if(!member)fail('Member not found.');
+  const histories=await read(db.from('member_membership_history')
+   .select('*')
+   .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).eq('status','active')
+   .lte('term_start_date',today).gt('membership_renewal_date',today).limit(5));
+  const requests=await read(db.from('member_cancellation_request')
+   .select('id,effective_date,timing,access_ended_at,withdrawn_at,created_at,financial_state,authority')
+   .eq('tenant_id',context.tenantId).eq('member_id',context.memberId)
+   .order('created_at',{ascending:false}).limit(5));
+  const latestRow=(requests||[]).find(row=>!row.withdrawn_at)||null;
+  let latest=null;
+  if(latestRow){
+   let providerState=latestRow.authority?.providerPrepared?'not_started':'not_required';
+   if(latestRow.authority?.providerPrepared&&latestRow.access_ended_at){
+    const {data:stop,error}=await db.from('member_cancellation_provider_stop').select('state')
+     .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).eq('id',latestRow.id).maybeSingle();
+    providerState=error?'unknown':stop?.state||'not_started';
+   }
+   const {authority,...record}=latestRow;
+   latest={...record,provider:authority?.providerPrepared?.authority?.provider||null,providerState};
+  }
+  const current=Array.isArray(histories)?histories:[];
+  const source=current.length===1?current[0]:null;
+  let blocker=null;
+  if(latest&&!latest.access_ended_at)blocker='cancellation_scheduled';
+  else if(member.membership_cancelled)blocker='already_cancelled';
+  else if(!current.length)blocker='no_current_membership';
+  else if(current.length>1)blocker='multiple_current_memberships';
+  else if(source.organization_id||source.membership_source==='organisation')blocker='organisation_funded';
+  let timing=null;
+  try{timing=(await readMembershipChangePolicy(db,context.tenantId))?.policy?.cancellationTiming||null;}catch{timing=null;}
+  return {
+   eligible:!blocker,blocker,timing,latest,
+   current:source&&{id:source.id,tierLabel:source.tier_label||null,termStartDate:source.term_start_date,
+    renewalDate:source.membership_renewal_date,paymentMethod:source.payment_method||null,
+    billingPeriod:source.billing_period||null,recurring:!!source.billing_agreement_id},
+  };
+ }
+ return {preview,confirm,recover,recoverKey,withdraw,records,status};
 }

@@ -4,7 +4,7 @@ import {createMemberAmendmentsHandler} from './member-amendments.js';
 const memberId='11111111-1111-4111-8111-111111111111';
 function fixture({admin=true,finance=true}={}){
  const calls=[];
- const service=Object.fromEntries(['records','preview','confirm','recover','recoverKey','withdraw']
+ const service=Object.fromEntries(['records','status','preview','confirm','recover','recoverKey','withdraw']
   .map(method=>[method,async(...args)=>{calls.push({method,args});return {record:{id:'request'}};}]));
  const handler=createMemberAmendmentsHandler({db:{},service:{},cancellationRequestsService:service,
   getContext:async()=>({isAuthenticated:true,tenantId:'owned-tenant',tenantUserId:'signed-in-actor',roleId:'finance-role'}),

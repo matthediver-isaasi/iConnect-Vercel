@@ -58,13 +58,14 @@ export function createMemberAmendmentsHandler({
         return res.json(await reviewMemberCreditExpiry(db,context.tenantId,actorId,req.body));
       }
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
-      if(['cancellation_requests','preview_cancellation','confirm_cancellation','recover_cancellation','withdraw_cancellation'].includes(action)){
-        if((action==='cancellation_requests')!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
+      if(['cancellation_requests','cancellation_status','preview_cancellation','confirm_cancellation','recover_cancellation','withdraw_cancellation'].includes(action)){
+        if((['cancellation_requests','cancellation_status'].includes(action))!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
         const input=req.method==='GET'?req.query:req.body;
         if(!AMENDMENT_UUID.test(input.memberId||''))return res.status(400).json({error:'A valid member is required'});
         const actor={tenantId:context.tenantId,memberId:input.memberId,actorId,actorKind:'admin'};
         const cancellations=cancellationRequestsService||createMemberCancellationRequests({db});
         if(action==='cancellation_requests')return res.json(await cancellations.records(actor,{after:input.after}));
+        if(action==='cancellation_status')return res.json(await cancellations.status(actor));
         if(action==='preview_cancellation')return res.json(await cancellations.preview(actor,input.selection));
         if(action==='confirm_cancellation')return res.json(await cancellations.confirm(actor,input));
         if(action==='withdraw_cancellation')return res.json(await cancellations.withdraw(actor,input));

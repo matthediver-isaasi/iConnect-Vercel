@@ -3,6 +3,7 @@ import FunnelMembershipEntitlements from "@/components/FunnelMembershipEntitleme
 import ApproveCardMembership from "@/components/membership/ApproveCardMembership";
 import MemberMembershipAmendments from "@/components/MemberMembershipAmendments";
 import MemberMembershipStart from "@/components/MemberMembershipStart";
+import MemberCancelMembership from "@/components/MemberCancelMembership";
 import ExtendMemberDateTerm from "@/components/membership/ExtendMemberDateTerm";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1407,6 +1408,7 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
   return (
     <div className="space-y-4">
       {pauseControls}
+      <MemberCancelMembership memberId={memberId} tenantId={activeTenantId} />
       <MemberMembershipStart memberId={memberId} tenantId={activeTenantId} />
       <MemberMembershipAmendments memberId={memberId} tenantId={activeTenantId} />
       <FunnelMembershipEntitlements scope="member" recipientId={memberId} />
