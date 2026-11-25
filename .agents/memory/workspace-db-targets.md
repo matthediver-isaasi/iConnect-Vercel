@@ -109,3 +109,9 @@ endpoint (member AI ask/history, etc.) can only be exercised end-to-end on the
 Vercel preview (`dev.iconn.app`), never locally. Verify locally via: routing
 (401 not 404), direct table CRUD against DEST with supabase-js, and code
 parity with an existing member endpoint.
+
+When the pinned DEST SQL password is rejected, approved DDL can go through the Supabase MCP migration callback as one DO block that EXECUTEs the migration body.
+
+**Why:** In Nov 2026 the destination pooler rejected the password, but the MCP migration callback applied an owner-approved migration cleanly; a final RAISE in the same DO block gave a rolled-back rehearsal with no history row.
+
+**How to apply:** Rehearse with a final RAISE, check that nothing persisted, then apply once with identity, advisory-lock and no-replay guards. Keep MCP SQL for reads only.
