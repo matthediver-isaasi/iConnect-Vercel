@@ -41,7 +41,7 @@ async function processPaymentLinkReminders(tenantId, results, today) {
         db: supabase, tenantId, history: originalHistory,
         asOf: new Date(today).toISOString().slice(0, 10), renewal: true,
       }) : originalHistory;
-      if (['cancelled', 'void', 'expired_checkout'].includes(history.status)) { skipped(`Membership history ${history.id} is ${history.status}.`); continue; }
+      if (['cancelled', 'void', 'expired_checkout', 'replaced'].includes(history.status)) { skipped(`Membership history ${history.id} is ${history.status}.`); continue; }
       const { data: histories, error } = await supabase.from(table).select('*').eq('tenant_id', tenantId).eq(column, history[column]);
       if (error) throw new Error(`Could not load reminder owner terms: ${error.message}`);
       let config = history.effective_commitment_snapshot?.config || history.commitment_snapshot?.config;

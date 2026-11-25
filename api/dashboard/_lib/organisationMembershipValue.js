@@ -8,7 +8,7 @@ const IN_FILTER_CHUNK = 200;
 
 const INCLUDED_STATUSES = new Set(['active', 'scheduled', 'expired']);
 const EXCLUDED_STATUSES = new Set([
-  'cancelled', 'canceled', 'void', 'superseded',
+  'cancelled', 'canceled', 'void', 'superseded', 'replaced',
   'draft', 'pending_payment_setup', 'payment_setup_required', 'expired_checkout',
 ]);
 const FILTER_OPERATORS = new Set(['eq', 'neq', 'in', 'contains', 'is_null', 'is_not_null']);

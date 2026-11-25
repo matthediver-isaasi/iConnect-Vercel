@@ -4,7 +4,7 @@ import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionP
 import { assignedFormExpiryPolicy } from './formExpiryOnlyRenewal.js';
 import { isSupersededRestartAgreement, isSupersededRestartTerm, supersededRestartAgreementIds } from './cancelledDirectDebitRestart.js';
 
-const discarded = new Set(['cancelled', 'canceled', 'void', 'expired_checkout']);
+const discarded = new Set(['cancelled', 'canceled', 'void', 'expired_checkout', 'replaced']);
 const date = value => {
   if (!value) throw new Error('Missing persisted membership date');
   return rollingDateString(value);

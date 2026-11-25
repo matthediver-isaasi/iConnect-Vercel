@@ -68,6 +68,9 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
   const fireWorkflow = deps.fireWorkflow || fireWorkflowForPaidRow;
   const fetchStatus = deps.fetchStatus || null;
   if (!row) return skipped(table, null, 'row-not-found');
+  // A replaced year's invoice is cleared by its credit note, which would
+  // otherwise read as "paid" and mark the retired row settled.
+  if (table === 'organisation_membership_history' && row.status === 'replaced') return skipped(table, row.id, 'replaced');
   if (table === 'member_membership_history' && row.payment_status === 'unverified') {
     return skipped(table, row.id, 'payment-unverified');
   }
@@ -341,7 +344,7 @@ export async function recordSucceededMembershipPaymentIntent(
   let row = existingByPI || null;
   if (!row && feeToken?.history_record_id) {
     const { data } = await db.from(table).select('*').eq('id', feeToken.history_record_id)
-      .neq('status', 'expired_checkout')
+      .neq('status', 'expired_checkout').neq('status', 'replaced')
       .eq('tenant_id', tenantId).eq(entityCol, entityId).eq('membership_year', md.membership_year).maybeSingle();
     row = data || null;
   }
@@ -352,7 +355,7 @@ export async function recordSucceededMembershipPaymentIntent(
       .eq('tenant_id', tenantId)
       .eq(entityCol, entityId)
       .eq('membership_year', md.membership_year)
-      .neq('status', 'expired_checkout')
+      .neq('status', 'expired_checkout').neq('status', 'replaced')
       .maybeSingle();
     row = data || null;
   }
@@ -501,7 +504,7 @@ export async function recordSucceededMembershipPaymentIntent(
           .eq('tenant_id', tenantId)
           .eq(entityCol, entityId)
           .eq('membership_year', md.membership_year)
-          .neq('status', 'expired_checkout')
+          .neq('status', 'expired_checkout').neq('status', 'replaced')
           .maybeSingle();
         if (raced?.payment_status === 'paid' && raced.stripe_payment_intent_id === pi.id) {
           return { status: 'already-recorded', table, recordId: raced.id, workflowFired: false, detail: 'concurrent confirm recorded this payment' };
@@ -753,7 +756,7 @@ export async function fireWorkflowForPaidRow(
   const trigger = deps.trigger || triggerWorkflows;
 
   const isOrg = table === ORG_TABLE;
-  if (!isOrg && ['cancelled_by_request', 'replaced'].includes(row.status)) {
+  if (row.status === 'replaced' || (!isOrg && row.status === 'cancelled_by_request')) {
     return { fired: false, skippedReason: 'retired-membership-purchase' };
   }
   const entityType = isOrg ? 'organization' : 'member';

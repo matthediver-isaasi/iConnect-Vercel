@@ -1403,6 +1403,52 @@ export async function findFormStripeQuickBooksInvoice(args, dependencies = {}) {
 // Credit note (CreditMemo)
 // ---------------------------------------------------------------------------
 
+/**
+ * Ensure a credit memo has applied `amount` in total to an invoice via
+ * zero-amount Payments. Linked payments are inspected first and only the
+ * shortfall is applied; the requestid makes a replayed POST return the first
+ * payment instead of creating a second one.
+ */
+export async function allocateQuickBooksCreditNoteToInvoice({ appTenantId, creditNoteId, invoiceId, amount, idempotencyKey }) {
+  if (!appTenantId || !creditNoteId || !invoiceId) throw new Error('appTenantId, creditNoteId and invoiceId are required');
+  const wanted = Number(amount);
+  if (!Number.isFinite(wanted) || wanted <= 0) throw new Error(`amount must be a positive number, got: ${amount}`);
+  const requestId = quickBooksMembershipOperationRequestId(idempotencyKey);
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const base = companyBase(getIntuitEndpoints(environment).apiBaseUrl, realmId);
+  const cm = (await qboFetch('creditmemo-retrieve', accessToken, 'GET', `${base}/creditmemo/${encodeURIComponent(creditNoteId)}?minorversion=${MINOR_VERSION}`))?.CreditMemo;
+  if (!cm?.Id) throw new Error(`QBO credit memo ${creditNoteId} not found`);
+  const invoice = (await qboFetch('invoice-retrieve', accessToken, 'GET', `${base}/invoice/${encodeURIComponent(invoiceId)}?minorversion=${MINOR_VERSION}`))?.Invoice;
+  if (!invoice?.Id) throw new Error(`QBO invoice ${invoiceId} not found`);
+  if (invoice.CustomerRef?.value !== cm.CustomerRef?.value) {
+    throw new Error('Credit memo and invoice belong to different customers; accounting review required');
+  }
+  let already = 0;
+  for (const link of (invoice.LinkedTxn || []).filter(t => t.TxnType === 'Payment')) {
+    const payment = (await qboFetch('payment-retrieve', accessToken, 'GET', `${base}/payment/${encodeURIComponent(link.TxnId)}?minorversion=${MINOR_VERSION}`))?.Payment;
+    for (const line of payment?.Line || []) {
+      if ((line.LinkedTxn || []).some(t => t.TxnType === 'CreditMemo' && t.TxnId === cm.Id)) already += Number(line.Amount) || 0;
+    }
+  }
+  const shortfall = Number((wanted - already).toFixed(2));
+  if (shortfall <= 0.004) return { allocated: true, amount: Number(already.toFixed(2)), alreadyExisted: true };
+  const value = Math.min(shortfall, Number(cm.Balance ?? cm.RemainingCredit ?? 0) || 0, Number(invoice.Balance) || 0);
+  if (value <= 0) return { allocated: already > 0, amount: Number(already.toFixed(2)), reason: 'Nothing allocatable' };
+  const payload = {
+    CustomerRef: { value: invoice.CustomerRef.value },
+    TotalAmt: 0,
+    Line: [
+      { Amount: Number(value.toFixed(2)), LinkedTxn: [{ TxnId: invoice.Id, TxnType: 'Invoice' }] },
+      { Amount: Number(value.toFixed(2)), LinkedTxn: [{ TxnId: cm.Id, TxnType: 'CreditMemo' }] },
+    ],
+    ...(invoice.CurrencyRef?.value ? { CurrencyRef: { value: invoice.CurrencyRef.value } } : {}),
+  };
+  const url = `${base}/payment?minorversion=${MINOR_VERSION}${requestId ? `&requestid=${encodeURIComponent(requestId)}` : ''}`;
+  const resp = await qboFetch('creditmemo-allocate', accessToken, 'POST', url, payload);
+  if (!resp?.Payment?.Id) throw new Error('QuickBooks did not confirm the credit allocation');
+  return { allocated: true, amount: Number((already + value).toFixed(2)) };
+}
+
 export async function createQuickBooksCreditNote({
   appTenantId,
   invoiceId,

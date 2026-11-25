@@ -278,7 +278,7 @@ return async function handler(req, res) {
           .eq('membership_year', feeToken.membership_year).maybeSingle();
         if (error) throw new Error(`Could not verify the linked renewal: ${error.message}`);
         if (linked && linked.payment_status !== 'unverified' && linked.payment_status !== 'paid' && !linked.paid_at
-            && !linked.billing_agreement_id && !['cancelled', 'void'].includes(linked.status)
+            && !linked.billing_agreement_id && !['cancelled', 'void', 'replaced'].includes(linked.status)
             && (linked.xero_invoice_id || linked.accounting_invoice_id || linked.term_key)) {
           const { classifyAnnualRenewal, hasActiveMonthlyBillingAgreement } = await import('../../_lib/annualRenewalPolicy.js');
           const hasMonthly = await hasActiveMonthlyBillingAgreement(supabase, {

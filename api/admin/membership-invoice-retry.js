@@ -60,6 +60,10 @@ export default async function handler(req, res) {
     return res.status(409).json({ code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
       error: 'Payment unverified. Financial evidence must be reviewed before creating or retrying an invoice.' });
   }
+  if (table === ORG_TABLE && (row.status === 'replaced' || row.replaces_record_id)) {
+    return res.status(409).json({ code: 'MEMBERSHIP_REPLACEMENT_OWNED',
+      error: 'This year is part of a membership replacement. Use the replacement retry in Membership Fee History.' });
+  }
   // An accepted operation owns its original economics even if today's
   // configuration, payment status or selected provider has changed.
   {

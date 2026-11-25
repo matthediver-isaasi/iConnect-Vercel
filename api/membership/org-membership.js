@@ -3,6 +3,7 @@ import { listFunnelMemberships } from '../_lib/funnelMembershipEntitlements.js';
 import { funnelMembershipEnabled } from '../_lib/funnelMembershipRollout.js';
 import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { attachMembershipInvoiceAvailability } from '../_lib/membershipInvoiceAvailability.js';
+import { attachReplacementOperations } from '../_lib/organisationMembershipReplacement.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { listOrganisationProposalMemberships } from '../_lib/proposalMembershipEntitlements.js';
 import { proposalMembershipEnabled } from '../_lib/proposalMembershipRollout.js';
@@ -343,16 +344,19 @@ async function handleGet(req, res, tenantId) {
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
-    .order('membership_year', { ascending: false });
+    .order('membership_year', { ascending: false })
+    .order('created_at', { ascending: false });
 
   if (historyError) throw historyError;
   await attachLinkedHistoryStructureNames(supabase, tenantId, historyRecords || []);
   await attachMembershipInvoiceAvailability(supabase, tenantId, historyRecords || []);
+  await attachReplacementOperations(supabase, tenantId, historyRecords || []);
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
 
-  const currentYearRecord = (historyRecords || []).find(h => h.membership_year === currentYear.label);
+  // A replaced original is retired; its replacement is the current year.
+  const currentYearRecord = (historyRecords || []).find(h => h.membership_year === currentYear.label && h.status !== 'replaced');
   const hasCurrentYearRecord = !!currentYearRecord;
 
   const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
@@ -597,6 +601,9 @@ async function handleGet(req, res, tenantId) {
       label: currentYear.label,
       start: currentYear.start.toISOString().split('T')[0],
       end: currentYear.end.toISOString().split('T')[0],
+      recordId: currentYearRecord?.id || null,
+      recordStatus: currentYearRecord?.status || null,
+      replacesRecordId: currentYearRecord?.replaces_record_id || null,
     },
     nextYearPreview,
     immediateMembership,
@@ -624,7 +631,8 @@ async function getHistory(req, res, tenantId, organizationId) {
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
-    .order('membership_year', { ascending: false });
+    .order('membership_year', { ascending: false })
+    .order('created_at', { ascending: false });
 
   if (error) {
     return res.status(500).json({ error: 'Failed to fetch history' });
@@ -632,6 +640,7 @@ async function getHistory(req, res, tenantId, organizationId) {
 
   await attachLinkedHistoryStructureNames(supabase, tenantId, data || []);
   await attachMembershipInvoiceAvailability(supabase, tenantId, data || []);
+  await attachReplacementOperations(supabase, tenantId, data || []);
   return res.json(data || []);
 }
 
@@ -730,6 +739,7 @@ async function handlePost(req, res, tenantId) {
       .eq('tenant_id', tenantId)
       .eq('organization_id', organizationId)
       .eq('membership_year', simResult.membershipYear.label)
+      .neq('status', 'replaced')
       .maybeSingle();
 
     if (existingError || !existingRecord) {
@@ -832,6 +842,7 @@ async function handlePost(req, res, tenantId) {
         .eq('tenant_id', tenantId)
         .eq('organization_id', organizationId)
         .eq('membership_year', simResult.membershipYear.label)
+        .neq('status', 'replaced')
         .maybeSingle();
       if (
         !existingError

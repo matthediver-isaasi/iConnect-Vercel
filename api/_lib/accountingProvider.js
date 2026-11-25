@@ -425,6 +425,10 @@ function makeXeroProvider() {
       return xero.emailXeroCreditNote(args);
     },
 
+    async allocateCreditNoteToInvoice(args) {
+      return xero.allocateXeroCreditNoteToInvoice(args);
+    },
+
     async pushPurchaseOrder(args) {
       return xero.pushPurchaseOrderToXero(args);
     },
@@ -545,6 +549,10 @@ function makeQuickBooksProvider() {
       return qbo.emailQuickBooksCreditNote(args);
     },
 
+    async allocateCreditNoteToInvoice(args) {
+      return qbo.allocateQuickBooksCreditNoteToInvoice(args);
+    },
+
     async pushPurchaseOrder(args) {
       return qbo.pushPurchaseOrderToQuickBooksInvoice(args);
     },
@@ -596,6 +604,7 @@ function makeNoneProvider() {
     async findFormStripeInvoice()     { throw notConnected('findFormStripeInvoice'); },
     async createCreditNote()           { throw notConnected('createCreditNote'); },
     async emailCreditNote()            { throw notConnected('emailCreditNote'); },
+    async allocateCreditNoteToInvoice() { throw notConnected('allocateCreditNoteToInvoice'); },
     async pushPurchaseOrder()          { throw notConnected('pushPurchaseOrder'); },
     async fetchInvoicePdf()            { throw notConnected('fetchInvoicePdf'); },
     async fetchInvoiceStatus()         { throw notConnected('fetchInvoiceStatus'); },

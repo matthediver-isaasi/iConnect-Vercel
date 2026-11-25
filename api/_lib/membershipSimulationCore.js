@@ -142,7 +142,7 @@ async function resolveRollingSimulationContext(client, {
   const { data: rows, error } = await client.from(memberId ? 'member_membership_history' : 'organisation_membership_history')
     .select('*').eq('tenant_id', tenantId).eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId);
   if (error) throw new Error(`Could not load purchased membership terms: ${error.message}`);
-  let histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+  let histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout', 'replaced'].includes(row.status));
   if (memberId && findUnresolvedUnverifiedHistory(histories, {
     previousTerm: options.previousTerm, targetYear: options.targetYear, historyId: options.expiryOnlyHistoryId,
   })) {
@@ -510,7 +510,8 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .eq('membership_year', membershipYear.label)
-    .neq('status', 'expired_checkout')
+    .neq('status', 'expired_checkout').neq('status', 'replaced')
+    .neq('id', options.replacementOfRecordId || '00000000-0000-0000-0000-000000000000')
     .maybeSingle();
 
   if (existingRecord) {
@@ -581,7 +582,11 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   }
 
   let override = null;
-  try {
+  // A replacement preview supplies its proposed override explicitly (or null
+  // for none) so the stored override for the year is never consulted early.
+  const explicitOverride = Object.prototype.hasOwnProperty.call(options, 'replacementOverride');
+  if (explicitOverride) override = options.replacementOverride || null;
+  if (!explicitOverride) try {
     const yearLabel = membershipYear?.label || null;
     let overrideQuery = supabase
       .from('organisation_membership_override')
@@ -672,12 +677,17 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   const isPriceOverride = override?.override_type === 'price';
 
-  const { data: historyRecords, error: historyError } = await supabase
+  const { data: loadedHistoryRecords, error: historyError } = await supabase
     .from('organisation_membership_history')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId);
   if (historyError) return { success: false, steps, code: 'new_member_incentive_review_required', error: `Could not load original incentive usage: ${historyError.message}` };
+  // A replacement re-prices the same period as if the original row being
+  // replaced did not exist, so year-one pro-rata and incentives still apply.
+  const historyRecords = options.replacementOfRecordId
+    ? (loadedHistoryRecords || []).filter(row => row.id !== options.replacementOfRecordId)
+    : loadedHistoryRecords;
   const prospectiveYear2 = source === 'tab' && !explicitConfigId && !existingRecord
     && !Object.keys(fieldOverrides).length && !rollingContext
     && config.billing_period === 'annual' && actualCurrentConfig?.billing_period === 'annual'
@@ -686,7 +696,14 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
   const isNewOrg = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
-  const effectiveJoinDate = rollingContext ? new Date(membershipYear.start) : goLiveDate ? new Date(goLiveDate) : clock();
+  // Without a go-live date the original was pro-rated from the day it was
+  // recorded; a replacement keeps that join day rather than using today.
+  const replacementProrataDays = Number(options.replacementProrataDays);
+  const replacementJoinDate = !rollingContext && !goLiveDate && options.replacementOfRecordId
+    && Number.isInteger(replacementProrataDays) && replacementProrataDays > 0
+    ? (() => { const d = new Date(membershipYear.end); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - replacementProrataDays + 1); return d; })()
+    : null;
+  const effectiveJoinDate = rollingContext ? new Date(membershipYear.start) : goLiveDate ? new Date(goLiveDate) : (replacementJoinDate || clock());
 
   const yearStartMidnight = new Date(membershipYear.start);
   yearStartMidnight.setHours(0, 0, 0, 0);
@@ -767,7 +784,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   } else if (yearNumber === 2) {
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     try {
-      const activeHistory = (historyRecords || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+      const activeHistory = (historyRecords || []).filter(row => !['cancelled', 'void', 'expired_checkout', 'replaced'].includes(row.status));
       const firstYears = activeHistory.filter(row => Number(row.year_number) === 1);
       if (firstYears.length > 1) throw new Error('Multiple Year 1 records prevent identifying original incentive usage.');
       const firstYear = firstYears[0] || null;

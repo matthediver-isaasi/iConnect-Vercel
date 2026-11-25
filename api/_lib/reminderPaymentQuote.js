@@ -72,7 +72,7 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
   const window = history.term_key
     ? { label: `rolling:${start}`, start: term.nextStart }
     : calculateMembershipYearWindow(config, term.nextStart);
-  const successor = histories.find(row => row.id !== history.id && !['cancelled', 'void', 'expired_checkout'].includes(row.status)
+  const successor = histories.find(row => row.id !== history.id && !['cancelled', 'void', 'expired_checkout', 'replaced'].includes(row.status)
     && (row.term_start_date === start || row.membership_year === window.label));
   if (successor?.payment_status === 'unverified') return blocked('MEMBERSHIP_PAYMENT_UNVERIFIED', 'Successor payment is unverified; financial review is required.');
   if (successor && (successor.payment_status === 'paid' || successor.paid_at || Number(successor.total_with_vat ?? successor.final_cost) === 0)) {

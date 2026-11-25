@@ -410,6 +410,34 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
         return res.status(409).json({ code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
           error: 'Payment unverified. No invoice is available for this historical membership.' });
       }
+      if (query.document === 'credit_note') {
+        // Replacement credit notes are an administrator document only.
+        if (!isAdmin || candidateSource !== ORGANISATION_SOURCE || instalmentRequest) {
+          return res.status(403).json({ error: 'Credit notes are available to administrators only' });
+        }
+        const { data: creditRow, error: creditError } = await db
+          .from(TABLE_BY_SOURCE[ORGANISATION_SOURCE])
+          .select('id, accounting_provider, accounting_credit_note_id, accounting_credit_note_number')
+          .eq('id', recordId).eq('tenant_id', appTenantId).maybeSingle();
+        if (creditError) throw creditError;
+        if (!creditRow?.accounting_credit_note_id) {
+          return res.status(404).json({ error: 'No credit note is linked to this membership record' });
+        }
+        let pdfBuffer;
+        try {
+          const provider = await getProviderByName(creditRow.accounting_provider || 'xero');
+          pdfBuffer = await provider.fetchCreditNotePdf(creditRow.accounting_credit_note_id, appTenantId);
+        } catch (error) {
+          console.error('[membership-invoice] Accounting provider credit note PDF fetch failed:', error);
+          return res.status(502).json({ error: PROVIDER_ERROR_MESSAGE });
+        }
+        const filenamePart = safeFilenamePart(creditRow.accounting_credit_note_number || recordId);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.setHeader('Content-Disposition',
+          `${query.inline === 'true' ? 'inline' : 'attachment'}; filename="membership-credit-note-${filenamePart}.pdf"`);
+        return res.send(pdfBuffer);
+      }
       if (instalmentRequest) {
         const instalment = await fetchInstalmentInvoiceRow({
           db,

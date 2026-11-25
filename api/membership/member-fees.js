@@ -116,6 +116,7 @@ async function handleGetOrgScoped(req, res, member, tenantId, organizationId, se
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .eq('membership_year', simResult.membershipYear?.label)
+    .neq('status', 'replaced')
     .maybeSingle();
 
   const approvalInfo = await checkMemberFeesApproval(tenantId, organizationId, simResult.membershipYear?.label);

@@ -49,7 +49,7 @@ export async function loadFormMembershipRenewalContext(db, {
   if (owners.length !== 1) throw new Error('Membership owner cannot be verified');
   const evidence = { ...scope, histories, agreements, now, paused: owners[0].membership_paused === true };
   if (evidence.paused) return { renewal: { state: 'paused', eligible: false }, simulation: null };
-  const retained = histories.filter(row => !['cancelled', 'canceled', 'void', 'expired_checkout'].includes(row.status));
+  const retained = histories.filter(row => !['cancelled', 'canceled', 'void', 'expired_checkout', 'replaced'].includes(row.status));
   if (!retained.length) {
     const renewal = assessFormMembershipRenewalEvidence(evidence);
     if (!renewalSelection || renewal.state !== 'joining') return { renewal, simulation: null };

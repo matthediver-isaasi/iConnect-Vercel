@@ -235,7 +235,9 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
   if (config?.start_mode !== 'immediate' && String(config?.billing_period || 'annual').toLowerCase() !== 'annual') {
     return { applicable: false, eligible: true, state: 'recurring', lifecycle: { kind: 'recurring' } };
   }
-  const rows = await loadEntityHistory(client, { tenantId, memberId, organizationId });
+  const loaded = await loadEntityHistory(client, { tenantId, memberId, organizationId });
+  // A replaced organisation year is retired; its replacement carries the term.
+  const rows = organizationId && !memberId ? loaded.filter((row) => row.status !== 'replaced') : loaded;
   const targetLabel = membershipYear?.label || null;
   const existingTargetRecord = rows.find((row) => row.membership_year === targetLabel) || null;
   const unresolved = memberId && findUnresolvedUnverifiedHistory(rows, { targetYear: targetLabel });

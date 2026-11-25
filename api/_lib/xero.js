@@ -2071,6 +2071,45 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   };
 }
 
+/**
+ * Ensure a credit note has allocated `amount` in total to an invoice (the
+ * original invoice or a replacement invoice). Existing allocations are
+ * discovered first and only the shortfall is allocated, so a retry never
+ * allocates twice. Returns the total now allocated to that invoice.
+ */
+export async function allocateXeroCreditNoteToInvoice({ appTenantId, creditNoteId, invoiceId, amount, idempotencyKey }, {
+  fetcher = xeroRateLimitedFetch, loadToken = getValidXeroAccessToken,
+} = {}) {
+  if (!appTenantId || !creditNoteId || !invoiceId) throw new Error('appTenantId, creditNoteId and invoiceId are required');
+  const wanted = Number(amount);
+  if (!Number.isFinite(wanted) || wanted <= 0) throw new Error(`amount must be a positive number, got: ${amount}`);
+  const { accessToken, tenantId: xeroTenantId } = await loadToken(appTenantId);
+  const headers = { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' };
+  const cnData = await safeXeroJson(await fetcher(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNoteId}`, { method: 'GET', headers }), 'creditnote-retrieve');
+  const creditNote = cnData?.CreditNotes?.[0];
+  if (!creditNote?.CreditNoteID) throw new Error(`Credit note ${creditNoteId} not found in Xero`);
+  const already = (creditNote.Allocations || [])
+    .filter(a => a.Invoice?.InvoiceID === invoiceId && Number(a.Amount) > 0)
+    .reduce((sum, a) => sum + Number(a.Amount), 0);
+  const shortfall = Number((wanted - already).toFixed(2));
+  if (shortfall <= 0.004) return { allocated: true, amount: Number(already.toFixed(2)), alreadyExisted: true };
+  const invData = await safeXeroJson(await fetcher(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, { method: 'GET', headers }), 'invoice-retrieve');
+  const invoice = invData?.Invoices?.[0];
+  if (!invoice?.InvoiceID) throw new Error(`Invoice ${invoiceId} not found in Xero`);
+  if (invoice.Contact?.ContactID !== creditNote.Contact?.ContactID || invoice.CurrencyCode !== creditNote.CurrencyCode) {
+    throw new Error('Credit note and invoice belong to different contacts or currencies; accounting review required');
+  }
+  const value = Math.min(shortfall, Number(creditNote.RemainingCredit) || 0, Number(invoice.AmountDue) || 0);
+  if (value <= 0) return { allocated: already > 0, amount: Number(already.toFixed(2)), reason: 'Nothing allocatable' };
+  const data = await safeXeroJson(await fetcher(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNoteId}/Allocations`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': String(idempotencyKey).slice(0, 128) } : {}) },
+    body: JSON.stringify({ Allocations: [{ Invoice: { InvoiceID: invoiceId }, Amount: Number(value.toFixed(2)), Date: new Date().toISOString().split('T')[0] }] }),
+  }), 'creditnote-allocate');
+  if (!(data?.Allocations?.length > 0)) throw new Error('Xero did not confirm the credit allocation');
+  return { allocated: true, amount: Number((already + value).toFixed(2)) };
+}
+
 export async function readXeroInvoiceCreditEvidence(appTenantId, invoiceId, {
   loadToken = getValidXeroAccessToken, fetcher = fetch,
 } = {}) {

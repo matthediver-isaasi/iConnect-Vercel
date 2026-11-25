@@ -29,10 +29,11 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Eye, Download, RefreshCw
+  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Eye, Download, RefreshCw, Repeat
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
@@ -43,6 +44,11 @@ import MembershipInvoiceAvailability from "./membership/MembershipInvoiceAvailab
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
 import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
 import OrganisationImmediateMembershipCards from "@/components/membership/OrganisationImmediateMembershipCards";
+import MembershipOverrideControls from "@/components/membership/MembershipOverrideControls";
+import MembershipAddonLinesEditor, { summarizeAddonLines, addonLinesAreValid, serializeAddonLines } from "@/components/membership/MembershipAddonLinesEditor";
+import ReplaceOrgMembershipYearDialog from "@/components/membership/ReplaceOrgMembershipYearDialog";
+import { replacementSyncStatus } from "@/components/membership/replacementSyncStatus";
+import { formatCost, getCurrencySymbol } from "@/components/membership/membershipCost";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -55,16 +61,6 @@ function PaymentStatusBadge({ paymentStatus }) {
   );
 }
 
-function getCurrencySymbol(code) {
-  const map = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
-  return map[code] || code;
-}
-
-function formatCost(value, currency) {
-  if (value === null || value === undefined) return '-';
-  const symbol = getCurrencySymbol(currency);
-  return `${symbol}${parseFloat(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function YearPreviewWarning({ warning, testIdPrefix }) {
   return (
@@ -122,6 +118,7 @@ export function YearCostSection({
   onAdvanceInvoice,
   advanceInvoicePending,
   advanceInvoiceRecord,
+  onReplace,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const { memberLabel } = useMemberTerminology();
@@ -360,9 +357,25 @@ export function YearCostSection({
       {showRecordFee && !prospective && (
         <div className="mt-2">
           {currentYearRecorded ? (
-            <Badge variant="secondary">
-              Recorded: {formatCost(currentYearRecorded.final_cost, currency)}
-            </Badge>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="secondary">
+                Recorded: {formatCost(currentYearRecorded.final_cost, currency)}
+              </Badge>
+              {currentYearRecorded.replaces_record_id && (
+                <Badge variant="outline" data-testid="badge-current-year-replacement">Replacement</Badge>
+              )}
+              {onReplace && currentYearRecorded.status === 'active' && !currentYearRecorded.replaced_by_record_id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onReplace(currentYearRecorded)}
+                  data-testid="button-replace-current-year"
+                >
+                  <Repeat className="w-3 h-3 mr-1" />
+                  Replace
+                </Button>
+              )}
+            </div>
           ) : (
             <Button
               size="sm"
@@ -656,6 +669,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
   const [reconcilingRecordId, setReconcilingRecordId] = useState(null);
   const [retryingInvoiceRecordId, setRetryingInvoiceRecordId] = useState(null);
+  const [replaceTarget, setReplaceTarget] = useState(null);
+  const [retryingReplacementId, setRetryingReplacementId] = useState(null);
+  const { isAdmin: canReplaceYears } = useMemberAccess();
 
   // Task #1112 — retry accounting-invoice creation when the original
   // post-payment mint failed and the row was flagged with
@@ -680,6 +696,27 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       toast.error(err.message || 'Could not create invoice');
     } finally {
       setRetryingInvoiceRecordId(null);
+    }
+  };
+
+  const handleRetryReplacement = async (operationId) => {
+    setRetryingReplacementId(operationId);
+    try {
+      const response = await fetch('/api/membership/org-membership-replace', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retry', organizationId, operationId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Retry failed');
+      if (payload.operation?.sync_state === 'complete') toast.success('Replacement accounting completed');
+      else toast.error(payload.operation?.last_error || 'Accounting sync still needs attention');
+    } catch (error) {
+      toast.error(error.message || 'Retry failed');
+    } finally {
+      setRetryingReplacementId(null);
+      queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
     }
   };
 
@@ -708,10 +745,12 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     }
   };
 
-  const handleViewInvoice = async (recordId, invoiceNumber) => {
+  const documentQuery = (documentKind) => (documentKind === 'credit_note' ? '&document=credit_note&source=organisation' : '');
+
+  const handleViewInvoice = async (recordId, invoiceNumber, documentKind) => {
     setLoadingInvoiceRecordId(recordId);
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true${documentQuery(documentKind)}`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -732,10 +771,10 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     }
   };
 
-  const handleDownloadInvoice = async (recordId, invoiceNumber) => {
+  const handleDownloadInvoice = async (recordId, invoiceNumber, documentKind) => {
     setLoadingInvoiceRecordId(recordId);
     try {
-      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?download=true${documentQuery(documentKind)}`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -746,7 +785,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       const blobUrl = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `membership-invoice-${invoiceNumber || recordId}.pdf`;
+      link.download = `membership-${documentKind === 'credit_note' ? 'credit-note' : 'invoice'}-${invoiceNumber || recordId}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -808,7 +847,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       if (!response.ok) throw new Error('Failed to fetch configs');
       return response.json();
     },
-    enabled: overrideModalOpen && !!organizationId,
+    enabled: (overrideModalOpen || !!replaceTarget) && !!organizationId,
   });
 
   const { data: emailFeesRoles = [] } = useQuery({
@@ -1012,54 +1051,15 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     setApproveFeesDialogOpen(true);
   };
 
-  const updateAddonLine = (index, patch) => {
-    setApproveAddonLines(prev => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
-  };
-
-  const addonLineTotal = (line) => {
-    const unit = parseFloat(line.unitCost);
-    const qty = parseFloat(line.quantity);
-    if (!isFinite(unit) || !isFinite(qty)) return 0;
-    return Math.round(unit * qty * 100) / 100;
-  };
-
-  const addonSummary = (() => {
-    let subtotal = 0;
-    let vat = 0;
-    for (const line of approveAddonLines) {
-      const total = addonLineTotal(line);
-      subtotal += total;
-      const rate = line.type === 'training_fund'
-        ? (membershipSettings?.training_fund_vat_rate?.effectiveRate ?? 0)
-        : (line.vatRate?.effectiveRate ?? 0);
-      vat += Math.round(total * (parseFloat(rate) || 0)) / 100;
-    }
-    subtotal = Math.round(subtotal * 100) / 100;
-    vat = Math.round(vat * 100) / 100;
-    return { subtotal, vat, total: Math.round((subtotal + vat) * 100) / 100 };
-  })();
-
-  const addonLinesValid = approveAddonLines.every(line => {
-    const unit = parseFloat(line.unitCost);
-    const qty = parseFloat(line.quantity);
-    if (!isFinite(unit) || unit <= 0 || !isFinite(qty) || qty <= 0) return false;
-    if (!String(line.description || '').trim()) return false;
-    return true;
-  });
+  const addonSummary = summarizeAddonLines(approveAddonLines, membershipSettings);
+  const addonLinesValid = addonLinesAreValid(approveAddonLines);
 
   const submitApproveWithAddons = () => {
     if (!approveFeesYearData) return;
     approvalMutation.mutate({
       membershipYear: approveFeesYearData.membershipYear,
       action: 'approve',
-      addonLines: approveAddonLines.map(line => ({
-        type: line.type,
-        description: String(line.description || '').trim(),
-        nominalCode: line.type === 'training_fund' ? (membershipSettings?.training_fund_nominal_code || null) : (line.nominalCode || null),
-        vatRate: line.type === 'training_fund' ? (membershipSettings?.training_fund_vat_rate || null) : (line.vatRate || null),
-        unitCost: parseFloat(line.unitCost),
-        quantity: parseFloat(line.quantity),
-      })),
+      addonLines: serializeAddonLines(approveAddonLines, membershipSettings),
     });
   };
 
@@ -1402,7 +1402,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
   const isFlat = config.pricing_model === 'flat';
 
-  const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label);
+  // A replaced original is retired; the replacement is the current year.
+  const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label && h.status !== 'replaced');
 
   const nextYearAdvanceRecord = history?.find(h =>
     h.membership_year === nextYearPreview?.membershipYear &&
@@ -1568,6 +1569,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 goLiveDate={goLiveDate}
                 showRecordFee={true}
                 currentYearRecorded={currentYearRecorded}
+                onReplace={canReplaceYears && !currentYearCost?.previewOnly ? setReplaceTarget : undefined}
                 recordMutation={recordMutation}
                 organizationId={organizationId}
                 onOpenOverride={handleOpenOverrideModal}
@@ -1775,10 +1777,27 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                       && record.interval_unit !== 'monthly'
                       && record.payment_frequency !== 'monthly';
                     return (
-                    <tr key={record.id} className="border-b last:border-0" data-testid={`row-history-${record.id}`}>
+                    <tr key={record.id} id={`row-history-${record.id}`} className={`border-b last:border-0${record.status === 'replaced' ? ' opacity-70' : ''}`} data-testid={`row-history-${record.id}`}>
                       <td className="p-3 font-medium">{record.membership_year}</td>
                       <td className="p-3">
                         <HistoricalStructureLabel record={record} />
+                        {record.status === 'replaced' && (
+                          <p className="text-xs text-muted-foreground" data-testid={`text-replaced-by-${record.id}`}>
+                            Replaced by{' '}
+                            <a href={`#row-history-${record.replaced_by_record_id}`} className="underline">
+                              {record.replaced_by_label || 'replacement'}
+                            </a>
+                            {record.replacement_operation?.reason ? ` — ${record.replacement_operation.reason}` : ''}
+                          </p>
+                        )}
+                        {record.replaces_record_id && (
+                          <p className="text-xs text-muted-foreground" data-testid={`text-replaces-${record.id}`}>
+                            Replaces{' '}
+                            <a href={`#row-history-${record.replaces_record_id}`} className="underline">
+                              {record.replaces_label || 'original record'}
+                            </a>
+                          </p>
+                        )}
                         {record.proposal_membership && <p className="text-xs text-green-700">Proposal coverage: {record.proposal_membership.scheduleName}.
                           Original base {(record.proposal_membership.originalBaseNetMinor / 100).toFixed(2)};
                           complimentary adjustment −{(record.proposal_membership.originalBaseNetMinor / 100).toFixed(2)}.</p>}
@@ -1803,15 +1822,69 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                       <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
                       <td className="p-3">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <Badge variant={lifecycle.variant} data-testid={`badge-lifecycle-${lifecycle.key}`}>
-                            {lifecycle.label}
-                          </Badge>
+                          {record.status === 'replaced' ? (
+                            <Badge variant="outline" data-testid={`badge-replaced-${record.id}`}>Replaced</Badge>
+                          ) : (
+                            <Badge variant={lifecycle.variant} data-testid={`badge-lifecycle-${lifecycle.key}`}>
+                              {lifecycle.label}
+                            </Badge>
+                          )}
+                          {record.replaces_record_id && (
+                            <Badge variant="secondary" data-testid={`badge-replacement-${record.id}`}>Replacement</Badge>
+                          )}
                           {record.proposal_membership && Number(record.total_with_vat ?? record.final_cost) === 0
                             ? <Badge variant="outline">Complimentary — no payment required</Badge>
                             : <PaymentStatusBadge paymentStatus={record.payment_status} />}
                         </div>
                       </td>
                       <td className="p-3">
+                        {(() => {
+                          const op = record.replacement_operation;
+                          const creditNoteNumber = record.accounting_credit_note_number;
+                          const showSync = op && (record.replaces_record_id || (record.status === 'replaced' && !record.replaced_by_record_id)) && op.sync_state !== 'complete';
+                          if (!record.accounting_credit_note_id && !showSync) return null;
+                          return (
+                            <div className="flex flex-col items-center gap-1 mb-1">
+                              {record.accounting_credit_note_id && (
+                                <div className="flex items-center gap-1" data-testid={`credit-note-${record.id}`}>
+                                  <span className="text-xs text-muted-foreground">Credit note {creditNoteNumber || ''}</span>
+                                  <Button size="icon" variant="ghost" className="h-6 w-6"
+                                    onClick={() => handleViewInvoice(record.id, creditNoteNumber, 'credit_note')}
+                                    title={`View credit note ${creditNoteNumber || ''}`.trim()}
+                                    data-testid={`button-view-credit-note-${record.id}`}>
+                                    <Eye className="w-3 h-3" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" className="h-6 w-6"
+                                    onClick={() => handleDownloadInvoice(record.id, creditNoteNumber, 'credit_note')}
+                                    title={`Download credit note ${creditNoteNumber || ''}`.trim()}
+                                    data-testid={`button-download-credit-note-${record.id}`}>
+                                    <Download className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              )}
+                              {showSync && (() => {
+                                const sync = replacementSyncStatus(op);
+                                if (!sync) return null;
+                                return (
+                                  <div className="flex flex-col items-center gap-1 max-w-56 text-center" data-testid={`replacement-sync-${record.id}`}>
+                                    <Badge variant={sync.destructive ? 'destructive' : 'outline'}>
+                                      Replacement sync: {sync.label}
+                                    </Badge>
+                                    {sync.message && <p className="text-xs text-destructive break-words">{sync.message}</p>}
+                                    {sync.canRetry ? (
+                                      <Button size="sm" variant="outline"
+                                        onClick={() => handleRetryReplacement(op.id)}
+                                        disabled={retryingReplacementId === op.id}
+                                        data-testid={`button-retry-replacement-${record.id}`}>
+                                        {retryingReplacementId === op.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Retry'}
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          );
+                        })()}
                         {!invoiceId && record.accounting_sync_status === 'failed' ? (
                           <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
                             <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
@@ -1880,7 +1953,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                                 >
                                   <Download className="w-4 h-4" />
                                 </Button>
-                                <Button
+                                {record.status !== 'replaced' && <Button
                                   size="icon"
                                   variant="ghost"
                                   onClick={() => handleReconcilePayment(record.id)}
@@ -1893,7 +1966,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                                   ) : (
                                     <RefreshCw className="w-4 h-4" />
                                   )}
-                                </Button>
+                                </Button>}
                               </>
                             )}
                             </div>
@@ -1935,152 +2008,13 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           </DialogHeader>
 
           <div className="space-y-4">
-            {approveAddonLines.length > 0 && (
-              <div className="space-y-3">
-                {approveAddonLines.map((line, index) => (
-                  <div key={index} className="p-3 rounded-md border space-y-3" data-testid={`addon-line-${index}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge variant="outline">
-                        {line.type === 'training_fund' ? 'Training Fund top-up' : 'Add-on'}
-                      </Badge>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setApproveAddonLines(prev => prev.filter((_, i) => i !== index))}
-                        data-testid={`button-remove-addon-${index}`}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Description</Label>
-                      <Input
-                        value={line.description}
-                        onChange={(e) => updateAddonLine(index, { description: e.target.value })}
-                        data-testid={`input-addon-description-${index}`}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Unit cost (ex VAT)</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.unitCost}
-                          onChange={(e) => updateAddonLine(index, { unitCost: e.target.value })}
-                          data-testid={`input-addon-unit-cost-${index}`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Quantity</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={line.quantity}
-                          onChange={(e) => updateAddonLine(index, { quantity: e.target.value })}
-                          data-testid={`input-addon-quantity-${index}`}
-                        />
-                      </div>
-                      {line.type === 'training_fund' ? (
-                        <>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Nominal code</Label>
-                            <Input value={membershipSettings?.training_fund_nominal_code || ''} disabled readOnly />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">VAT rate</Label>
-                            <Input value={membershipSettings?.training_fund_vat_rate?.name || 'Provider default'} disabled readOnly />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Nominal code</Label>
-                            <Input
-                              value={line.nominalCode || ''}
-                              onChange={(e) => updateAddonLine(index, { nominalCode: e.target.value })}
-                              placeholder="Default"
-                              data-testid={`input-addon-nominal-${index}`}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">VAT rate</Label>
-                            <Select
-                              value={line.vatRate?.taxType || 'none'}
-                              onValueChange={(value) => {
-                                if (value === 'none') {
-                                  updateAddonLine(index, { vatRate: null });
-                                } else {
-                                  const rate = addonVatRates.find(r => r.taxType === value);
-                                  updateAddonLine(index, { vatRate: rate ? { taxType: rate.taxType, name: rate.name, effectiveRate: rate.effectiveRate } : null });
-                                }
-                              }}
-                            >
-                              <SelectTrigger data-testid={`select-addon-vat-${index}`}>
-                                <SelectValue placeholder="VAT rate" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">Provider default</SelectItem>
-                                {addonVatRates.map((rate) => (
-                                  <SelectItem key={rate.taxType} value={rate.taxType}>
-                                    {rate.name}{rate.effectiveRate != null ? ` (${rate.effectiveRate}%)` : ''}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex justify-end text-sm">
-                      <span className="text-muted-foreground mr-2">Line total (ex VAT):</span>
-                      <span className="font-medium" data-testid={`text-addon-line-total-${index}`}>{formatCost(addonLineTotal(line), currency)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-2 flex-wrap">
-              {membershipSettings?.addon_training_fund_enabled && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={approveAddonLines.some(l => l.type === 'training_fund')}
-                  onClick={() => setApproveAddonLines(prev => ([...prev, {
-                    type: 'training_fund',
-                    description: 'Training Fund top-up',
-                    unitCost: '',
-                    quantity: '1',
-                  }]))}
-                  data-testid="button-add-training-fund-line"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  Add Training Fund top-up
-                </Button>
-              )}
-              {membershipSettings?.addon_freeform_enabled && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setApproveAddonLines(prev => ([...prev, {
-                    type: 'freeform',
-                    description: '',
-                    nominalCode: '',
-                    vatRate: null,
-                    unitCost: '',
-                    quantity: '1',
-                  }]))}
-                  data-testid="button-add-freeform-line"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  Add line item
-                </Button>
-              )}
-            </div>
-
+            <MembershipAddonLinesEditor
+              lines={approveAddonLines}
+              setLines={setApproveAddonLines}
+              membershipSettings={membershipSettings}
+              addonVatRates={addonVatRates}
+              currency={currency}
+            />
             <Separator />
             <div className="space-y-1 text-sm" data-testid="addon-invoice-summary">
               <div className="flex justify-between gap-2">
@@ -2141,167 +2075,15 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">Override Type</Label>
-              <RadioGroup
-                value={overrideType}
-                onValueChange={(val) => {
-                  setOverrideType(val);
-                  setSelectedConfigId('');
-                  setManualPrice('');
-                  setDiscountType('percentage');
-                  setDiscountValue('');
-                }}
-                data-testid="radio-override-type"
-              >
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="structure" id="override-structure" data-testid="radio-structure" />
-                  <Label htmlFor="override-structure" className="text-sm cursor-pointer">
-                    Use a different tier structure
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="price" id="override-price" data-testid="radio-price" />
-                  <Label htmlFor="override-price" className="text-sm cursor-pointer">
-                    Set a manual price
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="discount" id="override-discount" data-testid="radio-discount" />
-                  <Label htmlFor="override-discount" className="text-sm cursor-pointer">
-                    Set a discount override
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            {overrideType === 'structure' && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Select Tier Structure</Label>
-                {configsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Loading structures...
-                  </div>
-                ) : (
-                  <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
-                    <SelectTrigger data-testid="select-config">
-                      <SelectValue placeholder="Choose a tier structure..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableConfigs?.map((cfg) => (
-                        <SelectItem key={cfg.id} value={cfg.id} data-testid={`option-config-${cfg.id}`}>
-                          {cfg.name || 'Unnamed'} (from {cfg.effective_from})
-                          {cfg.effective_to ? ` to ${cfg.effective_to}` : ' - Current'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {selectedConfigId && availableConfigs && (
-                  <div className="p-2 bg-muted/50 rounded-md">
-                    <p className="text-xs text-muted-foreground mb-1">Bands in selected structure:</p>
-                    <div className="space-y-0.5">
-                      {availableConfigs
-                        .find(c => c.id === selectedConfigId)
-                        ?.bands?.map((band) => (
-                          <div key={band.id} className="flex items-center justify-between text-xs">
-                            <span>{band.label} ({band.min_value}{band.max_value !== null ? `-${band.max_value}` : '+'})</span>
-                            <span>{formatCost(band.annual_cost, currency)}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {overrideType === 'price' && (
-              <div className="space-y-2">
-                <Label htmlFor="manual-price" className="text-sm font-medium">
-                  Manual Price ({getCurrencySymbol(currency)})
-                </Label>
-                <Input
-                  id="manual-price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={manualPrice}
-                  onChange={(e) => setManualPrice(e.target.value)}
-                  placeholder="Enter price..."
-                  data-testid="input-manual-price"
-                />
-                {overrideTargetData && (
-                  <p className="text-xs text-muted-foreground">
-                    Auto-calculated price: {formatCost(
-                      overrideTargetData.originalAnnualCost ?? overrideTargetData.finalCost,
-                      currency
-                    )}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {overrideType === 'discount' && (
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Discount Type</Label>
-                <RadioGroup
-                  value={discountType}
-                  onValueChange={(val) => {
-                    setDiscountType(val);
-                    setDiscountValue('');
-                  }}
-                  data-testid="radio-discount-type"
-                >
-                  <div className="flex items-center gap-2">
-                    <RadioGroupItem value="percentage" id="discount-percentage" data-testid="radio-discount-percentage" />
-                    <Label htmlFor="discount-percentage" className="text-sm cursor-pointer">
-                      Percentage (%)
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <RadioGroupItem value="fixed" id="discount-fixed" data-testid="radio-discount-fixed" />
-                    <Label htmlFor="discount-fixed" className="text-sm cursor-pointer">
-                      Fixed amount ({getCurrencySymbol(currency)})
-                    </Label>
-                  </div>
-                </RadioGroup>
-
-                <div className="space-y-2">
-                  <Label htmlFor="discount-value" className="text-sm font-medium">
-                    {discountType === 'percentage' ? 'Discount Percentage' : `Discount Amount (${getCurrencySymbol(currency)})`}
-                  </Label>
-                  <Input
-                    id="discount-value"
-                    type="number"
-                    min="0"
-                    max={discountType === 'percentage' ? '100' : undefined}
-                    step={discountType === 'percentage' ? '0.1' : '0.01'}
-                    value={discountValue}
-                    onChange={(e) => setDiscountValue(e.target.value)}
-                    placeholder={discountType === 'percentage' ? 'e.g. 10' : 'e.g. 100.00'}
-                    data-testid="input-discount-value"
-                  />
-                </div>
-
-                {overrideTargetData && discountValue && (
-                  <div className="p-2 bg-muted/50 rounded-md">
-                    <p className="text-xs text-muted-foreground">
-                      {(() => {
-                        const gross = overrideTargetData.annualCostBeforeDiscounts ?? overrideTargetData.annualCost;
-                        const val = parseFloat(discountValue) || 0;
-                        const discountAmt = discountType === 'percentage'
-                          ? parseFloat((gross * val / 100).toFixed(2))
-                          : Math.min(val, gross);
-                        const net = Math.max(0, gross - discountAmt);
-                        return `Gross: ${formatCost(gross, currency)} - Discount: ${formatCost(discountAmt, currency)} = Net: ${formatCost(net, currency)}`;
-                      })()}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
+            <MembershipOverrideControls
+              overrideType={overrideType} setOverrideType={setOverrideType}
+              selectedConfigId={selectedConfigId} setSelectedConfigId={setSelectedConfigId}
+              manualPrice={manualPrice} setManualPrice={setManualPrice}
+              discountType={discountType} setDiscountType={setDiscountType}
+              discountValue={discountValue} setDiscountValue={setDiscountValue}
+              availableConfigs={availableConfigs} configsLoading={configsLoading}
+              currency={currency} overrideTargetData={overrideTargetData}
+            />
             <div className="space-y-2">
               <Label htmlFor="override-note" className="text-sm font-medium">
                 Reason for Override <span className="text-destructive">*</span>
@@ -2339,6 +2121,22 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ReplaceOrgMembershipYearDialog
+        open={!!replaceTarget}
+        onOpenChange={(open) => { if (!open) setReplaceTarget(null); }}
+        organizationId={organizationId}
+        record={replaceTarget}
+        currency={currency}
+        availableConfigs={availableConfigs}
+        configsLoading={configsLoading}
+        membershipSettings={membershipSettings}
+        addonVatRates={addonVatRates}
+        onReplaced={() => {
+          queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+          queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
+        }}
+      />
 
       <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">

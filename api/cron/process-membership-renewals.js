@@ -240,6 +240,14 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
     .single();
 
   if (!record) return;
+  // A replacement year is invoiced only by its replacement operation (which
+  // also emails and allocates credit); the cron must never raise a second
+  // invoice or re-fire workflows for it, and a retired original is final.
+  if (record.status === 'replaced' || record.replaces_record_id) {
+    results.skipped++;
+    results.details.push({ tenantId, orgId, status: 'skipped', action: 'replacement_owned', membershipYear: record.membership_year });
+    return;
+  }
 
   const existingAddonLines = await loadAddonLines(tenantId, orgId, record.membership_year);
   if (!prepared && record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id

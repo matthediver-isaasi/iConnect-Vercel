@@ -644,7 +644,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         .eq('tenant_id', tenantId)
         .eq(historyIdCol, entityId)
         .eq('membership_year', quote.membership_year)
-        .neq('status', 'expired_checkout')
+        .neq('status', 'expired_checkout').neq('status', 'replaced')
         .maybeSingle();
       return data || null;
     };

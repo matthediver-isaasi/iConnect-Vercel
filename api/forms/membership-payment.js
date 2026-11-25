@@ -408,7 +408,7 @@ async function handleGet(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq(historyIdCol, historyIdVal)
     .eq('membership_year', simResult.membershipYear?.label)
-    .neq('status', 'expired_checkout')
+    .neq('status', 'expired_checkout').neq('status', 'replaced')
     .maybeSingle();
 
   const approvalInfo = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
@@ -1373,7 +1373,7 @@ async function settleExistingFormZeroDueMembership({
     .eq('tenant_id', tenantId)
     .eq(idColumn, idValue)
     .eq('membership_year', membershipYear)
-    .neq('status', 'expired_checkout')
+    .neq('status', 'expired_checkout').neq('status', 'replaced')
     .maybeSingle();
   if (error) {
     console.error('[FormPayment] Could not reload existing zero-due membership:', error.message);

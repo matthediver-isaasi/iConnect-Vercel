@@ -278,7 +278,7 @@ async function handleStart(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq('organization_id', org.id)
     .eq('membership_year', yearLabel)
-    .neq('status', 'expired_checkout')
+    .neq('status', 'expired_checkout').neq('status', 'replaced')
     .maybeSingle();
   if (existingHistory && existingHistory.payment_method && existingHistory.payment_method !== 'direct_debit') {
     return res.status(400).json({ error: 'Membership for this year is already recorded with another payment method' });

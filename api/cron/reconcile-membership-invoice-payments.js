@@ -250,11 +250,14 @@ async function fetchOutstanding(table) {
   // continued polling until they settle as `paid` (or `voided`).
   // NULL counts as unpaid (Task #3409): many creators never set
   // payment_status, so a plain .in() filter would skip those rows forever.
-  const { data, error } = await supabase
+  let query = supabase
     .from(table)
     .select('*')
     .or('payment_status.in.(unpaid,partial),payment_status.is.null')
-    .or('accounting_invoice_id.not.is.null,xero_invoice_id.not.is.null')
+    .or('accounting_invoice_id.not.is.null,xero_invoice_id.not.is.null');
+  // Replaced organisation years are settled by their credit note.
+  if (table === 'organisation_membership_history') query = query.or('status.is.null,status.neq.replaced');
+  const { data, error } = await query
     .order('created_at', { ascending: true })
     .limit(MAX_ROWS_PER_RUN);
 
