@@ -1,3 +1,4 @@
+import {grantedBenefitsForBooking,loadFunnelOrderBenefits,renderGrantedBenefitsHtml} from './eventFunnelMembershipNotice.js';
 const restorePayload=value=>JSON.parse(JSON.stringify(value),(key,item)=>
   item?.type==='Buffer'&&Array.isArray(item.data)?Buffer.from(item.data):item);
 
@@ -11,9 +12,14 @@ export async function deliverFunnelConfirmations({db,job,deadlineAt=Date.now()+1
   };
   const initial=await operation('read');
   if(!Array.isArray(initial.jobs)) throw new Error('Confirmation plan unavailable');
+  // Granted in the same transaction as order confirmation, so the evidence is
+  // complete before any confirmation is composed. Only first-time envelopes
+  // use it: a stored envelope is always resent unchanged.
+  const benefits=initial.jobs.length?await loadFunnelOrderBenefits(db,job.tenant_id,job.order_id):[];
   for(const item of initial.jobs) {
     if(deadlineAt-now()<8000) break;
     if(!item.receipt_token)throw new Error('Confirmation receipt schema is not ready');
+    const benefitHtml=renderGrantedBenefitsHtml(grantedBenefitsForBooking(benefits,item.booking_id??item.booking?.id));
     const renderConfirmation=render||(await import('./eventConfirmationEmail.js')).sendConfirmationEmailsFromTemplate;
     await renderConfirmation(item.event_id,item.booking,null,null,null,job.tenant_id,{
       emailConfigs:[item.template],deadlineAt,requireCheckin:true,
@@ -21,7 +27,8 @@ export async function deliverFunnelConfirmations({db,job,deadlineAt=Date.now()+1
         if(deadlineAt-now()<8000) return {success:false,notSubmitted:true};
         // The original envelope survives known-not-submitted retries; a
         // writing marker never expires into permission to send again.
-        const claimed=await operation('begin',item.id,JSON.parse(JSON.stringify(payload)));
+        const envelope=benefitHtml?{...payload,html:`${payload.html||''}${benefitHtml}`}:payload;
+        const claimed=await operation('begin',item.id,JSON.parse(JSON.stringify(envelope)));
         if(claimed.status==='delivered') return {success:true};
         if(claimed.status!=='send') return {success:false,error:'Confirmation requires review'};
         let result;

@@ -1,5 +1,6 @@
+import {loadFunnelOrderBenefits,renderWithdrawnBenefitsHtml,withdrawnBenefitsForBooking} from './eventFunnelMembershipNotice.js';
 const escape=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-export function buildFunnelCancellationMessage(job,tenantId) {
+export function buildFunnelCancellationMessage(job,tenantId,withdrawnBenefits=[]) {
   if(job.tenant_id!==tenantId||!job.recipient||!job.booking_id||!job.booking_source)
     throw new Error('Cancellation message scope unavailable');
   const reference=job.booking?.booking_reference||job.booking?.booking_group_reference||job.booking_id;
@@ -7,7 +8,8 @@ export function buildFunnelCancellationMessage(job,tenantId) {
   // recovering independently, so do not describe approved amounts as refunded.
   return {tenantId,to:job.recipient,subject:'Booking cancellation approved',
     html:`<p>Your event registration has been cancelled.</p><p>Booking reference: ${escape(reference)}</p>`+
-      '<p>Any approved refund or credit is handled separately. This message does not confirm that a refund has completed.</p>'};
+      '<p>Any approved refund or credit is handled separately. This message does not confirm that a refund has completed.</p>'+
+      renderWithdrawnBenefitsHtml(withdrawnBenefits)};
 }
 export async function deliverFunnelCancellationNotifications({db,context,deadlineAt=Date.now()+15000,send,now=()=>Date.now()}){
   const {order,operation}=context;
@@ -20,9 +22,13 @@ export async function deliverFunnelCancellationNotifications({db,context,deadlin
   };
   const plan=await call('read');
   if(!Array.isArray(plan.jobs))throw new Error('Cancellation message plan unavailable');
+  // Withdrawal commits with the cancellation; only benefits withdrawn by this
+  // cancellation are mentioned, never ones consumed or held by a checkout.
+  const benefits=plan.jobs.length?await loadFunnelOrderBenefits(db,order.tenant_id,order.id):[];
   for(const job of plan.jobs){
     if(deadlineAt-now()<8000)break;
-    const envelope=buildFunnelCancellationMessage(job,order.tenant_id);
+    const envelope=buildFunnelCancellationMessage(job,order.tenant_id,
+      withdrawnBenefitsForBooking(benefits,job.booking_id,operation.id));
     const begun=await call('begin',job.id,envelope);
     if(begun.status!=='send')continue;
     if(begun.payload?.to!==envelope.to||begun.payload?.tenantId!==order.tenant_id)
