@@ -15,3 +15,4 @@ A confirmed-cancelled individual GoCardless DD (agreement + plan payment_plan_ca
 - Stripe monthly card plans follow the same policy. "Confirmed" means Stripe itself reported the subscription ended (webhook or reconciliation); an admin/local cancellation is not confirmation. Completed plans, duplicate-checkout conflicts and switch cancellations never qualify.
 - Stripe ending a subscription does NOT cancel the card agreement, which can stay 'active'. So ordinary renewal may look eligible; a possibly-cancelled card plan must be checked for restart first, and card agreements are recognised only via bound evidence, never by status.
 - Organisation plans remain out of scope.
+- Card-plan restart schema is live (Nov 2026). Many Stripe-cancelled card histories lack term dates; evidence intentionally returns NULL for them (no Restart button). Do not "fix" by relaxing the date requirement without owner approval.
