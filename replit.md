@@ -92,6 +92,8 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 
 ## Database connection (read this before any DB work from this workspace)
 
+Private (unlisted) events use `supabase/migrations/202701310001_private_event_listing.sql`, applied to DEST (`lvmzliemqnieeoruhkik`) on 2026-11-25 through the Supabase connection with owner approval (the pooler password was rejected). It only adds `is_private boolean NOT NULL DEFAULT false` to `event` and `complex_event`; no rows were changed. `scripts/apply-private-event-listing.mjs` is the read-only/`--apply` runner.
+
 Directory Carousel public consent uses `supabase/migrations/202610190001_directory_carousel_public_consent.sql`, prepared but **not applied**. A 2026-10-19 read-only preflight verified DEST `lvmzliemqnieeoruhkik` and found the new column/index/guards absent. Apply only after approval using the DEST-pinned `scripts/apply-directory-carousel-consent.mjs` and its reviewed hash, then release matching client/server code. SOURCE was untouched; no directory was opted in. Rollout and test boundaries: `docs/directory-carousel-sources-rollout.md`.
 Survey invitation attendee confirmation uses `supabase/migrations/20261125_survey_invitation_attendee.sql`, applied to verified DEST only on 2026-09-29 with `scripts/apply-survey-invitation-attendee.mjs`. SOURCE was not migrated. The service-only association requires explicit attendee confirmation; no historical identity backfill was performed. Deploy matching application code before using the feature. Local verification: `node scripts/test-survey-invitation-attendee-sql.mjs` (disposable PostgreSQL) and `npx playwright test --config=tests/task-4847-invitation-confirmation.config.mjs` (isolated browser fixtures).
 
