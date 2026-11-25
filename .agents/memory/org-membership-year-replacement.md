@@ -8,4 +8,8 @@ description: Financial rules and pitfalls for replacing a recorded organisation 
 - Re-pricing must ignore the row being replaced, or year-one pro-rata/incentives silently disappear.
 - Blocked by design: rolling terms, proposal/quote/funnel years, Training Fund add-ons, drafts, already-credited invoices, provider mismatch, active DD/card plans.
 **Why:** duplicate or wrong-value documents in Xero/QuickBooks are costly to unwind; owner rule is never refund automatically.
-**How to apply:** applying the schema change to the destination database needs owner approval.
+**How to apply:** the schema is installed on DEST (2026-11-25); never replay the source file.
+
+Annual rows whose structure has start_mode 'immediate' cannot be replaced: the existing rolling_commitment_guard rejects the replacement INSERT without a dated commitment.
+**Why:** the guard treats any new immediate-config history row as needing an authoritative commitment, even for annual years.
+**How to apply:** fixing this needs a narrow guard exemption tied to the replacement journal, not a weaker guard.
