@@ -8,3 +8,11 @@ A platform-managed integration stores only the tenant enable/disable row. Its cr
 **Why:** Treating a shared provider like tenant-owned OAuth/API credentials risks returning a masked derivative, accepting forged per-tenant credentials, or making an unsaved integration impossible to display.
 
 **How to apply:** Return a synthetic disabled status when no tenant row exists, reject credential payloads, reject enablement when the platform secret is absent, and re-check both platform configuration and the tenant toggle on every provider request.
+
+Mailgun uses one shared platform API key for all tenants and all messages, not
+separate per-tenant credentials.
+
+**Why:** The owner explicitly confirmed this shared-key arrangement on 2026-11-25.
+
+**How to apply:** Diagnose environment availability separately from tenant sender
+configuration. Do not ask an affected tenant to supply a new Mailgun key.
