@@ -21,6 +21,8 @@ import {
 import { validateWorkflowOrganizationMembershipSimulation } from './workflowMembershipSimulation.js';
 import { workflowRollingCommitment, hasRollingMonthlyArrangement } from './rollingFeeCommitment.js';
 import { issueWorkflowApplicantContinuationLinks } from './workflowApplicantContinuation.js';
+import { isWorkflowCommunicationConfig } from '../../shared/workflowCommunicationSubscriptions.js';
+import { executeWorkflowCommunicationSubscriptions } from './workflowCommunicationSubscriptions.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -559,6 +561,11 @@ async function buildActionSummary(action, tenantId, entityContext) {
 
   switch (action.type) {
     case 'update_field': {
+      if (isWorkflowCommunicationConfig(cfg)) {
+        summary.description = 'Update Communication Categories';
+        summary.detail = `${cfg.communication_subscription?.is_subscribed === true ? 'Subscribe' : 'Unsubscribe'} member in ${(cfg.communication_subscription?.category_ids || []).length} selected categories; global opt-outs and eligibility apply`;
+        break;
+      }
       const fieldType = cfg.field_type?.replace(/^(org_|member_|job_posting_)/, '') || cfg.field_type;
       let valueLabel = cfg.value;
       if (cfg.value === '{{current_date}}') valueLabel = 'Current date (when workflow runs)';
@@ -1032,7 +1039,7 @@ async function logChainGuardSkip(workflow, entityType, entityId, reason, chain, 
   }
 }
 
-async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl, context = {}) {
+export async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl, context = {}) {
   const results = [];
   const tenantId = workflow.tenant_id;
   const formSubmissionId = context?.formSubmissionId || null;
@@ -1053,6 +1060,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         status: 'skipped',
         error: 'This attendance booking is not linked to a member record',
       });
+      continue;
+    }
+
+    if (action.type === 'update_field' && isWorkflowCommunicationConfig(action.config)) {
+      results.push(await executeWorkflowCommunicationSubscriptions({
+        database: supabase, tenantId, entityType, memberId: entityId, config: action.config,
+      }));
       continue;
     }
 
@@ -4350,7 +4364,7 @@ export async function executeConfirmedWorkflow(workflowId, entityType, entityId,
       confirmed_by_user: true 
     }, results);
     
-    const hasFailures = results.some(r => r.status === 'failed');
+    const hasFailures = results.some(r => r.status === 'failed' || r.status === 'partial');
     
     return { 
       success: !hasFailures, 
@@ -4571,6 +4585,7 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
           scheduled_at: new Date().toISOString(),
         }, results);
         summary.executed++;
+        if (results.some(result => result.status === 'failed' || result.status === 'partial')) summary.errors++;
       } catch (err) {
         summary.errors++;
         console.error(`[Workflows] runScheduledWorkflow: error processing ${entityType} ${record.id}: ${err.message}`);

@@ -5,6 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail as sendMailgunEmail } from "./emailService";
 import crypto from "crypto";
 import { isProtectedOrgBalanceField } from "../api/_lib/protectedOrgFields.js";
+import { isWorkflowCommunicationConfig } from "../shared/workflowCommunicationSubscriptions.js";
+import { executeWorkflowCommunicationSubscriptions } from "../api/_lib/workflowCommunicationSubscriptions.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -45,9 +47,15 @@ interface UpdateFieldActionConfig {
   value: string;
 }
 
+interface CommunicationSubscriptionActionConfig {
+  field_id: 'communication_categories';
+  field_type: 'communication_categories';
+  communication_subscription: { category_ids: string[]; is_subscribed: boolean };
+}
+
 interface Action {
   type: 'send_email' | 'update_field';
-  config: EmailActionConfig | UpdateFieldActionConfig;
+  config: EmailActionConfig | UpdateFieldActionConfig | CommunicationSubscriptionActionConfig;
 }
 
 interface Workflow {
@@ -64,7 +72,7 @@ interface Workflow {
 
 interface ExecutionResult {
   action_type: string;
-  status: 'success' | 'failed' | 'skipped';
+  status: 'success' | 'failed' | 'skipped' | 'partial';
   result?: any;
   error?: string;
   template_id?: string;
@@ -633,7 +641,12 @@ export async function evaluateWorkflows(
           if (action.type === 'send_email') {
             result = await executeEmailAction(action.config as EmailActionConfig, entityType, entityId, afterData, baseUrl);
           } else if (action.type === 'update_field') {
-            result = await executeUpdateFieldAction(action.config as UpdateFieldActionConfig, entityType, entityId, afterData);
+            result = isWorkflowCommunicationConfig(action.config)
+              ? await executeWorkflowCommunicationSubscriptions({
+                  database: supabase, tenantId: workflow.tenant_id, entityType,
+                  memberId: entityId, config: action.config,
+                }) as ExecutionResult
+              : await executeUpdateFieldAction(action.config as UpdateFieldActionConfig, entityType, entityId, afterData);
           } else {
             result = { action_type: action.type, status: 'failed', error: 'Unknown action type' };
           }
@@ -644,8 +657,8 @@ export async function evaluateWorkflows(
 
         // Log execution
         const status = hasFailures 
-          ? (executionResults.some(r => r.status === 'success') ? 'partial' : 'failed')
-          : 'success';
+          ? (executionResults.some(r => r.status !== 'failed') ? 'partial' : 'failed')
+          : executionResults.some(r => r.status === 'partial' || r.status === 'skipped') ? 'partial' : 'success';
 
         await logExecution(
           workflow.tenant_id,

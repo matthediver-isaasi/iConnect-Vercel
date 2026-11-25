@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { workflowMemberFields, preserveWorkflowRoleValue } from "../lib/workflowRoleFields.mjs";
-import { base44 } from "@/api/base44Client";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,11 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
+import CommunicationSubscriptionFields from "@/components/workflows/CommunicationSubscriptionFields";
+import {
+  isWorkflowCommunicationConfig, normalizeWorkflowCommunicationConfig,
+  workflowUpdateFieldSelection, clearIncompatibleCommunicationActions,
+} from "../../../shared/workflowCommunicationSubscriptions.js";
 
 const TRIGGER_TYPES = [
   { value: 'field_change', label: 'Field Value Changes', description: 'Triggers when a specific field value changes' },
@@ -287,6 +292,7 @@ const extractPlaceholders = (template) => {
 
 export default function WorkflowManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const activeTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [workflowToDelete, setWorkflowToDelete] = useState(null);
@@ -381,6 +387,12 @@ export default function WorkflowManagementPage() {
       return result || [];
     },
     enabled: accessChecked,
+  });
+
+  const { data: communicationCategories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery({
+    queryKey: ['workflow-communication-categories', activeTenantId],
+    queryFn: () => base44.entities.CommunicationCategory.listAll(),
+    enabled: accessChecked && showDialog && formData.entity_type === 'member',
   });
 
   const { data: contractForms = [] } = useQuery({
@@ -865,6 +877,22 @@ export default function WorkflowManagementPage() {
       updated_at: new Date().toISOString(),
     };
 
+    try {
+      payload.actions = formData.actions.map(action => {
+        if (action.type !== 'update_field' || !isWorkflowCommunicationConfig(action.config)) return action;
+        const config = normalizeWorkflowCommunicationConfig(action.config, formData.entity_type);
+        if (categoriesLoading || categoriesError) throw new Error('Communication categories must load before saving');
+        if (config.communication_subscription.category_ids.some(id =>
+          !communicationCategories.some(category => category.id === id && category.is_active !== false && !category.system_key))) {
+          throw new Error('Remove unavailable communication categories before saving');
+        }
+        return { ...action, config };
+      });
+    } catch (error) {
+      toast.error(error.message);
+      return;
+    }
+
     if (editingWorkflow) {
       updateMutation.mutate({ id: editingWorkflow.id, data: payload });
     } else {
@@ -1208,6 +1236,13 @@ export default function WorkflowManagementPage() {
                                 ))}
                               </div>
                             )}
+                            {(log.actions_executed || []).flatMap((action, actionIndex) =>
+                              (action.result?.categories || []).map(outcome => (
+                                <p key={`${actionIndex}-${outcome.category_id}`} className="text-xs mt-1">
+                                  {outcome.is_subscribed ? 'Subscribe' : 'Unsubscribe'} · {outcome.category_id}: {outcome.status} · {outcome.reason}
+                                  {outcome.error ? ` — ${outcome.error}` : ''}
+                                </p>
+                              )))}
                             {log.status === 'skipped' && Array.isArray(log.trigger_data?.condition_results) && log.trigger_data.condition_results.length > 0 && (
                               <div className="mt-1 space-y-0.5" data-testid={`skip-conditions-${log.id}`}>
                                 {log.trigger_data.condition_results.map((cr, idx) => (
@@ -1301,7 +1336,8 @@ export default function WorkflowManagementPage() {
                   <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, entity_type: 'organization' }))}
+                      onClick={() => setFormData(prev => ({ ...prev, entity_type: 'organization',
+                        actions: clearIncompatibleCommunicationActions(prev.actions, 'organization') }))}
                       className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                         formData.entity_type === 'organization' 
                           ? 'border-primary bg-primary/5' 
@@ -1333,7 +1369,8 @@ export default function WorkflowManagementPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, entity_type: 'job_posting' }))}
+                      onClick={() => setFormData(prev => ({ ...prev, entity_type: 'job_posting',
+                        actions: clearIncompatibleCommunicationActions(prev.actions, 'job_posting') }))}
                       className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                         formData.entity_type === 'job_posting' 
                           ? 'border-primary bg-primary/5' 
@@ -2531,7 +2568,7 @@ export default function WorkflowManagementPage() {
                                     ];
                                     const matchedField = allFields.find(f => f.id === fieldId);
                                     updateAction(index, { 
-                                      config: { ...action.config, field_type: fieldType, field_id: fieldId, field_label: matchedField?.label || fieldId, value: '' } 
+                                      config: workflowUpdateFieldSelection(fieldType, fieldId, matchedField?.label)
                                     });
                                   }}
                                 >
@@ -2539,6 +2576,9 @@ export default function WorkflowManagementPage() {
                                     <SelectValue placeholder="Select field" />
                                   </SelectTrigger>
                                   <SelectContent className="max-h-[300px] overflow-y-auto">
+                                    {formData.entity_type === 'member' && (
+                                      <SelectItem value="communication_categories:communication_categories">Communication Categories</SelectItem>
+                                    )}
                                     <SelectGroup>
                                       <SelectLabel>Core Fields</SelectLabel>
                                       {getEntitySpecificFields(formData.entity_type).core.map((field) => (
@@ -2561,6 +2601,11 @@ export default function WorkflowManagementPage() {
                                 </Select>
                               </div>
                               {(() => {
+                                if (isWorkflowCommunicationConfig(action.config)) {
+                                  return <CommunicationSubscriptionFields config={action.config}
+                                    categories={communicationCategories} loading={categoriesLoading} error={categoriesError}
+                                    onChange={config => updateAction(index, { config })} />;
+                                }
                                 const selectedField = preserveWorkflowRoleValue(getSelectedField(action.config?.field_type, action.config?.field_id), action.config?.value);
                                 const fieldType = selectedField?.type || 'text';
                                 const fieldOptions = selectedField?.options || null;
