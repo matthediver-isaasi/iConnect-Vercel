@@ -2395,6 +2395,8 @@ export default function EditEvent() {
               </div>
               )}
 
+              {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
+
               {/* Event Timing - affects date requirements */}
               {isGroupLimited && <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
@@ -2645,7 +2647,6 @@ export default function EditEvent() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
               {/* Program vs One-off Toggle */}
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                 <div className="space-y-0.5">

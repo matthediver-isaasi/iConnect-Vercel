@@ -202,6 +202,9 @@ export default function EventsPage({
   });
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showDraftEvents, setShowDraftEvents] = useState(false);
+  const [showPrivateEvents, setShowPrivateEvents] = useState(false);
+  const canToggleDrafts = !!memberInfo && !hookIsFeatureExcluded('events.browse-events.toggle-drafts');
+  const includePrivateEvents = canToggleDrafts && showPrivateEvents;
   const [memberGroupFilter, setMemberGroupFilter] = useState("all"); // "all" | "hide-group" | "only-group"
   const [showTour, setShowTour] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
@@ -323,15 +326,15 @@ export default function EventsPage({
     [complexEvents, isAdmin, myGroupIds]
   );
 
-  // Private (unlisted) events stay off the calendar for everyone except event
-  // admins, who see them labelled. Canvas widgets use their own data paths.
+  // Private events are opt-in on this listing, under the same permission as
+  // the drafts toggle. Canvas widgets use their own data paths.
   const listedSimpleEvents = useMemo(
-    () => filterListedEvents(simpleEvents, { isAdmin }),
-    [simpleEvents, isAdmin]
+    () => filterListedEvents(simpleEvents, { isAdmin: includePrivateEvents }),
+    [simpleEvents, includePrivateEvents]
   );
   const visibleComplexEvents = useMemo(
-    () => filterListedEvents(groupVisibleComplexEvents, { isAdmin }),
-    [groupVisibleComplexEvents, isAdmin]
+    () => filterListedEvents(groupVisibleComplexEvents, { isAdmin: includePrivateEvents }),
+    [groupVisibleComplexEvents, includePrivateEvents]
   );
 
   const events = useMemo(() => {
@@ -551,9 +554,6 @@ export default function EventsPage({
 
   // Build filter tag key map for display and filtering
   const filterTagKeyMap = useMemo(() => buildFilterTagKeyMap(eventCategories), [eventCategories]);
-
-  // Check if user can toggle draft visibility - requires authentication
-  const canToggleDrafts = !!memberInfo && !hookIsFeatureExcluded('events.browse-events.toggle-drafts');
 
   // Filter events by status and access level
   // - Draft events are hidden by default for everyone
@@ -1842,6 +1842,22 @@ export default function EventsPage({
                     >
                       <FileEdit className="w-4 h-4" />
                       Show drafts only{draftEventsCount > 0 ? ` (${draftEventsCount})` : ''}
+                    </Label>
+                  </div>
+                )}
+                {canToggleDrafts && (
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="show-private-events"
+                      checked={showPrivateEvents}
+                      onCheckedChange={setShowPrivateEvents}
+                      data-testid="switch-show-private-events"
+                    />
+                    <Label
+                      htmlFor="show-private-events"
+                      className="text-sm text-slate-600 cursor-pointer"
+                    >
+                      Show private events
                     </Label>
                   </div>
                 )}
