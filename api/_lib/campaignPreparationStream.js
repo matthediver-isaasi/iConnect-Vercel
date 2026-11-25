@@ -376,7 +376,15 @@ export async function resolvePreparationChunk({ db, state, extensions = {}, cond
   const lifecycle=new Set();
   const addresses=[...new Set((result.candidates || []).map(row=>normalize(row.email)).filter(Boolean))];
   for(let offset=0;offset<addresses.length;offset+=200){
-    const answer=await db.rpc('member_lifecycle_closed_addresses',{p_tenant:state.tenant_id,p_emails:addresses.slice(offset,offset+200)});
+    // The journalled reader throws provider errors rather than returning
+    // { error }, so the "runtime not installed" check must catch as well.
+    let answer;
+    try {
+      answer=await db.rpc('member_lifecycle_closed_addresses',{p_tenant:state.tenant_id,p_emails:addresses.slice(offset,offset+200)});
+    } catch(error) {
+      if(['PGRST202','42883'].includes(error?.code))break; // No installed archive runtime yet.
+      throw preparationError(error);
+    }
     if(answer.error){
       if(['PGRST202','42883'].includes(answer.error.code))break; // No installed archive runtime yet.
       throw preparationError(answer.error);

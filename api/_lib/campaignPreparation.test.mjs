@@ -148,6 +148,7 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
     async rpc(name, args) {
       if(name==='member_lifecycle_closed_addresses'){
         model.clock+=model.sourceCost;
+        if(model.lifecycleMissing) return{data:null,error:{code:'PGRST202',message:'Could not find the function public.member_lifecycle_closed_addresses(p_emails, p_tenant) in the schema cache'}};
         return{data:[...new Set((tables.member||[]).filter(row=>row.tenant_id===args.p_tenant
           && ['archived','minimised','deleted'].includes(row.lifecycle_state)
           && args.p_emails.includes(row.email?.trim().toLowerCase())).map(row=>row.email.trim().toLowerCase()))],error:null};
@@ -429,6 +430,17 @@ test('Organisation Group invalid metadata, operands and failed reads stop previe
     assert.equal(result.success, false, variant);
     assert.equal(model.recipients.size, 0);
   }
+});
+
+test('streamed preparation proceeds when the member lifecycle runtime is not installed', async () => {
+  const model = fixture({ member: [
+    { id: 'one', tenant_id: 'tenant', email: 'one@example.com', status: 'active' },
+    { id: 'two', tenant_id: 'tenant', email: 'two@example.com', status: 'active' },
+  ] });
+  model.lifecycleMissing = true;
+  await model.finishStream();
+  assert.equal(model.state.phase, 'complete');
+  assert.deepEqual([...model.recipients.keys()].sort(), ['one@example.com', 'two@example.com']);
 });
 
 test('preparation reports aggregate work without recipient contents', async () => {

@@ -181,3 +181,4 @@
 - [Cancelled DD/card restart supersession](cancelled-dd-restart-supersession.md) — confirmed-cancelled individual DD or Stripe card plan restarts immediately via supersession receipt; old debt/dates kept.
 - [Org membership year replacement](org-membership-year-replacement.md) — exact gross credits, QBO single-tax limit, re-price without the replaced row; replaced rows excluded everywhere.
 - [Private (unlisted) events](private-event-listing.md) — hidden from /Events, group lists, search and sitemap; Canvas event widgets must still show them.
+- [Campaign preparation journal errors](campaign-preparation-journal-errors.md) — the audience journal throws provider errors; optional-RPC tolerance needs try/catch, not { error } checks.
