@@ -47,7 +47,14 @@ function removeOutlookCallbackParams() {
   );
 }
 
-export default function OutlookConnection({ isAdmin = false }) {
+// tone="dark" matches the slate admin settings page; the default keeps the light look used elsewhere.
+const DARK_CARD = 'dark admin-dark-surface bg-slate-800/50 border-slate-700 text-slate-200';
+const AMBER_LIGHT = 'bg-amber-50 border-amber-200 text-amber-900';
+const AMBER_DARK = 'bg-amber-950/30 border-amber-700/60 text-amber-200';
+
+export default function OutlookConnection({ isAdmin = false, tone = 'light' }) {
+  const dark = tone === 'dark';
+  const amber = dark ? AMBER_DARK : AMBER_LIGHT;
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState(null);
@@ -193,7 +200,7 @@ export default function OutlookConnection({ isAdmin = false }) {
 
   if (loading) {
     return (
-      <Card>
+      <Card className={dark ? DARK_CARD : undefined}>
         <CardContent className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
@@ -202,20 +209,20 @@ export default function OutlookConnection({ isAdmin = false }) {
   }
 
   return (
-    <Card>
+    <Card className={dark ? DARK_CARD : undefined}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Mail className="h-5 w-5 text-blue-600" />
-          <CardTitle>Outlook Integration</CardTitle>
+          <Mail className={`h-5 w-5 ${dark ? 'text-blue-400' : 'text-blue-600'}`} />
+          <CardTitle className={dark ? 'text-white' : undefined}>Outlook Integration</CardTitle>
         </div>
-        <CardDescription>
+        <CardDescription className={dark ? 'text-slate-400' : undefined}>
           Connect Microsoft 365 for Outlook mail, calendar, Teams meetings and attendance reports
         </CardDescription>
       </CardHeader>
       <CardContent>
         {(connectionError || statusError) && (
           <div
-            className="mb-4 space-y-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive"
+            className={`mb-4 space-y-3 rounded-lg border p-3 ${dark ? 'border-red-800 bg-red-950/30 text-red-300' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}
             role="alert"
             aria-live="assertive"
             data-testid="outlook-connection-error"
@@ -253,8 +260,8 @@ export default function OutlookConnection({ isAdmin = false }) {
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 rounded-full">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <div className={`p-2 rounded-full ${dark ? 'bg-green-900/40' : 'bg-green-100'}`}>
+                  <CheckCircle2 className={`h-5 w-5 ${dark ? 'text-green-400' : 'text-green-600'}`} />
                 </div>
                 <div>
                   <p className="font-medium">{connection.displayName || 'Connected'}</p>
@@ -274,7 +281,7 @@ export default function OutlookConnection({ isAdmin = false }) {
             )}
 
             {connection.healthState === 'reconnect_required' && (
-              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+              <div className={`space-y-3 p-3 border rounded-lg ${amber}`}>
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
@@ -292,7 +299,7 @@ export default function OutlookConnection({ isAdmin = false }) {
             )}
 
             {connection.healthState === 'admin_consent_required' && (
-              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+              <div className={`space-y-3 p-3 border rounded-lg ${amber}`}>
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
@@ -316,7 +323,7 @@ export default function OutlookConnection({ isAdmin = false }) {
             )}
 
             {connection.teamsReady && (
-              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800">
+              <div className={`flex items-center gap-2 p-3 border rounded-lg ${dark ? 'bg-green-900/30 border-green-800 text-green-300' : 'bg-green-50 border-green-200 text-green-800'}`}>
                 <CheckCircle2 className="h-4 w-4" />
                 <span className="text-sm">Teams meetings and attendance reports are authorized.</span>
               </div>
@@ -356,7 +363,7 @@ export default function OutlookConnection({ isAdmin = false }) {
                 onClick={handleDisconnect}
                 disabled={disconnecting}
                 variant="outline"
-                className="text-destructive hover:text-destructive"
+                className={dark ? 'text-red-300 hover:text-red-200' : 'text-destructive hover:text-destructive'}
                 data-testid="button-disconnect-outlook"
               >
                 {disconnecting ? (

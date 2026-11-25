@@ -774,7 +774,7 @@ export default function AdminSettings() {
                   className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
                   data-testid="input-logo-link"
                 />
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-400">
                   When clicked, the logo will navigate to this URL. Leave empty to link to Events page.
                 </p>
               </div>
@@ -1084,10 +1084,10 @@ export default function AdminSettings() {
                   data-testid="switch-member-portal-login"
                 />
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <Label htmlFor="show-member-balances-tab">Show Balances tab on member records</Label>
-                  <p className="text-sm text-slate-500">Controls both member record views only. Saved balances, reports and the portal Balances page are unchanged.</p>
+              <div className="flex items-center justify-between gap-4 p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="space-y-1">
+                  <Label htmlFor="show-member-balances-tab" className="text-slate-200 font-medium">Show Balances tab on member records</Label>
+                  <p className="text-sm text-slate-400">Controls both member record views only. Saved balances, reports and the portal Balances page are unchanged.</p>
                 </div>
                 <Switch
                   id="show-member-balances-tab"
@@ -1170,22 +1170,22 @@ export default function AdminSettings() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Voucher schemes</CardTitle></CardHeader>
+          <Card className="dark admin-dark-surface bg-slate-800/50 border-slate-700 text-slate-200">
+            <CardHeader><CardTitle className="text-white">Voucher schemes</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              {voucherSettingsError && <p role="alert" className="text-red-600">{voucherSettingsError}</p>}
+              {voucherSettingsError && <p role="alert" className="text-red-400">{voucherSettingsError}</p>}
               {voucherSettings && <>
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="individual-vouchers-enabled">Enable individual member vouchers</Label>
+                  <Label htmlFor="individual-vouchers-enabled" className="text-slate-200 font-medium">Enable individual member vouchers</Label>
                   <Switch id="individual-vouchers-enabled" checked={voucherSettings.individual_vouchers_enabled.value === 'true'} onCheckedChange={checked => setVoucherSettings(previous => ({ ...previous, individual_vouchers_enabled: { ...previous.individual_vouchers_enabled, value: String(checked) } }))} />
                 </div>
-                <p className="text-sm text-slate-500">Turning this off prevents new personal issuance and spending; existing balances and history remain available.</p>
+                <p className="text-sm text-slate-400">Turning this off prevents new personal issuance and spending; existing balances and history remain available.</p>
                 {['organization', 'member'].map(owner => {
                   const key = `${owner}_voucher_display_name`;
                   return <div key={key} className="space-y-2">
-                    <Label htmlFor={key}>{owner === 'organization' ? 'Organisation' : 'Individual member'} display name</Label>
-                    <Input id={key} value={voucherSettings[key].value} placeholder="Training Voucher" onChange={event => setVoucherSettings(previous => ({ ...previous, [key]: { ...previous[key], value: event.target.value } }))} />
-                    <p className="text-sm text-slate-500">Blank uses Training Voucher, independently of the other scheme.</p>
+                    <Label htmlFor={key} className="text-slate-200">{owner === 'organization' ? 'Organisation' : 'Individual member'} display name</Label>
+                    <Input id={key} className="bg-slate-900/50 border-slate-600 text-white" value={voucherSettings[key].value} placeholder="Training Voucher" onChange={event => setVoucherSettings(previous => ({ ...previous, [key]: { ...previous[key], value: event.target.value } }))} />
+                    <p className="text-sm text-slate-400">Blank uses Training Voucher, independently of the other scheme.</p>
                   </div>;
                 })}
                 <Button type="button" disabled={savingVoucherSettings} onClick={saveVoucherSettings}>{savingVoucherSettings ? 'Saving…' : 'Save voucher settings'}</Button>
@@ -1326,7 +1326,7 @@ export default function AdminSettings() {
             </CardContent>
           </Card>
 
-          <OutlookConnection />
+          <OutlookConnection tone="dark" />
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>

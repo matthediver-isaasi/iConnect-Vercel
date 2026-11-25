@@ -40,12 +40,12 @@ function MembershipRenewalJourneySettingsContent({ tenantId, joining }) {
       setSaved(result.settings); setMessage(`${joining ? 'Joining' : 'Renewal'} journey saved. Memberships and payments have not been changed.`);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  return <Card>
-    <CardHeader><CardTitle>{joining ? 'First-membership joining journey' : 'Membership renewal journey'}</CardTitle>
-      <CardDescription>{joining ? 'Choose the questionnaire opened by Become a member for signed-in accounts with no previous membership or outstanding membership checkout. This is separate from renewal.' : 'Choose where the portal’s Renew and Restart membership buttons take members. Existing membership dates and payment protections still apply.'}</CardDescription></CardHeader>
+  return <Card className="dark admin-dark-surface bg-slate-800/50 border-slate-700 text-slate-200">
+    <CardHeader><CardTitle className="text-white">{joining ? 'First-membership joining journey' : 'Membership renewal journey'}</CardTitle>
+      <CardDescription className="text-slate-400">{joining ? 'Choose the questionnaire opened by Become a member for signed-in accounts with no previous membership or outstanding membership checkout. This is separate from renewal.' : 'Choose where the portal’s Renew and Restart membership buttons take members. Existing membership dates and payment protections still apply.'}</CardDescription></CardHeader>
     <CardContent>
-      {error && <p role="alert" className="mb-3 text-red-600">{error}</p>}
-      {message && <p role="status" className="mb-3">{message}</p>}
+      {error && <p role="alert" className="mb-3 text-red-400">{error}</p>}
+      {message && <p role="status" className="mb-3 text-emerald-300">{message}</p>}
       <form onSubmit={save} className="space-y-4">
         <fieldset disabled={busy || !saved} className="space-y-3">
           {!joining && <><label className="flex items-start gap-2"><input type="radio" name="renewal-journey" checked={mode === 'same_schedule'} onChange={() => setMode('same_schedule')} />
@@ -53,13 +53,13 @@ function MembershipRenewalJourneySettingsContent({ tenantId, joining }) {
           <label className="flex items-start gap-2"><input type="radio" name="renewal-journey" checked={mode === 'questionnaire'} onChange={() => setMode('questionnaire')} />
             <span>Reassess through a form<span className="block text-sm text-muted-foreground">Ask questions first, then use your form’s rules to route members to the correct renewal form.</span></span></label></>}
           {(joining || mode === 'questionnaire') && <label className="block space-y-2"><span>{joining ? 'First-membership entry form' : 'Renewal entry form'}</span>
-            <select className="block w-full rounded-md border bg-background p-2" required={!joining} value={formId} onChange={e => setFormId(e.target.value)}>
+            <select className="block w-full rounded-md border border-slate-600 bg-slate-900/50 p-2 text-slate-100" required={!joining} value={formId} onChange={e => setFormId(e.target.value)}>
               <option value="">{joining ? 'Not configured — hide joining action' : 'Choose a form'}</option>
               {formId && !forms.some(f => f.id === formId) && <option value={formId}>Saved form is currently unavailable</option>}
               {[...forms].sort((a,b) => (a.name || '').localeCompare(b.name || '')).map(f => <option key={f.id} value={f.id}>{f.name || 'Unnamed form'}</option>)}
             </select><span className="block text-sm text-muted-foreground">{joining ? 'Active standard forms are listed, including public joining questionnaires. This does not change their access settings.' : 'Only active forms requiring login are listed.'} This is the starting questionnaire, not necessarily the form that takes payment.</span></label>}
           {!joining && <label className="block space-y-2"><span>Post-grace restart entry form</span>
-            <select className="block w-full rounded-md border bg-background p-2" value={postGraceFormId} onChange={e => setPostGraceFormId(e.target.value)}>
+            <select className="block w-full rounded-md border border-slate-600 bg-slate-900/50 p-2 text-slate-100" value={postGraceFormId} onChange={e => setPostGraceFormId(e.target.value)}>
               <option value="">Use the ordinary renewal journey</option>
               {postGraceFormId && !forms.some(f => f.id === postGraceFormId) && <option value={postGraceFormId}>Saved form is currently unavailable</option>}
               {[...forms].sort((a,b) => (a.name || '').localeCompare(b.name || '')).map(f => <option key={f.id} value={f.id}>{f.name || 'Unnamed form'}</option>)}

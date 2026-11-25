@@ -389,8 +389,12 @@ test('settings switch saves, invalidates the member preference, and reloads the 
   assert.equal(control.getAttribute('aria-checked'), 'true');
   const cpdControl = view.container.querySelector('#show-member-cpd-points');
   assert.equal(cpdControl.getAttribute('aria-checked'), 'true');
+  const cpdStatus = () => view.container.querySelector('[data-testid="status-member-cpd-points"]').textContent;
+  assert.equal(cpdStatus(), 'Shown');
+  assert.match(view.container.textContent, /Off: they are hidden on member records/);
   assert.equal(view.container.querySelector('#member-cpd-tab-label').value, 'CPD points');
   await act(async () => cpdControl.click());
+  assert.equal(cpdStatus(), 'Hidden');
   await act(async () => {
     const input = view.container.querySelector('#member-cpd-tab-label');
     Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, 'Learning awards');
@@ -410,6 +414,7 @@ test('settings switch saves, invalidates the member preference, and reloads the 
   control = view.container.querySelector('#show-member-balances-tab');
   assert.equal(control.getAttribute('aria-checked'), 'false');
   assert.equal(view.container.querySelector('#show-member-cpd-points').getAttribute('aria-checked'), 'false');
+  assert.equal(view.container.querySelector('[data-testid="status-member-cpd-points"]').textContent, 'Hidden');
   assert.equal(view.container.querySelector('#member-cpd-tab-label').value, 'Learning awards');
   failSave = true;
   await act(async () => control.click());

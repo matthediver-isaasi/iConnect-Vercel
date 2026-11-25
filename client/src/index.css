@@ -175,6 +175,26 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+/* Slate admin surface: use together with `dark` on a container inside the slate/navy
+   admin pages so shared components (outline buttons, selects, muted text) read as dark. */
+.dark.admin-dark-surface {
+  color-scheme: dark;
+  --background: 222.2 47.4% 11.2%;
+  --foreground: 210 40% 96.1%;
+  --card-foreground: 210 40% 96.1%;
+  --popover: 222.2 47.4% 11.2%;
+  --popover-foreground: 210 40% 96.1%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 215.3 25% 26.7%;
+  --accent-foreground: 210 40% 98%;
+  --secondary: 215.3 25% 26.7%;
+  --secondary-foreground: 210 40% 98%;
+  --border: 215.3 19.3% 34.5%;
+  --input: 215.3 19.3% 34.5%;
+  --ring: 213 27% 84%;
+}
+
 @layer base {
   * {
     @apply border-border;

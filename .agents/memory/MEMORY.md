@@ -177,3 +177,4 @@
 - [Proposal default VAT](proposal-default-vat-policy.md) — sales default also applies to new free-text lines; preserve explicit selections and saved tax snapshots.
 - [PostgreSQL test adapters](postgres-test-adapters.md) — preserve JSON result types and service-role RLS visibility; fixture mismatches can disguise successful writes or existing rows.
 - [Unified identity comparison types](unified-identity-comparison-types.md) — identity keys can be varchar while Sales principals are UUID; match live types in trigger tests.
+- [Slate admin surface](admin-dark-surface.md) — on navy admin pages use `dark admin-dark-surface` card scope so shared light components stay readable.

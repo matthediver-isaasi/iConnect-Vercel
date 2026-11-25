@@ -120,7 +120,7 @@ export default function MembershipRenewalExceptions({ tenantId }) {
       <p className="font-medium">Prefer membership class for lasting category rules</p>
       <p className="mt-1 text-muted-foreground">A purchased membership class still matches after a member becomes Former. A role rule matches only their current role: changing that role can stop the rule matching.</p>
     </div>
-    {error && <p role="alert" className="mb-3 text-sm text-red-600">{error} {data ? 'Your edits are still shown. Reload to get the latest settings before retrying a revision conflict.' : 'Use Reload exceptions to try again.'}</p>}
+    {error && <p role="alert" className="mb-3 text-sm text-red-400">{error} {data ? 'Your edits are still shown. Reload to get the latest settings before retrying a revision conflict.' : 'Use Reload exceptions to try again.'}</p>}
     {message && <p role="status" className="mb-3 text-sm">{message}</p>}
     {busy && !data && <div role="status" className="mb-4 space-y-2">
       <span className="text-sm text-muted-foreground">Loading renewal exceptions…</span>
@@ -194,7 +194,7 @@ export default function MembershipRenewalExceptions({ tenantId }) {
                 <span className="mt-1 block text-muted-foreground">Members retain their purchased category. This does not lock them to a historic schedule ID.</span>
               </span>
             </label>
-            {reason && <p className="text-sm text-red-600">{reason} Replace the unavailable choice or remove this exception before saving.</p>}
+            {reason && <p className="text-sm text-red-400">{reason} Replace the unavailable choice or remove this exception before saving.</p>}
             {confirmRemove === rule.id && <div role="group" aria-label={`Confirm removal of exception ${index + 1}`} className="space-y-2 border-t pt-3">
               <p className="text-sm">Remove this exception? The change only takes effect when you save exceptions.</p>
               <div className="flex flex-wrap gap-2">

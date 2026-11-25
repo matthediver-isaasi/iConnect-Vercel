@@ -162,7 +162,7 @@ export default function CookieConsentSettings({ platform = false, tenantId }) {
   const filteredTenants = tenants.filter(tenant => tenant.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <Card id="cookie-consent-settings" className={platform ? '' : 'bg-slate-800/50 border-slate-700 text-slate-200'}>
+    <Card id="cookie-consent-settings" className={platform ? '' : 'dark admin-dark-surface bg-slate-800/50 border-slate-700 text-slate-200'}>
       <CardHeader>
         <CardTitle className={`flex items-center gap-2 ${platform ? '' : 'text-white'}`}>
           <Shield className="h-5 w-5" aria-hidden="true" /> Cookie consent
