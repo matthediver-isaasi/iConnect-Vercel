@@ -30,6 +30,29 @@ const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
 const { normalizeCanvasMembershipSummary } = await import('../../../lib/canvasMembershipData.js');
+test('unfinished renewal has a continuation action without granting another renewal', () => {
+  const data = {
+    membership: { state: 'unavailable' }, payment: { state: 'unavailable' },
+    renewal: { eligible: false },
+    paymentRecovery: { available: true, entryHref: '/FormView?slug=restart-with-bnms' },
+  };
+  const normalized = normalizeCanvasMembershipSummary(data);
+  assert.equal(normalized.renewal.eligible, false);
+  assert.equal(normalized.paymentRecovery.available, true);
+  const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{ status: 'ready', data }} />);
+  assert.match(html, /Your renewal payment is unfinished/);
+  assert.match(html, /Continue your payment/);
+  assert.match(html, /href="\/FormView\?slug=restart-with-bnms"/);
+  assert.doesNotMatch(html, /cannot confirm your payment arrangement|membership-payment-panel|membership-renewal-cta/);
+  for (const entryHref of ['https://foreign.test', '//foreign.test', '/FormView?slug=x&admin=true']) {
+    assert.equal(normalizeCanvasMembershipSummary({ ...data,
+      paymentRecovery: { available: true, entryHref } }).paymentRecovery.available, false);
+  }
+  const hidden = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{ status: 'ready', data: { ...data, paymentRecovery: { available: false } } }} />);
+  assert.doesNotMatch(hidden, /membership-payment-recovery-link/);
+});
 test('cancelled Direct Debit warning remains visible with recognised active membership', () => {
   for (const type of ['payment-details', 'membership-details']) {
     const html = renderToStaticMarkup(<MembershipDataView type={type} block={{}} result={{

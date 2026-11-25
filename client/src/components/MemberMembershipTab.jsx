@@ -127,7 +127,7 @@ function formatBillingDuration(commitment) {
 
 function formatPaymentMethod(value) {
   const labels = {
-    stripe: 'Card (paid in full)',
+    stripe: 'Card (upfront)',
     stripe_monthly_card: 'Stripe',
     card_monthly: 'Stripe',
     gocardless: 'GoCardless',
@@ -1874,7 +1874,10 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                             {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                               {record.mandatePresentation?.awaitingFirstPayment
-                                ? 'Awaiting first payment' : record.status || 'active'}
+                                ? 'Awaiting first payment'
+                                : record.status === 'pending_payment_setup' && record.payment_status === 'unpaid'
+                                  && !record.billing_agreement_id && ['stripe', 'card', 'upfront'].includes(record.payment_method)
+                                  ? 'Awaiting payment' : record.status || 'active'}
                             </Badge>
                             <PaymentStatusBadge paymentStatus={record.payment_status} />
                           </div>

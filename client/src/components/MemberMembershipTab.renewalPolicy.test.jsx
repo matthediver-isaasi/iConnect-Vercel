@@ -262,6 +262,22 @@ const historical = {
   status: "active", currency: "GBP",
 };
 
+test('unpaid upfront card history describes the method without claiming full payment', async () => {
+  await mounted({ dataOverrides: {
+    history: [{ ...historical, payment_method: 'stripe',
+      status: 'pending_payment_setup', payment_status: 'unpaid',
+      annual_cost: 156, final_cost: 156, total_with_vat: 156 }],
+  } }, container => {
+    const row = container.querySelector('[data-testid="row-member-history-paid-history"]');
+    assert.ok(row);
+    assert.match(row.textContent, /Card \(upfront\)/);
+    assert.match(row.textContent, /Unpaid/);
+    assert.match(row.textContent, /Awaiting payment/);
+    assert.doesNotMatch(row.textContent, /pending_payment_setup/);
+    assert.doesNotMatch(row.textContent, /paid in full/i);
+  });
+});
+
 async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {}, memberTenantId = null, selectedTenantId = null, invoiceResponses = false } = {}, callback) {
   setActiveTenantId(selectedTenantId);
   const tenantId = selectedTenantId || memberTenantId || null;
@@ -269,6 +285,9 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
     queries: { retry: false, staleTime: Infinity, gcTime: 0 },
     mutations: { retry: false, gcTime: 0 },
   } });
+  // The adjacent benefits panel has its own tests and must not make real
+  // requests while these tests verify membership history and renewal policy.
+  client.setQueryData(["funnel-membership-entitlements", "member", "member"], { items: [] });
   client.setQueryData(["member-membership", "member"], {
     config: null, currentYearCost: null, nextYearPreview: null,
     currentCommitments: [], commitments: [],

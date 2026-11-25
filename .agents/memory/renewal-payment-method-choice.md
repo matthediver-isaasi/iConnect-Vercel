@@ -59,3 +59,14 @@ must choose a method and continue payment, not wait for an abandoned checkout.
 
 **How to apply:** Highlight the previous choice without a status badge. Keep
 method choice separate from the existing payment confirmation and consent.
+
+Duplicate-renewal suppression must not suppress navigation back to an owned
+unfinished payment. Recovery navigation is separate from purchase eligibility,
+including for former members without billing-history permission.
+
+**Why:** A pending unpaid renewal correctly blocked a second purchase but left
+the portal with an unavailable message and no way to complete the first one.
+
+**How to apply:** Verify the saved member/tenant/election/quote binding and route
+back to the guarded renewal form. Keep provider reconciliation and payment
+creation there; a portal link must never release a reservation or imply payment.

@@ -269,6 +269,14 @@ export function normalizeCanvasMembershipSummary(value) {
       entryHref: typeof joining.entryHref === 'string' && /^\/FormView\?slug=[^&\s]+$/.test(joining.entryHref) ? joining.entryHref : '' },
     // Only the authenticated server response can establish renewal eligibility.
     // A retained payment, signup quote or current collection is not a renewal quote.
+    paymentRecovery: {
+      available: source.paymentRecovery?.available === true
+        && typeof source.paymentRecovery.entryHref === 'string'
+        && /^\/FormView\?slug=[^&\s]+$/.test(source.paymentRecovery.entryHref),
+      entryHref: typeof source.paymentRecovery?.entryHref === 'string'
+        && /^\/FormView\?slug=[^&\s]+$/.test(source.paymentRecovery.entryHref)
+        ? source.paymentRecovery.entryHref : '',
+    },
     renewal: { eligible: renewal.eligible === true,
       ...(['questionnaire','same_schedule'].includes(renewal.journeyMode) ? {
         journeyMode: renewal.journeyMode,

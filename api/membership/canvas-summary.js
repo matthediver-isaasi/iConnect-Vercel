@@ -11,6 +11,7 @@ import { isRetiredCanvasCheckout, loadCanvasRenewalEligibility } from '../_lib/c
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
 import { applyRenewalJourney, readRenewalJourney } from '../_lib/membershipRenewalJourney.js';
+import { loadCanvasRenewalRecovery } from '../_lib/canvasRenewalRecovery.js';
 import { loadJoiningJourney } from '../_lib/membershipJoiningJourney.js';
 import { loadMembershipEntryOnly } from '../_lib/membershipEntryOnly.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
@@ -21,7 +22,7 @@ import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionP
 const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, payment_method, billing_period, term_key, term_start_date, term_end_date, membership_renewal_date, commitment_snapshot';
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
-const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id, cancelled_for_switch_at, renewal_policy_snapshot, payment_grace_exit_id`;
+const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id, cancelled_for_switch_at, renewal_policy_snapshot, payment_grace_exit_id, membership_successor_election_id, membership_payment_quote_id`;
 // Restart supersession evidence arrives with a later migration. Before it is
 // installed the column cannot exist, and nothing can have been superseded.
 const RESTART_HISTORY_COLUMNS = `${PERSONAL_HISTORY_COLUMNS}, membership_successor_election_id, restart_supersession_id`;
@@ -506,6 +507,12 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         if (!dependencies.renewalPriceOnly) {
           const joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
           if (joining.eligible || joining.recovery) return res.json({ membership: { state: 'none' }, payment: { state: 'none' }, joining });
+          const paymentRecovery = await (dependencies.loadRenewalRecovery || loadCanvasRenewalRecovery)(db, {
+            owner, today: now().toISOString().slice(0, 10),
+          });
+          if (paymentRecovery.available) return res.json({
+            membership: { state: 'unavailable' }, payment: { state: 'unavailable' }, paymentRecovery,
+          });
           const { loadFormMembershipRenewalContext } = await import('../_lib/formMembershipRenewalContext.js');
           const { createMembershipSimulator } = await import('../_lib/membershipSimulationCore.js');
           const entry = await loadMembershipEntryOnly(db, { tenantId, owner, now: now(),
@@ -583,6 +590,10 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         summary.payment.state = 'paid';
       }
       summary.renewal = await (dependencies.applyRenewalJourney || applyRenewalJourney)(db, tenantId, summary.renewal,owner.id);
+      const paymentRecovery = await (dependencies.loadRenewalRecovery || loadCanvasRenewalRecovery)(db, {
+        selected, owner, today,
+      });
+      if (paymentRecovery.available) summary.paymentRecovery = paymentRecovery;
       if (!selected && summary.payment.state === 'none') {
         summary.joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
       }

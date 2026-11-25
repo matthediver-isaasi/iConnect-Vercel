@@ -921,9 +921,11 @@ test('history query projections respect each owner schema and avoid unsupported 
   // Server-only attestation fields are intentionally absent from the public
   // history projection. The API regression above exercises their selection.
   for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status',
-    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at', 'renewal_policy_snapshot', 'payment_grace_exit_id', 'membership_successor_election_id', 'restart_supersession_id'].includes(column))) {
+    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at', 'renewal_policy_snapshot', 'payment_grace_exit_id', 'membership_successor_election_id', 'membership_payment_quote_id', 'restart_supersession_id'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
+  assert.match(migration('20260920_rolling_membership_commitments.sql'),
+    /ALTER TABLE member_membership_history ADD COLUMN IF NOT EXISTS membership_payment_quote_id UUID/);
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);
 });
 
@@ -948,8 +950,48 @@ test('history-denied guest gets no financial data when joining is not configured
   const h = harness({ permission: false });
   const res = await h.request();
   assert.equal(res.statusCode,403);
-  assert.ok(h.db.calls.every(call => ['member','membership_joining_journey'].includes(call.table)));
+  assert.ok(h.db.calls.every(call => ['member','membership_joining_journey','member_membership_history'].includes(call.table)));
+  const recoveryRead = h.db.calls.find(call => call.table === 'member_membership_history');
+  assert.ok(recoveryRead.filters.some(([key, value]) => key === 'tenant_id' && value === member.tenant_id));
+  assert.ok(recoveryRead.filters.some(([key, value]) => key === 'member_id' && value === member.id));
+  assert.doesNotMatch(recoveryRead.columns, /cost|amount|paid_at|invoice/);
   assert.match(res.headers['Cache-Control'],/no-store/);
+});
+
+test('history-denied members receive only verified payment recovery navigation', async () => {
+  const h = harness({ permission: false, extra: {
+    loadJoiningJourney: async () => ({ eligible: false }),
+    loadRenewalRecovery: async (_db, { owner, selected }) => {
+      assert.equal(owner.id, member.id);
+      assert.equal(selected, undefined);
+      return { available: true, entryHref: '/FormView?slug=restart' };
+    },
+  } });
+  const res = await h.request();
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, {
+    membership: { state: 'unavailable' }, payment: { state: 'unavailable' },
+    paymentRecovery: { available: true, entryHref: '/FormView?slug=restart' },
+  });
+  assert.match(res.headers['Cache-Control'], /private, no-store/);
+});
+
+test('portal passes the real pending-history binding to recovery without exposing its identifiers', async () => {
+  const pending = term({ status: 'pending_payment_setup', payment_status: 'unpaid', payment_method: 'stripe',
+    membership_successor_election_id: 'private-election', membership_payment_quote_id: 'private-quote' });
+  const h = harness({ rows: { member_membership_history: [pending] }, extra: {
+    loadRenewalRecovery: async (_db, { selected, owner }) => {
+      assert.equal(owner.id, member.id);
+      assert.equal(selected.record.membership_successor_election_id, 'private-election');
+      assert.equal(selected.record.membership_payment_quote_id, 'private-quote');
+      return { available: true, entryHref: '/FormView?slug=restart' };
+    },
+  } });
+  const res = await h.request();
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.renewal.eligible, false);
+  assert.deepEqual(res.payload.paymentRecovery, { available: true, entryHref: '/FormView?slug=restart' });
+  assert.doesNotMatch(JSON.stringify(res.payload), /private-election|private-quote/);
 });
 
 test('authenticated guests without history permission receive only verified joining navigation',async()=>{

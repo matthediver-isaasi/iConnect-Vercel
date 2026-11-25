@@ -47,7 +47,7 @@ const stateColors = {
 // Use the same Primary slot, size/background/border and label composition as
 // Canvas Button, rather than the membership link typography or a local colour.
 export function MembershipRenewalButton({
-  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false, joining = false, continuing = false,
+  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false, joining = false, continuing = false, resumingPayment = false,
 }) {
   const branding = useTenantBranding()?.branding || null;
   const buttonStyle = resolveTenantButtonStyle('tenant-primary', branding);
@@ -63,7 +63,7 @@ export function MembershipRenewalButton({
   });
   const icon = buttonStyle?.icon;
   const iconElement = icon?.name ? renderStyleIcon(icon.name, Number.isFinite(icon.size) ? icon.size : 18, icon.color) : null;
-  return <a href={href} data-testid={joining ? 'membership-joining-cta' : 'membership-renewal-cta'}
+  return <a href={href} data-testid={resumingPayment ? 'membership-payment-recovery-link' : joining ? 'membership-joining-cta' : 'membership-renewal-cta'}
     target={newTab ? '_blank' : undefined} rel={newTab ? 'noopener noreferrer' : undefined}
     onClick={asEditor ? event => event.preventDefault() : undefined}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -76,7 +76,7 @@ export function MembershipRenewalButton({
       lineHeight: undefined, maxWidth: '100%', textDecoration: 'none',
     }}>
     {iconElement && icon.position !== 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
-    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{joining ? 'Become a member' : continuing ? 'Continue your membership' : restart ? 'Restart your membership' : 'Renew your subscription'}</span>
+    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{resumingPayment ? 'Continue your payment' : joining ? 'Become a member' : continuing ? 'Continue your membership' : restart ? 'Restart your membership' : 'Renew your subscription'}</span>
     {iconElement && icon.position === 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
   </a>;
 }
@@ -108,7 +108,12 @@ export function MembershipDataView({
   const showJoining = paymentCard && ready && state === 'none' && !showRenewal && summary.joining.eligible && !!joiningHref;
   const showSetupRecovery = paymentCard && ready && state === 'none' && !showRenewal
     && summary.joining.recovery && !!joiningHref;
-  const copy = showSetupRecovery ? { ...content.states[state], heading: 'Membership checkout unfinished',
+  const recoveryHref = safeMembershipLink(summary.paymentRecovery.entryHref);
+  const showPaymentRecovery = paymentCard && ready && !showRenewal && !bankSetupPending
+    && summary.paymentRecovery.available && !!recoveryHref;
+  const copy = showPaymentRecovery ? { ...content.states[state], heading: 'Your renewal payment is unfinished',
+    supporting: 'Return to the renewal form to review your existing checkout and continue payment. Your membership has not yet been renewed.' }
+    : showSetupRecovery ? { ...content.states[state], heading: 'Membership checkout unfinished',
     supporting: summary.joining.needsReview
       ? 'Your earlier payment setup could not be verified. Contact the membership team to resolve it before making another payment.'
       : 'You started a membership checkout but setup has not finished. Return to the form to check the existing attempt and safely return to payment choices.' }
@@ -266,7 +271,7 @@ export function MembershipDataView({
             Please wait while we check your membership details.
           </> : content.messages[result?.status] || content.messages.error}
         </p>
-      ) : paymentCard && cancelledPlanRestart ? null : paymentCard ? (
+      ) : paymentCard && (cancelledPlanRestart || showPaymentRecovery) ? null : paymentCard ? (
         <div data-testid="membership-payment-panel" style={{
           marginTop: 30, padding: '18px 22px', background: content.panel.background,
           border: `${content.panel.borderWidth}px solid ${content.panel.borderColor || 'transparent'}`,
@@ -364,6 +369,11 @@ export function MembershipDataView({
         {...role('link', { display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 24, textDecoration: 'none' })}>
         {content.manageLinkText}<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
       </a>}
+      {showPaymentRecovery && <div style={{ marginTop: 24 }}>
+        <MembershipRenewalButton href={recoveryHref} resumingPayment
+          asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
+          breakpoint={breakpoint || viewportBreakpoint} />
+      </div>}
       {showRenewal && <div style={{ marginTop: 24 }}>
         {summary.renewal.journeyMode === 'questionnaire' && <p {...role('supporting')} style={{ marginBottom: 12 }}>
           Answer a few questions to find the right membership for your circumstances before renewing.
