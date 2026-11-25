@@ -1969,10 +1969,6 @@ export default function HistoryPage({ hasBanner: bannerProp }) {
                   )}
 
                   {/* Membership History Section */}
-                  <HistoricalInvoices
-                    memberId={memberInfo?.id}
-                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
-                  />
                   <HistoricalDdPayments
                     memberId={memberInfo?.id}
                     activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
@@ -2000,6 +1996,11 @@ export default function HistoryPage({ hasBanner: bannerProp }) {
                       )}
                     </div>
                   )}
+
+                  <HistoricalInvoices
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
 
                   {/* No results message */}
                   {filteredBookingGroups.length === 0 && 
@@ -2161,10 +2162,6 @@ export default function HistoryPage({ hasBanner: bannerProp }) {
 
                 {/* Membership Tab */}
                 <TabsContent value="membership" className="space-y-3">
-                  <HistoricalInvoices
-                    memberId={memberInfo?.id}
-                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
-                  />
                   <HistoricalDdPayments
                     memberId={memberInfo?.id}
                     activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
@@ -2198,6 +2195,10 @@ export default function HistoryPage({ hasBanner: bannerProp }) {
                       </>
                     );
                   })()}
+                  <HistoricalInvoices
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
                 </TabsContent>
               </Tabs>
             )}
