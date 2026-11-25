@@ -247,7 +247,9 @@ export function MembershipDataView({
         </p>
       </div>}
       {ready && restart && <p {...role('supporting', { marginTop: 16 })} data-testid="membership-restart-notice">
-        {summary.renewal.eligible
+        {summary.renewal.eligible && summary.renewal.cancelledDirectDebit
+          ? 'Restart your membership using the renewal form. Your new membership starts on successful payment. Any dates shown before payment are estimates; setting up a payment method alone does not restart membership.'
+          : summary.renewal.eligible
           ? 'Your grace period has ended. Restart your membership using the renewal form. Membership starts on successful payment, not from your previous expiry date. Any dates shown before payment are estimates; setting up a payment method alone does not restart membership.'
           : 'Membership restart is not currently available. Please contact the membership team before paying.'}
       </p>}

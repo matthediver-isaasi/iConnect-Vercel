@@ -149,3 +149,26 @@ test('ongoing DD remains continuing outside the election window; finite consent 
     assert.equal(assess(input).state, 'review_required');
   }
 });
+test('a cancelled Direct Debit term superseded by a completed restart does not block the next ordinary renewal', () => {
+  const old = { ...structuredClone(history), id: 'old', status: 'expired', payment_status: 'partial',
+    billing_agreement_id: 'old-dd', term_start_date: '2025-10-01', term_end_date: '2026-09-30',
+    restart_supersession_id: 'receipt', commitment_snapshot: { config, payment_frequency: 'monthly' } };
+  const restarted = { ...structuredClone(history), id: 'restart', previous_term_id: 'old',
+    membership_successor_election_id: 'election', term_start_date: '2026-01-15', term_end_date: '2027-01-14' };
+  const oldAgreement = { id: 'old-dd', tenant_id: 'tenant', member_id: 'member', status: 'payment_plan_cancelled',
+    provider: 'gocardless' };
+  const input = fixture({ histories: [old, restarted], agreements: [oldAgreement], now: '2026-12-01' });
+  const before = structuredClone(input);
+  const result = assess(input);
+  assert.equal(result.state, 'eligible_renewal');
+  assert.equal(result.predecessorId ?? 'restart', 'restart');
+  assert.equal(result.currentEnd, '2027-01-14');
+  assert.deepEqual(input, before, 'the old term, its debt and the cancelled agreement are not changed');
+  // Without a paid successor, or without the bound link, the overlap still needs review.
+  assert.equal(assess({ ...input, histories: [old, { ...restarted, payment_status: 'unpaid' }] }).state, 'review_required');
+  assert.equal(assess({ ...input, histories: [{ ...old, restart_supersession_id: null }, restarted] }).state, 'review_required');
+  // Any other open agreement still blocks renewal.
+  assert.notEqual(assess({ ...input, agreements: [oldAgreement,
+    { id: 'other', tenant_id: 'tenant', member_id: 'member', status: 'payment_plan_cancelled', provider: 'gocardless' }] }).state,
+  'eligible_renewal');
+});

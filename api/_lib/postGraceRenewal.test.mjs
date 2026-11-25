@@ -126,3 +126,76 @@ test('paid annual term handles leap-day anniversaries', () => {
   assert.equal(result.term_end_date, '2029-02-27');
   assert.equal(result.membership_renewal_date, '2029-02-28');
 });
+
+function cancelledDirectDebit({ today = '2026-11-25', withEvidence = true } = {}) {
+  const input = fixture();
+  input.today = today;
+  const history = input.histories[0];
+  Object.assign(history, { status: 'active', payment_status: 'partial', billing_agreement_id: 'old-dd',
+    term_start_date: '2026-10-01', term_end_date: '2027-09-30', membership_renewal_date: '2027-10-01',
+    term_key: 'rolling:2026-10-01' });
+  history.commitment_snapshot.payment_frequency = 'monthly';
+  history.commitment_snapshot.config.renewal_grace_days = 0;
+  input.agreements = [{ id: 'old-dd', tenant_id: 'tenant', member_id: 'member', status: 'payment_plan_cancelled',
+    provider: 'gocardless' }];
+  if (withEvidence) history.cancelledDirectDebit = { tenant_id: 'tenant', member_id: 'member', history_id: 'prior',
+    agreement_id: 'old-dd', plan_id: 'old-plan', agreement_status: 'payment_plan_cancelled',
+    plan_status: 'payment_plan_cancelled', mandate_status: 'cancelled', supersession: null };
+  return input;
+}
+
+test('confirmed-cancelled Direct Debit restarts straight away, with no failed payment, grace expiry or approval', () => {
+  const input = cancelledDirectDebit(), before = structuredClone(input);
+  const result = assess(input);
+  assert.equal(result.eligible, true);
+  assert.equal(result.state, 'post_grace_renewal');
+  assert.equal(result.cancelledDirectDebit, true);
+  assert.equal(result.predecessorId, 'prior');
+  assert.equal(result.graceEndDate, '2026-11-24');
+  assert.equal(result.term_start_date, '2026-11-25');
+  assert.equal(result.term_end_date, '2027-11-24');
+  assert.equal(result.commencementBasis, 'confirmed_payment');
+  assert.deepEqual(input, before, 'the cancelled term, unpaid status and agreement are not changed');
+});
+
+test('cancelled Direct Debit restart also applies within grace and after grace without approval', () => {
+  const inGrace = cancelledDirectDebit();
+  inGrace.histories[0].commitment_snapshot.config.renewal_grace_days = 30;
+  assert.equal(assess(inGrace).eligible, true);
+  const afterGrace = cancelledDirectDebit({ today: '2027-12-15' });
+  assert.equal(assess(afterGrace).eligible, true);
+  assert.equal(assess(afterGrace).term_start_date, '2027-12-15');
+});
+
+test('cancelled Direct Debit restart requires verified evidence and keeps existing blocks', () => {
+  assert.equal(assess(cancelledDirectDebit({ withEvidence: false })).reason, 'unresolved_billing_agreement');
+  for (const status of ['active', 'mandate_pending', 'first_payment_pending', 'payment_grace_period']) {
+    const input = cancelledDirectDebit();
+    input.agreements[0].status = status;
+    assert.equal(assess(input).eligible, false, `${status} Direct Debit stays hidden`);
+  }
+  const paused = cancelledDirectDebit();
+  paused.member.membership_paused = true;
+  assert.equal(assess(paused).reason, 'membership_paused_or_cancelled');
+  const cancelled = cancelledDirectDebit();
+  cancelled.member.membership_cancelled = true;
+  assert.equal(assess(cancelled).reason, 'membership_paused_or_cancelled');
+  const other = cancelledDirectDebit();
+  other.agreements.push({ id: 'other', tenant_id: 'tenant', member_id: 'member', status: 'active' });
+  assert.equal(assess(other).reason, 'unresolved_billing_agreement');
+  const mismatched = cancelledDirectDebit();
+  mismatched.histories[0].cancelledDirectDebit.agreement_id = 'other';
+  assert.equal(assess(mismatched).eligible, false);
+  const organisation = cancelledDirectDebit();
+  organisation.histories[0].organization_id = 'org';
+  assert.equal(assess(organisation).reason, 'evidence_scope_mismatch');
+  assert.equal(assess({ ...cancelledDirectDebit(), enabled: false }).reason, 'post_grace_disabled');
+  const reserved = cancelledDirectDebit();
+  reserved.elections = [{ id: 'e', tenant_id: 'tenant', member_id: 'member', status: 'reserved' }];
+  assert.equal(assess(reserved).reason, 'successor_already_reserved');
+  const restarted = cancelledDirectDebit();
+  restarted.histories[0].status = 'expired';
+  restarted.histories[0].restart_supersession_id = 's';
+  restarted.histories[0].cancelledDirectDebit.supersession = { id: 's', superseded_at: '2026-11-25T10:00:00Z' };
+  assert.equal(assess(restarted).reason, 'membership_already_restarted');
+});

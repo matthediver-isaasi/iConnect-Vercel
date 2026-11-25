@@ -140,3 +140,28 @@ test('cancelled failure enters reviewed access processing but never monthly coll
     perform(){assert.fail('cancelled mandate must not enter collection');},
   }});
 });
+test('a restart after a confirmed-cancelled Direct Debit is never flagged, restricted or grace-exited by the old plan', async () => {
+  const stopped = {...plan,status:'payment_plan_cancelled',last_payment_status:'failed'};
+  const approvedTables = { membership_payment_grace_exit_release:[{enabled:true}],
+    membership_payment_grace_exit_approval:[{plan_id:'p'}] };
+  const never = {perform(){assert.fail('restarted membership must not be affected');}};
+  const restarted = await runArrearsAccess({plan:stopped,agreement,now,effects:never,db:db({
+    ...approvedTables, membership_dd_restart_supersession:[{id:'s',superseded_at:'2026-01-20T00:00:00Z'}],
+  })});
+  assert.equal(restarted.result.skippedReason,'restarted-after-cancelled-direct-debit');
+  const unflagged = await runArrearsAccess({plan:stopped,agreement,now,effects:never,db:db({
+    membership_dd_restart_supersession:[{id:'s',superseded_at:'2026-01-20T00:00:00Z'}],
+  })});
+  assert.equal(unflagged.result.skippedReason,'restarted-after-cancelled-direct-debit');
+  const reserved = await runArrearsAccess({plan:stopped,agreement,now,effects:never,db:db({
+    ...approvedTables, membership_dd_restart_supersession:[{id:'s',superseded_at:null}],
+  })});
+  assert.equal(reserved.result.skippedReason,'restart-reserved-for-cancelled-direct-debit');
+  // An abandoned reservation keeps the ordinary review flag available.
+  const operations=[];
+  const waiting = await runArrearsAccess({plan:stopped,agreement,now,
+    effects:{async perform(op){operations.push(op);}},
+    db:db({membership_dd_restart_supersession:[{id:'s',superseded_at:null}]})});
+  assert.match(waiting.result.skippedReason,/awaiting-release-or-approval/);
+  assert.equal(operations[0].payload.values.needs_attention,true);
+});

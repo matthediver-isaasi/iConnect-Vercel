@@ -22,6 +22,9 @@ const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, pay
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
 const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id, cancelled_for_switch_at, renewal_policy_snapshot, payment_grace_exit_id`;
+// Restart supersession evidence arrives with a later migration. Before it is
+// installed the column cannot exist, and nothing can have been superseded.
+const RESTART_HISTORY_COLUMNS = `${PERSONAL_HISTORY_COLUMNS}, membership_successor_election_id, restart_supersession_id`;
 const ORGANISATION_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, organization_id`;
 const pending = new Set(['pending', 'pending_activation', 'pending_payment', 'pending_payment_setup', 'payment_setup_required', 'mandate_pending', 'first_payment_pending', 'scheduled', 'unpaid']);
 const failed = new Set(['failed', 'payment_failed', 'payment_overdue', 'payment_grace_period']);
@@ -277,12 +280,15 @@ function hidesRollingDirectDebitTermEnd(selected, agreement, method) {
 
 async function readHistory(db, tenantId, column, ownerId, table, source) {
   // Explicit paging prevents PostgREST's default row cap losing commencement.
-  const rows = [];
+  let rows = [];
+  let columns = source === 'personal' ? RESTART_HISTORY_COLUMNS : ORGANISATION_HISTORY_COLUMNS;
   for (let offset = 0; ; offset += 500) {
-    const columns = source === 'personal' ? PERSONAL_HISTORY_COLUMNS : ORGANISATION_HISTORY_COLUMNS;
     const { data, error } = await db.from(table).select(columns)
       .eq('tenant_id', tenantId).eq(column, ownerId)
       .order('id', { ascending: true }).range(offset, offset + 499);
+    if (error?.code === '42703' && columns === RESTART_HISTORY_COLUMNS) {
+      columns = PERSONAL_HISTORY_COLUMNS; rows = []; offset = -500; continue;
+    }
     if (error) throw error;
     if (!Array.isArray(data) || data.some(row => !belongsTo(row, tenantId, column, ownerId))) {
       throw new Error('Membership history ownership mismatch');

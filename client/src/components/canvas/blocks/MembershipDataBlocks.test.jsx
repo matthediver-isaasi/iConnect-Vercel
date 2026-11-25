@@ -29,6 +29,7 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
+const { normalizeCanvasMembershipSummary } = await import('../../../lib/canvasMembershipData.js');
 test('cancelled Direct Debit warning remains visible with recognised active membership', () => {
   for (const type of ['payment-details', 'membership-details']) {
     const html = renderToStaticMarkup(<MembershipDataView type={type} block={{}} result={{
@@ -52,6 +53,22 @@ test('verified payment-grace expiry uses Continue your membership and the full r
   assert.match(html,/Continue your membership/);
   assert.match(html,/href="\/FormView\?slug=continuing-with-bnms"/);
   assert.doesNotMatch(html,/Restart your membership<\/span>/);
+});
+test('confirmed-cancelled Direct Debit shows Restart your membership beside the cancellation warning', () => {
+  const data = normalizeCanvasMembershipSummary({membership:{state:'active'},
+    payment:{state:'paused',warning:{code:'cancelled',message:'Your Direct Debit arrangement has been cancelled. Further payments cannot be collected through it.'}},
+    renewal:{eligible:true,state:'post_grace_renewal',cancelledDirectDebit:true,
+      journeyMode:'questionnaire',entryHref:'/FormView?slug=restart-with-bnms'}});
+  assert.equal(data.renewal.cancelledDirectDebit,true);
+  const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{status:'ready',data:{membership:{state:'active'},
+      payment:{state:'paused',warning:{code:'cancelled',message:'Your Direct Debit arrangement has been cancelled. Further payments cannot be collected through it.'}},
+      renewal:{eligible:true,state:'post_grace_renewal',cancelledDirectDebit:true,
+        journeyMode:'questionnaire',entryHref:'/FormView?slug=restart-with-bnms'}}}} />);
+  assert.match(html,/Direct Debit arrangement has been cancelled/);
+  assert.match(html,/Restart your membership<\/span>/);
+  assert.match(html,/href="\/FormView\?slug=restart-with-bnms"/);
+  assert.doesNotMatch(html,/grace period has ended/);
 });
 test('first membership action keeps the empty payment card visible and uses only the joining route', () => {
   const result = {status:'ready',data:{membership:{state:'none'},payment:{state:'none'},

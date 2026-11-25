@@ -229,3 +229,29 @@ test('saved history config and snapshot policy take priority including explicit 
   assert.equal(snapshotResult.inGrace, false);
   assert.equal(snapshotResult.policySource, 'saved_snapshot');
 });
+test('only a cancelled individual GoCardless plan routes the portal card into the restart check', async () => {
+  const ddRecord = { ...record, payment_status: 'partial', billing_agreement_id: 'dd', payment_method: 'direct_debit' };
+  const owner = { id: 'member', tenant_id: 'tenant' };
+  const noReads = { from() { throw Error('Unexpected read'); }, rpc() { throw Error('Unexpected rpc'); } };
+  for (const status of ['active', 'pending_payment_setup', 'payment_overdue', 'payment_grace_period']) {
+    assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: ddRecord }, owner, today: '2026-11-25',
+      plan: { provider: 'gocardless', status, billing_agreement_id: 'dd' } }), { eligible: false }, status);
+  }
+  for (const [patch, plan] of [
+    [{ membership_paused: true }, { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'dd' }],
+    [{ membership_cancelled: true }, { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'dd' }],
+    [{}, { provider: 'stripe', status: 'cancelled', billing_agreement_id: 'dd' }],
+    [{}, { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'other' }],
+  ]) {
+    assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: ddRecord },
+      owner: { ...owner, ...patch }, today: '2026-11-25', plan }), { eligible: false });
+  }
+  const organisation = { ...ddRecord, membership_source: 'organisation' };
+  assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: organisation }, owner,
+    today: '2026-11-25', plan: { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'dd' } }),
+  { eligible: false });
+  // A cancelled individual Direct Debit is checked against server evidence; failure is explicit.
+  assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: ddRecord }, owner,
+    today: '2026-11-25', plan: { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'dd' } }),
+  { eligible: false, reason: 'eligibility_evidence_unavailable' });
+});

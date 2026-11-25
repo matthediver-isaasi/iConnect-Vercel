@@ -1,3 +1,4 @@
+import { CANCELLED_DD_STATUSES, supersededRestartAgreementIds } from './cancelledDirectDebitRestart.js';
 import { addDays, normalizeAnnualRenewalConfig } from './annualRenewalPolicy.js';
 import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { shapeLegacyCurrentMembership } from '../membership/member-membership.js';
@@ -68,7 +69,16 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
 
 export async function loadCanvasRenewalEligibility(db, { selected, owner, history, today, plan, simulate }) {
   let record = selected?.record;
-  if (record?.payment_grace_exit_id && record.membership_source === 'personal' && !owner.membership_paused) {
+  // A confirmed-cancelled individual GoCardless Direct Debit may restart
+  // straight away. The plan/agreement shape here only routes the request; the
+  // restart assessment loads and verifies the database evidence itself.
+  const cancelledDirectDebit = !record?.payment_grace_exit_id && record?.billing_agreement_id
+    && !record.organization_id && plan?.provider === 'gocardless' && !plan.organization_id
+    && plan.billing_agreement_id === record.billing_agreement_id
+    && ['payment_plan_cancelled', 'cancelled', 'canceled'].includes(plan.status)
+    && !owner.membership_cancelled;
+  if ((record?.payment_grace_exit_id || cancelledDirectDebit)
+      && record.membership_source === 'personal' && !owner.membership_paused) {
     try {
       const { loadFormMembershipRenewalContext } = await import('./formMembershipRenewalContext.js');
       const { simulateMembershipForMember } = await import('./membershipSimulation.js');
@@ -78,8 +88,9 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       });
       if (restart.renewal?.eligible && restart.renewal.state === 'post_grace_renewal'
         && restart.renewal.predecessorId === record.id) {
-        return { eligible: true, state: 'post_grace_renewal', paymentGraceExit: true, priceState: 'unavailable',
-          commencementBasis: 'confirmed_payment', provisional: true };
+        return { eligible: true, state: 'post_grace_renewal',
+          ...(record.payment_grace_exit_id ? { paymentGraceExit: true } : { cancelledDirectDebit: true }),
+          priceState: 'unavailable', commencementBasis: 'confirmed_payment', provisional: true };
       }
       return hidden();
     } catch {
@@ -102,10 +113,14 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
   };
   try {
     record = await resolveMemberAmendmentReadOverlay({ db, tenantId, history: record, asOf: today, renewal: true });
-    const agreements = await read(db.from('membership_billing_agreements').select('tenant_id, member_id, status')
+    const agreements = await read(db.from('membership_billing_agreements').select('id, tenant_id, member_id, status')
       .eq('tenant_id', tenantId).eq('member_id', owner.id));
+    // Only the cancelled Direct Debit of a term superseded by a completed
+    // restart is history here; any other open agreement still hides renewal.
+    const supersededAgreements = supersededRestartAgreementIds(Array.isArray(history) ? history : []);
     if (agreements.some(row => row.tenant_id !== tenantId || row.member_id !== owner.id
-        || !['cancelled', 'canceled', 'expired', 'completed'].includes(row.status))) return hidden();
+        || (!['cancelled', 'canceled', 'expired', 'completed'].includes(row.status)
+          && !(supersededAgreements.has(row.id) && CANCELLED_DD_STATUSES.has(row.status))))) return hidden();
     let config = reviewedHistoricalRenewalConfig(record) || record.effective_commitment_snapshot?.config || record.commitment_snapshot?.config;
     let policySource = config ? 'saved_snapshot' : 'saved_history_config';
     if (!config && record.config_id) {

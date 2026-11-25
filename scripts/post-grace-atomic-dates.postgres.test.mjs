@@ -7,6 +7,7 @@ import pg from 'pg';
 import { createLocalPostgresHarness } from './test-support/local-postgres-harness.mjs';
 import { exerciseFundedDateContract } from './test-support/post-grace-funding-fixture.mjs';
 import { exercisePaymentGraceRenewal } from './test-support/payment-grace-renewal-fixture.mjs';
+import { exerciseCancelledDirectDebitRestart } from './test-support/cancelled-direct-debit-restart-fixture.mjs';
 
 test('post-grace date transaction: ownership, financial preservation, rollback and replay', { timeout: 120000 }, async () => {
   const harness = await createLocalPostgresHarness('post-grace-atomic-');
@@ -205,6 +206,7 @@ test('post-grace date transaction: ownership, financial preservation, rollback a
       assert.deepEqual(access, { reserve: role==='service_role', apply: role==='service_role', switch: role==='service_role' });
     }
     await exercisePaymentGraceRenewal(db);
+    await exerciseCancelledDirectDebitRestart(db);
   } finally {
     if (db) await db.end();
     if (started) spawnSync('pg_ctl', ['-D', harness.data, '-m', 'immediate', '-w', 'stop']);

@@ -1,6 +1,12 @@
 import { assessPostGraceRenewal } from './postGraceRenewal.js';
 import { toDateString } from './annualRenewalPolicy.js';
 import { attachPaymentGraceExitEvidence } from './paymentGraceExitEvidence.js';
+import { attachCancelledDirectDebitEvidence } from './cancelledDirectDebitRestart.js';
+
+async function attachRestartEvidence(db, tenantId, memberId, histories) {
+  const exits = await attachPaymentGraceExitEvidence(db, tenantId, memberId, histories);
+  return attachCancelledDirectDebitEvidence(db, tenantId, memberId, exits);
+}
 
 async function allRows(query) {
   const rows = [];
@@ -28,7 +34,7 @@ export async function loadPostGraceSimulationAuthority(db, {
   if (policies.error || members.length !== 1) throw new Error('Post-grace policy or owner is unavailable');
   const renewal = assessPostGraceRenewal({
     tenantId, member: members[0],
-    histories: await attachPaymentGraceExitEvidence(db, tenantId, memberId, histories), agreements,
+    histories: await attachRestartEvidence(db, tenantId, memberId, histories), agreements,
     elections: elections.filter(election => !histories.some(history =>
       history.membership_successor_election_id === election.id && history.payment_status === 'paid')),
     configs: [config], selectedConfigId: config.id, enabled: policies.data?.enabled === true, today: now,
@@ -53,7 +59,7 @@ export async function quotePostGraceRenewal(db, {
       && history.payment_status === 'paid'));
   const renewal = assessPostGraceRenewal({
     tenantId, member,
-    histories: await attachPaymentGraceExitEvidence(db, tenantId, member.id, histories),
+    histories: await attachRestartEvidence(db, tenantId, member.id, histories),
     agreements, elections: pending, configs,
     selectedConfigId, today: now, enabled: policy?.enabled === true,
   });

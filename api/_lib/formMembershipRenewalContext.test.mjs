@@ -507,3 +507,35 @@ test('actual form create request charges the full successor while current paid h
   assert.equal(saved.quote.simResult.paymentSchedule.status, 'scheduled');
   assert.deepEqual(f.predecessor, before);
 });
+test('confirmed-cancelled Direct Debit enters the restart context before term end without a grace exit', async () => {
+  const f = fixture({now:'2026-11-25T12:00:00Z'});
+  Object.assign(f.config,{start_mode:'immediate',structure_field_id:'class',structure_match_value:'Full'});
+  Object.assign(f.predecessor,{status:'active',payment_status:'partial',config_id:'structure',
+    billing_agreement_id:'cancelled-dd',term_start_date:'2026-10-01',term_end_date:'2027-09-30',
+    term_key:'rolling:2026-10-01',membership_renewal_date:'2027-10-01',
+    commitment_snapshot:{config:f.config,payment_frequency:'monthly'}});
+  f.tables.membership_billing_agreements=[{id:'cancelled-dd',tenant_id:'tenant',member_id:'member',
+    status:'payment_plan_cancelled',provider:'gocardless'}];
+  f.tables.membership_post_grace_policy=[{tenant_id:'tenant',enabled:true}];
+  const originalRpc=f.db.rpc.bind(f.db);
+  let evidence=null;
+  f.db.rpc=async(name,args)=>name==='membership_cancelled_dd_restart_evidence'
+    ? {data:evidence} : originalRpc(name,args);
+  f.options.simulate=async(tenant,member,options)=>{
+    assert.equal(options.source,'post-grace-renewal');
+    assert.equal(options.postGracePredecessorId,'prior');
+    return {success:true,config:f.config,finalCost:120,totalWithVat:120,
+      membershipYear:{label:'new',start:new Date('2026-11-25'),end:new Date('2027-11-24')}};
+  };
+  const before=structuredClone(f.predecessor);
+  assert.notEqual((await loadFormMembershipRenewalContext(f.db,f.options)).renewal.state,'post_grace_renewal',
+    'cancelled statuses without confirmed database evidence do not qualify');
+  evidence={tenant_id:'tenant',member_id:'member',history_id:'prior',agreement_id:'cancelled-dd',plan_id:'plan',
+    agreement_status:'payment_plan_cancelled',plan_status:'payment_plan_cancelled',mandate_status:'cancelled',supersession:null};
+  const result=await loadFormMembershipRenewalContext(f.db,f.options);
+  assert.equal(result.renewal.eligible,true);
+  assert.equal(result.renewal.state,'post_grace_renewal');
+  assert.equal(result.renewal.cancelledDirectDebit,true);
+  assert.equal(result.renewal.successorStart,'2026-11-25');
+  assert.deepEqual(f.predecessor,before,'the cancelled term and its debt are not changed');
+});

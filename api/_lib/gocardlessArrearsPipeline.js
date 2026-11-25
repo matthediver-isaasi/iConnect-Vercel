@@ -129,6 +129,17 @@ async function loadAgreement(db, plan, agreement) {
 
 export async function runArrearsAccess({ db, plan, agreement, now, effects, trace = () => {} }) {
   if (plan.status === 'payment_plan_cancelled') {
+    // A restart after a confirmed-cancelled Direct Debit owns the member's
+    // access from now on. The old plan's debt stays recorded, but it must not
+    // flag, restrict or grace-exit the restarted membership.
+    const restart = await db.from('membership_dd_restart_supersession').select('id, superseded_at')
+      .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).maybeSingle();
+    if (restart.error && !['42P01', 'PGRST205'].includes(restart.error.code)) {
+      throw new Error('Direct Debit restart evidence is unavailable');
+    }
+    if (restart.data?.superseded_at) {
+      return { applied: false, result: { skippedReason: 'restarted-after-cancelled-direct-debit' } };
+    }
     if (plan.provider !== 'gocardless' || plan.last_payment_status !== 'failed'
       || !plan.grace_expires_at || !(new Date(plan.grace_expires_at) <= new Date(now))) {
       return { applied: false, result: { skippedReason: 'cancelled-plan-not-due' } };
@@ -142,6 +153,11 @@ export async function runArrearsAccess({ db, plan, agreement, now, effects, trac
     const approval = await db.from('membership_payment_grace_exit_approval').select('plan_id')
       .eq('tenant_id',plan.tenant_id).eq('plan_id',plan.id).maybeSingle();
     if (release.error || approval.error) throw new Error('Payment grace expiry approval is unavailable');
+    // A pending restart reservation may still be abandoned, so the review
+    // flag stays available, but a grace exit would conflict with it.
+    if (restart.data && release.data?.enabled === true && approval.data) {
+      return { applied: false, result: { skippedReason: 'restart-reserved-for-cancelled-direct-debit' } };
+    }
     if (release.data?.enabled !== true || !approval.data) {
       const reason = 'Direct Debit cancelled with unresolved payment after grace; access review required.';
       if (!plan.needs_attention || plan.attention_reason !== reason) {

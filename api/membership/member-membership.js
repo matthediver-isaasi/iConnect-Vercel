@@ -206,6 +206,8 @@ export function shapePersistedCommitment(record, now = new Date()) {
     lifecycle = 'past';
   }
   if (record.payment_grace_exit_id && record.status === 'expired') lifecycle = 'past';
+  // A restarted cancelled Direct Debit keeps its original dates as evidence.
+  if (record.restart_supersession_id && record.status === 'expired') lifecycle = 'past';
   return {
     id: record.id,
     membershipRecognition: currentMembershipRecognition(record, new Date(now).toISOString().slice(0, 10)),

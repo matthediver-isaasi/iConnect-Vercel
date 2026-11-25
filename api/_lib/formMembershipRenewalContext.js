@@ -1,3 +1,4 @@
+import { mayHaveCancelledDirectDebit } from './cancelledDirectDebitRestart.js';
 import { assessFormMembershipRenewalEvidence } from './formMembershipRenewalEvidence.js';
 import { FORM_RENEWAL_SIMULATION_AUTHORITY } from './formRenewalSimulationAuthority.js';
 import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
@@ -162,7 +163,10 @@ export async function loadFormMembershipRenewalContext(db, {
     simulation: election.quote?.simulation || null,
   };
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
-  if (!organizationId && (previous?.term_end_date < today || previous?.payment_grace_exit_id) && !renewal.eligible) {
+  // A confirmed-cancelled individual Direct Debit may restart before its
+  // term ends; the restart assessment verifies the evidence server-side.
+  if (!organizationId && (previous?.term_end_date < today || previous?.payment_grace_exit_id
+      || mayHaveCancelledDirectDebit(previous, agreements)) && !renewal.eligible) {
     // Capability is separate from tenant policy. Installing preparatory storage
     // must never expose a checkout whose finalizer is still inaccessible.
     const readiness = await db.rpc('post_grace_checkout_ready');

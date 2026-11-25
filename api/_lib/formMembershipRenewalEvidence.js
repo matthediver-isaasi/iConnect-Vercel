@@ -2,6 +2,7 @@ import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { addCalendarMonths, billingPeriodMonths, rollingDateString } from '../../shared/rollingMembershipTerm.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 import { assignedFormExpiryPolicy } from './formExpiryOnlyRenewal.js';
+import { CANCELLED_DD_STATUSES, isSupersededRestartTerm, supersededRestartAgreementIds } from './cancelledDirectDebitRestart.js';
 
 const discarded = new Set(['cancelled', 'canceled', 'void', 'expired_checkout']);
 const date = value => {
@@ -31,9 +32,14 @@ export function assessFormMembershipRenewalEvidence({
   if (paused) return { state: 'paused', eligible: false };
   try {
     const today = date(now);
-    const retained = histories.filter(row => !discarded.has(row.status));
+    // A cancelled Direct Debit term superseded by a completed restart keeps
+    // its original dates and debt, but no longer takes part in renewal.
+    const superseded = organizationId ? new Set() : supersededRestartAgreementIds(histories);
+    const retained = histories.filter(row => !discarded.has(row.status)
+      && (organizationId || !isSupersededRestartTerm(row, histories)));
     const openAgreements = agreements.filter(row => !discarded.has(row.status)
-      && !['completed', 'expired'].includes(row.status));
+      && !['completed', 'expired'].includes(row.status)
+      && !(superseded.has(row.id) && CANCELLED_DD_STATUSES.has(row.status)));
     if (!retained.length) {
       return openAgreements.length
         ? { state: 'renewal_pending', eligible: false }
