@@ -77,6 +77,36 @@ test('organisation-owned recurring agreements block cascade', async () => {
   }), { organizationId: 'o', tenantId: 't' });
   assert.equal(result.status, 409);
 });
+test('Stripe card agreement left active is resolved only by provider-confirmed plan cancellation', async () => {
+  const agreement = row('active');
+  const plan = row('payment_plan_cancelled', { id: 'p', billing_agreement_id: 'a', stripe_subscription_id: 'sub_1' });
+  const history = (source, extra = {}) => ({ tenant_id: 't', entity_type: 'payment_plan', entity_id: 'p',
+    to_status: 'payment_plan_cancelled', source, ...extra });
+  const check = (rows, options) => checkMemberDeletionBilling(fakeDb({
+    membership_billing_agreements: [agreement], membership_payment_plans: [plan], ...rows,
+  }, options), scope);
+  for (const source of ['webhook', 'reconciliation']) {
+    assert.equal((await check({ membership_payment_status_history: [history(source)] })).success, true);
+  }
+  // Local or admin edits, other tenants and missing evidence stay blocking.
+  for (const evidence of [[], [history('admin')], [history('webhook', { tenant_id: 'other' })]]) {
+    const result = await check({ membership_payment_status_history: evidence });
+    assert.equal(result.status, 409);
+    assert.equal(result.blockers[0].id, 'a');
+  }
+  // No linked plan, a still-active plan, or a GoCardless agreement are never inferred resolved.
+  assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [agreement],
+    membership_payment_status_history: [history('webhook')] }), scope)).status, 409);
+  assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [agreement],
+    membership_payment_plans: [plan, row('active', { id: 'p2', billing_agreement_id: 'a', stripe_subscription_id: 'sub_2' })],
+    membership_payment_status_history: [history('webhook')] }), scope)).status, 409);
+  assert.equal((await checkMemberDeletionBilling(fakeDb({ membership_billing_agreements: [row('active', { provider: 'gocardless' })],
+    membership_payment_plans: [{ ...plan, provider: 'gocardless' }],
+    membership_payment_status_history: [history('webhook')] }), scope)).status, 409);
+  // Unreadable evidence fails closed.
+  assert.equal((await check({ membership_payment_status_history: [history('webhook')] },
+    { errorTable: 'membership_payment_status_history' })).status, 503);
+});
 test('all destructive paths gate before side effects; UI requires successful fresh check', () => {
   const source = name => readFileSync(new URL(name, import.meta.url), 'utf8');
   const anon = source('./memberAnonymize.js');

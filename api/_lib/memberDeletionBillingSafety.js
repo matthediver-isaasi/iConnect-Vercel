@@ -1,30 +1,35 @@
 // Read-only lifecycle gate. Never cancel providers or alter financial evidence here.
 const TERMINAL = new Set(['payment_plan_cancelled', 'cancelled', 'canceled', 'completed', 'finished', 'expired', 'incomplete_expired']);
 const TABLES = ['membership_billing_agreements', 'membership_payment_plans'];
+const PLAN_COLUMNS = 'id,status,provider,billing_agreement_id,stripe_subscription_id';
 export const BILLING_DELETION_WARNING = 'Removing membership access does not cancel Stripe or GoCardless payments. Resolve recurring agreements separately with explicit cancellation authority, then retry. Financial history will be retained.';
 
 export async function checkMemberDeletionBilling(db, { memberId, organizationId, tenantId }) {
   const blockers = [];
   const failures = [];
   const agreementIds = [];
-  const seenPlans = new Set();
+  const openStripeAgreements = [];
+  const plans = new Map();
   function inspect(row, table) {
     if (table === TABLES[1]) {
-      if (seenPlans.has(row.id)) return;
-      seenPlans.add(row.id);
+      if (plans.has(row.id)) return;
+      plans.set(row.id, row);
     }
-    if (!TERMINAL.has(String(row.status || '').toLowerCase())) {
-      blockers.push({
-        id: row.id, kind: table === TABLES[0] ? 'agreement' : 'payment plan',
-        provider: row.provider === 'stripe' ? 'Stripe' : row.provider === 'gocardless' ? 'GoCardless' : 'Recurring payment',
-        status: row.status || 'unknown',
-      });
-    }
+    if (TERMINAL.has(String(row.status || '').toLowerCase())) return;
+    const blocker = {
+      id: row.id, kind: table === TABLES[0] ? 'agreement' : 'payment plan',
+      provider: row.provider === 'stripe' ? 'Stripe' : row.provider === 'gocardless' ? 'GoCardless' : 'Recurring payment',
+      status: row.status || 'unknown',
+    };
+    // A Stripe card agreement keeps its own status after Stripe ends the
+    // subscription. Decide it only after its linked plans are known.
+    if (table === TABLES[0] && row.provider === 'stripe') openStripeAgreements.push(blocker);
+    else blockers.push(blocker);
   }
   // Do not treat missing tables/columns or denied reads as an empty account.
   for (const table of TABLES) {
     try {
-      let query = db.from(table).select('id,status,provider', { count: 'exact' })
+      let query = db.from(table).select(table === TABLES[1] ? PLAN_COLUMNS : 'id,status,provider', { count: 'exact' })
         .eq(organizationId ? 'organization_id' : 'member_id', organizationId || memberId);
       if (tenantId) query = query.eq('tenant_id', tenantId);
       const { data, error, count } = await query;
@@ -43,7 +48,7 @@ export async function checkMemberDeletionBilling(db, { memberId, organizationId,
   // Legacy plans may carry only the agreement link, not member_id.
   for (let offset = 0; offset < agreementIds.length; offset += 100) {
     try {
-      let query = db.from(TABLES[1]).select('id,status,provider', { count: 'exact' })
+      let query = db.from(TABLES[1]).select(PLAN_COLUMNS, { count: 'exact' })
         .in('billing_agreement_id', agreementIds.slice(offset, offset + 100));
       if (tenantId) query = query.eq('tenant_id', tenantId);
       const { data, error, count } = await query;
@@ -54,6 +59,30 @@ export async function checkMemberDeletionBilling(db, { memberId, organizationId,
       }
     } catch {
       failures.push('linked_payment_plans');
+    }
+  }
+  // Resolved only by provider-confirmed cancellation of every linked plan:
+  // the plan was moved to payment_plan_cancelled by a Stripe webhook or
+  // reconciliation, never by a local/admin status edit alone.
+  for (const agreement of openStripeAgreements) {
+    const linked = [...plans.values()].filter(plan => plan.billing_agreement_id === agreement.id);
+    const cancelled = linked.length > 0 && linked.every(plan => plan.provider === 'stripe'
+      && plan.status === 'payment_plan_cancelled' && plan.stripe_subscription_id);
+    if (!cancelled || failures.length) { blockers.push(agreement); continue; }
+    try {
+      let query = db.from('membership_payment_status_history').select('entity_id')
+        .eq('entity_type', 'payment_plan').eq('to_status', 'payment_plan_cancelled')
+        .in('source', ['webhook', 'reconciliation']).in('entity_id', linked.map(plan => plan.id));
+      if (tenantId) query = query.eq('tenant_id', tenantId);
+      const { data, error } = await query;
+      if (error || !Array.isArray(data)) {
+        failures.push('stripe_cancellation_evidence');
+        continue;
+      }
+      const confirmed = new Set(data.map(row => row.entity_id));
+      if (!linked.every(plan => confirmed.has(plan.id))) blockers.push(agreement);
+    } catch {
+      failures.push('stripe_cancellation_evidence');
     }
   }
   return {
