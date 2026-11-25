@@ -129,8 +129,8 @@ async function loadAgreement(db, plan, agreement) {
 
 export async function runArrearsAccess({ db, plan, agreement, now, effects, trace = () => {} }) {
   if (plan.status === 'payment_plan_cancelled') {
-    // A restart after a confirmed-cancelled Direct Debit owns the member's
-    // access from now on. The old plan's debt stays recorded, but it must not
+    // A restart after a confirmed-cancelled Direct Debit or Stripe monthly card
+    // plan owns the member's access from now on. The old plan's debt stays recorded, but it must not
     // flag, restrict or grace-exit the restarted membership.
     const restart = await db.from('membership_dd_restart_supersession').select('id, superseded_at')
       .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).maybeSingle();

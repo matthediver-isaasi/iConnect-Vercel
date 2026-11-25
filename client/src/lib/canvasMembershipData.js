@@ -280,6 +280,9 @@ export function normalizeCanvasMembershipSummary(value) {
         ? { paymentGraceExit: true } : {}),
       ...(renewal.state === 'post_grace_renewal' && renewal.cancelledDirectDebit === true
         && renewal.paymentGraceExit !== true ? { cancelledDirectDebit: true } : {}),
+      ...(renewal.state === 'post_grace_renewal' && renewal.cancelledCardPlan === true
+        && renewal.paymentGraceExit !== true && renewal.cancelledDirectDebit !== true
+        ? { cancelledCardPlan: true } : {}),
       ...(['loading', 'ready', 'unavailable'].includes(renewal.priceState) ? { priceState: renewal.priceState } : {}),
       ...(renewal.eligible === true && price.verified === true
         && Number.isFinite(price.amount) && price.amount >= 0

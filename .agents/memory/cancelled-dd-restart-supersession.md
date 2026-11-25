@@ -1,6 +1,6 @@
 ---
 name: Cancelled Direct Debit restart supersession
-description: Owner decision and DB design for restarting straight after a confirmed-cancelled individual GoCardless Direct Debit.
+description: Owner decision and DB design for restarting straight after a confirmed-cancelled individual GoCardless Direct Debit or Stripe monthly card plan.
 ---
 A confirmed-cancelled individual GoCardless DD (agreement + plan payment_plan_cancelled, mandate mirror cancelled/failed/expired) qualifies for the payment-dated post-grace restart immediately: no failed payment, grace expiry, admin approval or payment-grace exit.
 
@@ -12,4 +12,6 @@ A confirmed-cancelled individual GoCardless DD (agreement + plan payment_plan_ca
 - Arrears pipeline must skip flag/restrict/grace-exit once superseded; a reserved-only receipt blocks grace exit but keeps the review flag.
 - Applying the restart migration to the live database is a financial schema change that needs explicit owner approval.
 - Every overlap/conflict guard (history exclusion, commitment trigger, upfront-quote guard, renewal evidence, Canvas agreement check) must recognise the bound supersession, narrowly; never ignore cancelled obligations globally.
-- Stripe card plans and organisation DDs are out of scope.
+- Stripe monthly card plans follow the same policy. "Confirmed" means Stripe itself reported the subscription ended (webhook or reconciliation); an admin/local cancellation is not confirmation. Completed plans, duplicate-checkout conflicts and switch cancellations never qualify.
+- Stripe ending a subscription does NOT cancel the card agreement, which can stay 'active'. So ordinary renewal may look eligible; a possibly-cancelled card plan must be checked for restart first, and card agreements are recognised only via bound evidence, never by status.
+- Organisation plans remain out of scope.

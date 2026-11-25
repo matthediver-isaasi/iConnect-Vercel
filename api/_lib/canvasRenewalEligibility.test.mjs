@@ -255,3 +255,63 @@ test('only a cancelled individual GoCardless plan routes the portal card into th
     today: '2026-11-25', plan: { provider: 'gocardless', status: 'payment_plan_cancelled', billing_agreement_id: 'dd' } }),
   { eligible: false, reason: 'eligibility_evidence_unavailable' });
 });
+test('a Stripe-cancelled individual monthly card plan also routes the portal card into the restart check', async () => {
+  const cardRecord = { ...record, payment_status: 'partial', billing_agreement_id: 'card', payment_method: 'card_monthly' };
+  const owner = { id: 'member', tenant_id: 'tenant' };
+  const noReads = { from() { throw Error('Unexpected read'); }, rpc() { throw Error('Unexpected rpc'); } };
+  for (const status of ['active', 'payment_overdue', 'payment_grace_period', 'expired', 'cancelled']) {
+    assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: cardRecord }, owner, today: '2026-11-25',
+      plan: { provider: 'stripe', status, billing_agreement_id: 'card' } }), { eligible: false }, status);
+  }
+  assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: cardRecord },
+    owner: { ...owner, membership_cancelled: true }, today: '2026-11-25',
+    plan: { provider: 'stripe', status: 'payment_plan_cancelled', billing_agreement_id: 'card' } }), { eligible: false });
+  // Routed to the server evidence check; failure is explicit, never an enabled CTA.
+  assert.deepEqual(await loadCanvasRenewalEligibility(noReads, { selected: { record: cardRecord }, owner,
+    today: '2026-11-25', plan: { provider: 'stripe', status: 'payment_plan_cancelled', billing_agreement_id: 'card' } }),
+  { eligible: false, reason: 'eligibility_evidence_unavailable' });
+});
+test('portal card shows Restart for a Stripe-cancelled card plan inside the ordinary renewal window', async () => {
+  for (const endPolicy of ['continue', 'stop']) {
+    const cfg = { id: 'structure', tenant_id: 'tenant', start_mode: 'immediate', structure_scope_type: 'member',
+      structure_field_id: 'class', structure_match_value: 'Full', billing_period: 'annual',
+      renewal_open_days: 60, renewal_grace_days: 7, currency: 'GBP' };
+    const term = { id: 'prior', tenant_id: 'tenant', member_id: 'member', membership_source: 'personal',
+      status: 'active', payment_status: 'partial', billing_agreement_id: 'card', payment_method: 'card_monthly',
+      term_start_date: '2026-01-01', term_end_date: '2026-12-31', renewal_policy_snapshot: cfg,
+      commitment_snapshot: { config: cfg, payment_frequency: 'monthly' } };
+    let evidence = null;
+    const tables = { member: [{ id: 'member', tenant_id: 'tenant' }], member_membership_history: [term],
+      membership_billing_agreements: [{ id: 'card', tenant_id: 'tenant', member_id: 'member', status: 'active',
+        provider: 'stripe', metadata: { card: { kind: 'monthly_card',
+          collection_policy: { version: 1, end_policy: endPolicy, pricing_policy: 'fixed' } } } }],
+      membership_tier_config: [cfg], membership_post_grace_policy: [{ tenant_id: 'tenant', enabled: true }] };
+    const db = {
+      rpc: async name => ({ data: name === 'membership_cancelled_dd_restart_evidence' ? evidence : true }),
+      from(table) {
+        let rows = tables[table] || [];
+        return { select() { return this; }, order() { return this; },
+          eq(k, v) { rows = rows.filter(row => row[k] === v); return this; },
+          in(k, values) { rows = rows.filter(row => values.includes(row[k])); return this; },
+          async limit(n) { return { data: structuredClone(rows.slice(0, n)) }; },
+          async range(a, b) { return { data: structuredClone(rows.slice(a, b + 1)) }; },
+          async maybeSingle() { return { data: structuredClone(rows[0] || null) }; } };
+      },
+    };
+    const simulate = async (_t, _m, options) => ({ success: true, config: cfg, finalCost: 120, totalWithVat: 120,
+      annualCost: 120, currency: 'GBP', vatAmount: 0,
+      membershipYear: options.source === 'post-grace-renewal'
+        ? { label: 'new', start: new Date('2026-11-01'), end: new Date('2027-10-31') }
+        : { label: '2027', start: new Date('2027-01-01'), end: new Date('2027-12-31') } });
+    const args = { selected: { record: term }, owner: { id: 'member', tenant_id: 'tenant' }, today: '2026-11-01',
+      plan: { provider: 'stripe', status: 'payment_plan_cancelled', billing_agreement_id: 'card' }, simulate };
+    assert.deepEqual(await loadCanvasRenewalEligibility(db, args), { eligible: false },
+      `${endPolicy}: no Restart without Stripe-confirmed cancellation`);
+    evidence = { provider: 'stripe', tenant_id: 'tenant', member_id: 'member', history_id: 'prior', agreement_id: 'card',
+      plan_id: 'plan', agreement_status: 'active', plan_status: 'payment_plan_cancelled',
+      stripe_subscription_id: 'sub_1', cancellation_confirmed_at: '2026-10-20T09:00:00Z', supersession: null };
+    assert.deepEqual(await loadCanvasRenewalEligibility(db, args), { eligible: true, state: 'post_grace_renewal',
+      cancelledCardPlan: true, priceState: 'unavailable', commencementBasis: 'confirmed_payment', provisional: true },
+    `${endPolicy}: Restart is shown`);
+  }
+});

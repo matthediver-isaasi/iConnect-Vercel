@@ -70,6 +70,22 @@ test('confirmed-cancelled Direct Debit shows Restart your membership beside the 
   assert.match(html,/href="\/FormView\?slug=restart-with-bnms"/);
   assert.doesNotMatch(html,/grace period has ended/);
 });
+test('confirmed-cancelled monthly card plan shows Restart your membership with the immediate restart notice', () => {
+  const renewal={eligible:true,state:'post_grace_renewal',cancelledCardPlan:true,
+    journeyMode:'questionnaire',entryHref:'/FormView?slug=restart-with-bnms'};
+  const data = normalizeCanvasMembershipSummary({membership:{state:'active'},payment:{state:'paused'},renewal});
+  assert.equal(data.renewal.cancelledCardPlan,true);
+  assert.equal(data.renewal.cancelledDirectDebit,undefined);
+  const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{status:'ready',data:{membership:{state:'active'},payment:{state:'paused'},renewal}}} />);
+  assert.match(html,/Restart your membership<\/span>/);
+  assert.match(html,/href="\/FormView\?slug=restart-with-bnms"/);
+  assert.match(html,/Your new membership starts on successful payment/);
+  assert.doesNotMatch(html,/grace period has ended/);
+  const ignored = normalizeCanvasMembershipSummary({membership:{state:'active'},payment:{state:'paused'},
+    renewal:{...renewal,state:'renewal'}});
+  assert.equal(ignored.renewal.cancelledCardPlan,undefined,'only a restart carries the card-plan flag');
+});
 test('first membership action keeps the empty payment card visible and uses only the joining route', () => {
   const result = {status:'ready',data:{membership:{state:'none'},payment:{state:'none'},
     joining:{eligible:true,entryHref:'/FormView?slug=getting-started-with-bnms'}}};

@@ -8,6 +8,7 @@ import { createLocalPostgresHarness } from './test-support/local-postgres-harnes
 import { exerciseFundedDateContract } from './test-support/post-grace-funding-fixture.mjs';
 import { exercisePaymentGraceRenewal } from './test-support/payment-grace-renewal-fixture.mjs';
 import { exerciseCancelledDirectDebitRestart } from './test-support/cancelled-direct-debit-restart-fixture.mjs';
+import { exerciseCancelledCardPlanRestart } from './test-support/cancelled-card-plan-restart-fixture.mjs';
 
 test('post-grace date transaction: ownership, financial preservation, rollback and replay', { timeout: 120000 }, async () => {
   const harness = await createLocalPostgresHarness('post-grace-atomic-');
@@ -207,6 +208,7 @@ test('post-grace date transaction: ownership, financial preservation, rollback a
     }
     await exercisePaymentGraceRenewal(db);
     await exerciseCancelledDirectDebitRestart(db);
+    await exerciseCancelledCardPlanRestart(db);
   } finally {
     if (db) await db.end();
     if (started) spawnSync('pg_ctl', ['-D', harness.data, '-m', 'immediate', '-w', 'stop']);

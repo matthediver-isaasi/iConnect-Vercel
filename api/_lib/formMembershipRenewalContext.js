@@ -163,10 +163,15 @@ export async function loadFormMembershipRenewalContext(db, {
     simulation: election.quote?.simulation || null,
   };
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
-  // A confirmed-cancelled individual Direct Debit may restart before its
+  // A confirmed-cancelled individual Direct Debit or card plan may restart before its
   // term ends; the restart assessment verifies the evidence server-side.
+  // Stripe leaves a cancelled card plan's agreement with its own (possibly
+  // active) status, so ordinary renewal can look eligible inside the renewal
+  // window. A possibly-cancelled plan is therefore checked first; without
+  // confirmed cancellation the ordinary renewal below is unchanged.
+  const cancelledPlanCandidate = mayHaveCancelledDirectDebit(previous, agreements);
   if (!organizationId && (previous?.term_end_date < today || previous?.payment_grace_exit_id
-      || mayHaveCancelledDirectDebit(previous, agreements)) && !renewal.eligible) {
+      || cancelledPlanCandidate) && (!renewal.eligible || cancelledPlanCandidate)) {
     // Capability is separate from tenant policy. Installing preparatory storage
     // must never expose a checkout whose finalizer is still inaccessible.
     const readiness = await db.rpc('post_grace_checkout_ready');

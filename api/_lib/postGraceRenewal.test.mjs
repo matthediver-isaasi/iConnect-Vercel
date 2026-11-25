@@ -199,3 +199,66 @@ test('cancelled Direct Debit restart requires verified evidence and keeps existi
   restarted.histories[0].cancelledDirectDebit.supersession = { id: 's', superseded_at: '2026-11-25T10:00:00Z' };
   assert.equal(assess(restarted).reason, 'membership_already_restarted');
 });
+
+function cancelledCardPlan({ agreementStatus = 'payment_overdue', withEvidence = true } = {}) {
+  const input = cancelledDirectDebit({ withEvidence: false });
+  const history = input.histories[0];
+  history.billing_agreement_id = 'old-card';
+  // Stripe ends the subscription and cancels the plan; the card agreement keeps its status.
+  input.agreements = [{ id: 'old-card', tenant_id: 'tenant', member_id: 'member', status: agreementStatus,
+    provider: 'stripe', metadata: { card: { kind: 'monthly_card' } } }];
+  if (withEvidence) history.cancelledDirectDebit = { provider: 'stripe', tenant_id: 'tenant', member_id: 'member',
+    history_id: 'prior', agreement_id: 'old-card', plan_id: 'old-card-plan', agreement_status: agreementStatus,
+    plan_status: 'payment_plan_cancelled', stripe_subscription_id: 'sub_1',
+    cancellation_confirmed_at: '2026-11-20T09:00:00Z', supersession: null };
+  return input;
+}
+
+test('confirmed-cancelled monthly card plan restarts straight away and keeps the old debt as recorded', () => {
+  for (const status of ['active', 'payment_overdue', 'payment_grace_period']) {
+    const input = cancelledCardPlan({ agreementStatus: status }), before = structuredClone(input);
+    const result = assess(input);
+    assert.equal(result.eligible, true, `${status} card agreement with a Stripe-cancelled plan`);
+    assert.equal(result.state, 'post_grace_renewal');
+    assert.equal(result.cancelledCardPlan, true);
+    assert.equal(result.cancelledDirectDebit, undefined);
+    assert.equal(result.graceEndDate, '2026-11-24');
+    assert.equal(result.term_start_date, '2026-11-25');
+    assert.deepEqual(input, before, 'the cancelled term, unpaid status and agreement are not changed');
+  }
+});
+
+test('cancelled card plan restart requires verified Stripe evidence and keeps existing blocks', () => {
+  assert.equal(assess(cancelledCardPlan({ withEvidence: false })).reason, 'unresolved_billing_agreement');
+  for (const [label, change] of [
+    ['unconfirmed cancellation', e => { delete e.cancellation_confirmed_at; }],
+    ['no subscription', e => { e.stripe_subscription_id = null; }],
+    ['plan not cancelled', e => { e.plan_status = 'active'; }],
+    ['mandate status on a card plan', e => { e.mandate_status = 'cancelled'; }],
+    ['completed agreement', e => { e.agreement_status = 'completed'; }],
+    ['other agreement', e => { e.agreement_id = 'other'; }],
+  ]) {
+    const input = cancelledCardPlan();
+    change(input.histories[0].cancelledDirectDebit);
+    assert.equal(assess(input).eligible, false, label);
+  }
+  const directDebitShape = cancelledCardPlan();
+  delete directDebitShape.histories[0].cancelledDirectDebit.provider;
+  assert.equal(assess(directDebitShape).eligible, false, 'card evidence cannot pass as a Direct Debit');
+  const other = cancelledCardPlan();
+  other.agreements.push({ id: 'other', tenant_id: 'tenant', member_id: 'member', status: 'active', provider: 'stripe' });
+  assert.equal(assess(other).reason, 'unresolved_billing_agreement');
+  const paused = cancelledCardPlan();
+  paused.member.membership_paused = true;
+  assert.equal(assess(paused).reason, 'membership_paused_or_cancelled');
+  const restarted = cancelledCardPlan();
+  restarted.histories[0].status = 'expired';
+  restarted.histories[0].restart_supersession_id = 's';
+  restarted.histories[0].cancelledDirectDebit.supersession = { id: 's', provider: 'stripe',
+    superseded_at: '2026-11-25T10:00:00Z' };
+  assert.equal(assess(restarted).reason, 'membership_already_restarted');
+  const wrongReceipt = cancelledCardPlan();
+  wrongReceipt.histories[0].restart_supersession_id = 's';
+  wrongReceipt.histories[0].cancelledDirectDebit.supersession = { id: 's', provider: 'gocardless', superseded_at: null };
+  assert.equal(assess(wrongReceipt).eligible, false, 'a receipt for another provider is not evidence');
+});

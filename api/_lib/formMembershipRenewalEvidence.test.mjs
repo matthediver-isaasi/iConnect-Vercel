@@ -172,3 +172,23 @@ test('a cancelled Direct Debit term superseded by a completed restart does not b
     { id: 'other', tenant_id: 'tenant', member_id: 'member', status: 'payment_plan_cancelled', provider: 'gocardless' }] }).state,
   'eligible_renewal');
 });
+test('a cancelled card-plan term superseded by a completed restart does not block the next ordinary renewal', () => {
+  const old = { ...structuredClone(history), id: 'old', status: 'expired', payment_status: 'partial',
+    billing_agreement_id: 'old-card', term_start_date: '2025-10-01', term_end_date: '2026-09-30',
+    restart_supersession_id: 'receipt', commitment_snapshot: { config, payment_frequency: 'monthly' } };
+  const restarted = { ...structuredClone(history), id: 'restart', previous_term_id: 'old',
+    membership_successor_election_id: 'election', term_start_date: '2026-01-15', term_end_date: '2027-01-14' };
+  // Stripe ended the subscription; the card agreement keeps the status it had.
+  const oldAgreement = { id: 'old-card', tenant_id: 'tenant', member_id: 'member', status: 'payment_overdue',
+    provider: 'stripe', metadata: { card: { kind: 'monthly_card' } } };
+  const input = fixture({ histories: [old, restarted], agreements: [oldAgreement], now: '2026-12-01' });
+  const before = structuredClone(input);
+  assert.equal(assess(input).state, 'eligible_renewal');
+  assert.deepEqual(input, before, 'the old term, its debt and the card agreement are not changed');
+  assert.equal(assess({ ...input, histories: [{ ...old, restart_supersession_id: null }, restarted] }).state, 'review_required');
+  assert.notEqual(assess({ ...input, agreements: [oldAgreement,
+    { id: 'other', tenant_id: 'tenant', member_id: 'member', status: 'active', provider: 'stripe' }] }).state,
+  'eligible_renewal', 'any other open card agreement still blocks renewal');
+  assert.notEqual(assess({ ...input, agreements: [{ ...oldAgreement, provider: 'gocardless' }] }).state,
+    'eligible_renewal', 'an open Direct Debit agreement is not treated as a card agreement');
+});

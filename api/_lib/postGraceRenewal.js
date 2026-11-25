@@ -1,6 +1,8 @@
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { buildRollingTerm, rollingDateString } from '../../shared/rollingMembershipTerm.js';
-import { CANCELLED_DD_STATUSES, confirmedCancelledDirectDebit } from './cancelledDirectDebitRestart.js';
+import {
+  confirmedCancelledDirectDebit, isCancelledCardPlanEvidence, isConfirmedCancelledAgreement,
+} from './cancelledDirectDebitRestart.js';
 
 const retired = new Set(['cancelled', 'canceled', 'void', 'expired_checkout', 'replaced', 'cancelled_by_request']);
 const closedAgreements = new Set(['cancelled', 'canceled', 'completed', 'expired']);
@@ -35,11 +37,12 @@ export function assessPostGraceRenewal({
       && row.paymentGraceExit.agreement_id === row.billing_agreement_id);
     const exitedAgreement = agreement => agreement.status === 'payment_plan_cancelled'
       && exits.some(row => row.billing_agreement_id === agreement.id);
-    // A confirmed-cancelled individual Direct Debit is resolved for restart
-    // purposes; its unpaid instalments and arrears remain recorded as they are.
+    // A confirmed-cancelled individual Direct Debit or Stripe monthly card
+    // plan is resolved for restart purposes; its unpaid instalments and
+    // arrears remain recorded as they are. A card agreement keeps its own
+    // status, so only the exact agreement bound to the evidence is excluded.
     const ddRestarts = histories.filter(row => confirmedCancelledDirectDebit(row, tenantId, member.id));
-    const cancelledAgreement = agreement => CANCELLED_DD_STATUSES.has(agreement.status)
-      && ddRestarts.some(row => row.billing_agreement_id === agreement.id);
+    const cancelledAgreement = agreement => isConfirmedCancelledAgreement(agreement, ddRestarts);
     if (agreements.some(row => !closedAgreements.has(row.status) && !exitedAgreement(row)
       && !cancelledAgreement(row))) return deny('unresolved_billing_agreement');
     if (elections.some(row => row.status !== 'released')) return deny('successor_already_reserved');
@@ -79,7 +82,7 @@ export function assessPostGraceRenewal({
     const next = toDateString(addDays(end, 1));
     if (rolling && (!prior.membership_renewal_date
         || rollingDateString(prior.membership_renewal_date) !== next)) return deny('inconsistent_renewal_boundary');
-    // Cancelled Direct Debit: restart is available today (the database sets
+    // Cancelled recurring plan: restart is available today (the database sets
     // the same boundary as the day before the reservation).
     const graceEnd = ddRestart ? toDateString(addDays(day, -1))
       : paymentExit ? toDateString(new Date(paymentExit.grace_expires_at))
@@ -107,7 +110,7 @@ export function assessPostGraceRenewal({
       configId: target.id, scheduleName: target.name,
       previousClass: config.structure_match_value, graceEndDate: graceEnd,
       commencementBasis: 'confirmed_payment', provisional: true,
-      ...(ddRestart ? { cancelledDirectDebit: true } : {}),
+      ...(ddRestart ? (isCancelledCardPlanEvidence(prior) ? { cancelledCardPlan: true } : { cancelledDirectDebit: true }) : {}),
       // Fixed-year settings must not silently shorten a post-grace paid year.
       ...paymentDatedRenewalTerm(day),
     };

@@ -539,3 +539,72 @@ test('confirmed-cancelled Direct Debit enters the restart context before term en
   assert.equal(result.renewal.successorStart,'2026-11-25');
   assert.deepEqual(f.predecessor,before,'the cancelled term and its debt are not changed');
 });
+test('confirmed-cancelled monthly card plan enters the restart context before term end', async () => {
+  const f = fixture({now:'2026-11-25T12:00:00Z'});
+  Object.assign(f.config,{start_mode:'immediate',structure_field_id:'class',structure_match_value:'Full'});
+  Object.assign(f.predecessor,{status:'active',payment_status:'partial',config_id:'structure',
+    billing_agreement_id:'cancelled-card',term_start_date:'2026-10-01',term_end_date:'2027-09-30',
+    term_key:'rolling:2026-10-01',membership_renewal_date:'2027-10-01',
+    commitment_snapshot:{config:f.config,payment_frequency:'monthly'}});
+  f.tables.membership_billing_agreements=[{id:'cancelled-card',tenant_id:'tenant',member_id:'member',
+    status:'payment_overdue',provider:'stripe',metadata:{card:{kind:'monthly_card'}}}];
+  f.tables.membership_post_grace_policy=[{tenant_id:'tenant',enabled:true}];
+  const originalRpc=f.db.rpc.bind(f.db);
+  let evidence=null;
+  f.db.rpc=async(name,args)=>name==='membership_cancelled_dd_restart_evidence'
+    ? {data:evidence} : originalRpc(name,args);
+  f.options.simulate=async(tenant,member,options)=>{
+    assert.equal(options.source,'post-grace-renewal');
+    return {success:true,config:f.config,finalCost:120,totalWithVat:120,
+      membershipYear:{label:'new',start:new Date('2026-11-25'),end:new Date('2027-11-24')}};
+  };
+  const before=structuredClone(f.predecessor);
+  assert.notEqual((await loadFormMembershipRenewalContext(f.db,f.options)).renewal.state,'post_grace_renewal',
+    'an open card agreement without confirmed Stripe cancellation does not qualify');
+  evidence={provider:'stripe',tenant_id:'tenant',member_id:'member',history_id:'prior',agreement_id:'cancelled-card',
+    plan_id:'plan',agreement_status:'payment_overdue',plan_status:'payment_plan_cancelled',
+    stripe_subscription_id:'sub_1',cancellation_confirmed_at:'2026-11-20T09:00:00Z',supersession:null};
+  const result=await loadFormMembershipRenewalContext(f.db,f.options);
+  assert.equal(result.renewal.eligible,true);
+  assert.equal(result.renewal.state,'post_grace_renewal');
+  assert.equal(result.renewal.cancelledCardPlan,true);
+  assert.equal(result.renewal.successorStart,'2026-11-25');
+  assert.deepEqual(f.predecessor,before,'the cancelled term and its debt are not changed');
+});
+test('Stripe-confirmed cancelled card plan restarts even while its active agreement makes ordinary renewal eligible', async () => {
+  for (const endPolicy of ['continue', 'stop']) {
+    const f = fixture({now:'2026-11-01T12:00:00Z'});
+    Object.assign(f.config,{start_mode:'immediate',structure_field_id:'class',structure_match_value:'Full'});
+    Object.assign(f.predecessor,{payment_status:'partial',billing_agreement_id:'card',
+      commitment_snapshot:{config:f.config,payment_frequency:'monthly'}});
+    // Stripe ended the subscription; the agreement is still 'active' with a valid saved policy.
+    f.tables.membership_billing_agreements=[{id:'card',tenant_id:'tenant',member_id:'member',status:'active',
+      provider:'stripe',metadata:{card:{kind:'monthly_card',
+        collection_policy:{version:1,end_policy:endPolicy,pricing_policy:'fixed'}}}}];
+    f.tables.membership_post_grace_policy=[{tenant_id:'tenant',enabled:true}];
+    const originalRpc=f.db.rpc.bind(f.db);
+    let evidence=null;
+    f.db.rpc=async(name,args)=>name==='membership_cancelled_dd_restart_evidence'
+      ? {data:evidence} : originalRpc(name,args);
+    const ordinarySimulate=f.options.simulate;
+    f.options.simulate=async(tenant,member,options)=>options.source==='post-grace-renewal'
+      ? {success:true,config:f.config,finalCost:120,totalWithVat:120,
+        membershipYear:{label:'new',start:new Date('2026-11-01'),end:new Date('2027-10-31')}}
+      : ordinarySimulate(tenant,member,options);
+    const before=structuredClone(f.predecessor);
+    const ordinary=await loadFormMembershipRenewalContext(f.db,f.options);
+    assert.equal(ordinary.renewal.eligible,true,`${endPolicy}: unconfirmed cancellation keeps ordinary renewal`);
+    assert.notEqual(ordinary.renewal.state,'post_grace_renewal');
+    assert.equal(ordinary.renewal.successorStart,'2027-01-01');
+    evidence={provider:'stripe',tenant_id:'tenant',member_id:'member',history_id:'prior',agreement_id:'card',
+      plan_id:'plan',agreement_status:'active',plan_status:'payment_plan_cancelled',
+      stripe_subscription_id:'sub_1',cancellation_confirmed_at:'2026-10-20T09:00:00Z',supersession:null};
+    const result=await loadFormMembershipRenewalContext(f.db,f.options);
+    assert.equal(result.renewal.eligible,true,endPolicy);
+    assert.equal(result.renewal.state,'post_grace_renewal',`${endPolicy}: restart replaces the next-term journey`);
+    assert.equal(result.renewal.cancelledCardPlan,true);
+    assert.equal(result.renewal.commencementBasis,'confirmed_payment');
+    assert.equal(result.renewal.successorStart,'2026-11-01','payment-dated restart starts today');
+    assert.deepEqual(f.predecessor,before,'the cancelled term and its debt are not changed');
+  }
+});
