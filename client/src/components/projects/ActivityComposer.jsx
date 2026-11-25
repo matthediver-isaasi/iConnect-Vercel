@@ -42,7 +42,7 @@ function Preview({ image, onRemove, disabled }) {
  * Draft state is keyed by card/thread/comment by the caller and survives failures.
  */
 export default function ActivityComposer({
-  cardId, boardId, members = [], drafts, refresh, mode = "create", targetComment,
+  cardId, boardId, members = [], mentionOptions, drafts, refresh, mode = "create", targetComment,
   onCancel, onSuccess, placeholder, compact = false,
 }) {
   const client = useQueryClient();
@@ -189,7 +189,7 @@ export default function ActivityComposer({
   const canSubmit = Boolean(draftText(current).trim() || current.images.length);
   return <div className={`discussion-composer${compact ? " is-compact" : ""}`} data-discussion-mode={mode}>
     {mode === "reply" && <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><CornerDownRight className="h-3.5 w-3.5" />Replying to <strong className="text-foreground">{targetComment?.author?.name || [targetComment?.author?.first_name, targetComment?.author?.last_name].filter(Boolean).join(" ") || targetComment?.reply_to_name || "Board member"}</strong></div>}
-    <DiscussionEditor key={`${draftKey}:${editorRevision}`} initialDoc={current.doc} initialText={current.text} members={members}
+    <DiscussionEditor key={`${draftKey}:${editorRevision}`} initialDoc={current.doc} initialText={current.text} members={members} mentionOptions={mentionOptions}
       disabled={current.busy} placeholder={placeholder || (isEdit ? "Edit your comment…" : "Write a comment…")}
       onChange={(doc, text) => {
         // Store only the editable document. Server URLs never enter draft or persisted JSON.

@@ -219,7 +219,7 @@ test("inbox pagination clears page selection and uses the contract pageSize", as
 test("shared comment modal sends picked IDs only, invalidates board inbox, preserves ordinary comments and viewer permissions", async () => {
   const writes = [], invalidated = [];
   let comments = [], discussionVersion = 0;
-  const props = { card: { id: "card-1", board_id: "board-1", list_id: "list-1", title: "Review checklist" }, open: true, onOpenChange: () => {}, boardId: "board-1", members, lists: [{ id: "list-1", name: "Review" }], canEdit: true, canManage: false, onUpdate: () => {}, onDelete: () => {} };
+  const props = { card: { id: "card-1", board_id: "board-1", list_id: "list-1", title: "Review checklist", project_card_assignee: [{ identity_id: members[0].identity_id }] }, open: true, onOpenChange: () => {}, boardId: "board-1", members, lists: [{ id: "list-1", name: "Review" }], canEdit: true, canManage: false, onUpdate: () => {}, onDelete: () => {} };
   const transport = async (url, options = {}) => {
     if (String(url) === "/api/projects/boards/board-1/inbox" && options.method === "PATCH") {
       assert.deepEqual(JSON.parse(options.body), { cardId: "card-1", read: true });
@@ -255,6 +255,8 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   await click([...document.querySelectorAll("button")].find((button) => button.textContent.includes("Insert")));
   await click([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.includes("Mention")));
   const memberSearch = document.querySelector('[aria-label="Search board members"]');
+  assert.deepEqual([...document.querySelectorAll('.discussion-mention-list [role="option"]')].map((option) => option.textContent), ["Mia Chen"],
+    "only the task's assignees can be mentioned");
   await type(memberSearch, "Mia");
   await key(memberSearch, "Enter");
   assert.match(input.textContent, /@Mia Chen/);

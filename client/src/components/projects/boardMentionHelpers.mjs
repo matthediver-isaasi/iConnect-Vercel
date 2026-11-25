@@ -13,6 +13,18 @@ export function boardMentionOptions(members = []) {
   });
 }
 
+const mentionCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+// Task discussions may only mention the task's assignees. Assignee rows carry
+// identity IDs only, so names come from the current board membership; an
+// assignee who has left the board cannot receive a mention and is omitted.
+export function taskMentionOptions(members = [], assignees = []) {
+  const assigned = new Set(assignees.map((item) => String(item?.identity_id ?? item)).filter(Boolean));
+  return boardMentionOptions(members)
+    .filter((option) => assigned.has(String(option.id)))
+    .sort((a, b) => mentionCollator.compare(a.label, b.label) || mentionCollator.compare(a.email, b.email));
+}
+
 export function retainedMentions(content, picked = [], members = []) {
   const current = new Map(boardMentionOptions(members).map((member) => [member.id, member.label]));
   const seen = new Set();

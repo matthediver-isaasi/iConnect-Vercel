@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableInboxCard, boardMentionOptions, inboxCardError, insertMention, mentionIdentityIds, mentionLabel, mentionTrigger, retainedMentions } from "./boardMentionHelpers.mjs";
+import { availableInboxCard, boardMentionOptions, taskMentionOptions, inboxCardError, insertMention, mentionIdentityIds, mentionLabel, mentionTrigger, retainedMentions } from "./boardMentionHelpers.mjs";
 
 const members = [
   { identity_id: "mia", first_name: "Mia", last_name: "Chen", email: "mia@example.test" },
@@ -50,4 +50,18 @@ test("card opening rejects unavailable and moved cards; API permission errors ar
   assert.match(inboxCardError({ status: 403 }), /no longer have access/);
   assert.match(inboxCardError({ status: 404 }), /deleted or archived/);
   assert.match(inboxCardError({ status: 410 }), /deleted or archived/);
+});
+
+test("task mentions list every current assignee, alphabetically, and nobody else", () => {
+  const board = [
+    ...members,
+    { identity_id: "zoe", first_name: "zoë", last_name: "Abbott", email: "zoe@example.test" },
+    { identity_id: "adam", first_name: "adam", last_name: "Price", email: "adam@example.test" },
+    { identity_id: "unassigned", first_name: "Aaron", last_name: "Ames" },
+  ];
+  const assignees = [{ identity_id: "zoe" }, { identity_id: "mia" }, { identity_id: "email" }, { identity_id: "adam" }, { identity_id: "jules" }, { identity_id: "left-board" }];
+  assert.deepEqual(taskMentionOptions(board, assignees).map((item) => item.label),
+    ["adam Price", "Jules Le Roy", "Mia Chen", "sam@example.test", "zoë Abbott"]);
+  assert.deepEqual(taskMentionOptions(board, []), []);
+  assert.deepEqual(taskMentionOptions(board, ["mia"]).map((item) => item.id), ["mia"]);
 });

@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import ActivityComposer from "@/components/projects/ActivityComposer";
+import { taskMentionOptions } from "@/components/projects/boardMentionHelpers.mjs";
 import DiscussionThread from "@/components/projects/DiscussionThread";
 import ProjectDescription from "@/components/projects/ProjectDescription";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
@@ -249,6 +250,7 @@ export default function CardDetailModal({
   const liveCard = { ...card, ...cardDetails?.card };
   const appliedLabels = liveCard.project_card_label || [];
   const assignees = liveCard.project_card_assignee || [];
+  const mentionOptions = taskMentionOptions(members, assignees);
   const boardLabels = [
     ...labels.filter((label) => !Object.hasOwn(labelOverrides, label.id)),
     ...Object.values(labelOverrides).filter(Boolean),
@@ -406,11 +408,11 @@ export default function CardDetailModal({
             <Button variant="outline" size="sm" aria-expanded={showActivity} onClick={() => setShowActivity(!showActivity)}>{showActivity ? "Hide activity" : "Show activity"}</Button>
           </div>
           {discussionCanWrite && open && <ActivityComposer key={card.id} cardId={card.id} boardId={liveCard.board_id || boardId}
-            members={members} drafts={activityDrafts.current} refresh={refresh} />}
+            members={members} mentionOptions={mentionOptions} drafts={activityDrafts.current} refresh={refresh} />}
           {details.isLoading ? <div role="status" aria-label="Loading comments and activity" className="space-y-4">{[0, 1, 2].map((index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />)}</div>
             : <div className="space-y-5">
               <DiscussionThread comments={cardDetails?.comments || []} cardId={card.id} boardId={liveCard.board_id || boardId}
-                members={members} canWrite={discussionCanWrite} drafts={activityDrafts.current} refresh={refresh} />
+                members={members} mentionOptions={mentionOptions} canWrite={discussionCanWrite} drafts={activityDrafts.current} refresh={refresh} />
               {showActivity && <div className="space-y-4 border-t pt-5">
                 <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"><History className="h-3.5 w-3.5" />Activity</h3>
                 {!cardDetails?.activity?.length && <p className="text-sm text-muted-foreground">No activity recorded yet.</p>}

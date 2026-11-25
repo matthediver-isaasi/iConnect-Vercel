@@ -61,7 +61,7 @@ const formatOptions = [
 ];
 
 export default function DiscussionEditor({
-  initialDoc, initialText = "", members = [], disabled = false, onChange,
+  initialDoc, initialText = "", members = [], mentionOptions, disabled = false, onChange,
   onPasteImages, onChooseImage, editorRef, placeholder = "Write a comment…",
 }) {
   const [menu, setMenu] = useState(false);
@@ -81,7 +81,7 @@ export default function DiscussionEditor({
   const formatTrigger = useRef(null);
   const listTrigger = useRef(null);
   const menuId = useId();
-  const memberOptions = useMemo(() => boardMentionOptions(members), [members]);
+  const memberOptions = useMemo(() => mentionOptions || boardMentionOptions(members), [mentionOptions, members]);
   const updateMentionTrigger = (current) => {
     const selection = current.state.selection;
     if (!selection.empty) { setMentionTrigger(null); return; }
@@ -368,7 +368,7 @@ export default function DiscussionEditor({
       </div>}
       {insertPanel === "Mention" && <div>
         <input aria-label="Search board members" autoFocus value={mentionQuery} onChange={(event) => { setMentionQuery(event.target.value); setMentionActive(0); }}
-          placeholder="Find a board member…" onKeyDown={(event) => {
+          placeholder={mentionOptions ? "Find an assignee…" : "Find a board member…"} onKeyDown={(event) => {
             if (event.key === "Escape") { event.preventDefault(); setInsertPanel(""); restore(); }
             else if (matches.length && event.key === "ArrowDown") { event.preventDefault(); setMentionActive((index) => (index + 1) % matches.length); }
             else if (matches.length && event.key === "ArrowUp") { event.preventDefault(); setMentionActive((index) => (index - 1 + matches.length) % matches.length); }
@@ -383,7 +383,7 @@ export default function DiscussionEditor({
           {matches.map((member, index) => <button type="button" role="option" key={member.id} aria-selected={index === mentionActive} onMouseDown={(event) => event.preventDefault()} onClick={() => {
             restore(); chooseMention(member, savedSelection.current);
           }}><AtSign className="h-4 w-4" />{member.label}</button>)}
-          {!matches.length && <p role="status" className="p-3 text-sm text-muted-foreground">No matching board members.</p>}
+          {!matches.length && <p role="status" className="p-3 text-sm text-muted-foreground">{memberOptions.length ? "No matching people." : mentionOptions ? "Assign people to this task to mention them." : "No matching board members."}</p>}
         </div>
       </div>}
       {insertPanel === "Emoji" && <div className="flex gap-1" aria-label="Inline emoji">
@@ -397,7 +397,7 @@ export default function DiscussionEditor({
         onMouseEnter={() => setMentionActive(index)} onClick={() => chooseMention(member)}>
         <AtSign className="h-4 w-4" /><span>{member.label}</span>{member.email !== member.label && <small>{member.email}</small>}
       </button>)}
-      {!mentionMatches.length && <p role="status">No matching board members.</p>}
+      {!mentionMatches.length && <p role="status">{memberOptions.length ? "No matching people." : mentionOptions ? "Assign people to this task to mention them." : "No matching board members."}</p>}
       <small>↑ ↓ to browse · Enter to mention · Esc to close</small>
     </div>}
   </div>;

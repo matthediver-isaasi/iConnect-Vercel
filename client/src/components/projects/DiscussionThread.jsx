@@ -24,7 +24,7 @@ const dateOrder = (a, b) => {
   return timeA - timeB || String(a.id).localeCompare(String(b.id));
 };
 
-export default function DiscussionThread({ comments = [], cardId, boardId, members = [], canWrite, drafts, refresh }) {
+export default function DiscussionThread({ comments = [], cardId, boardId, members = [], mentionOptions, canWrite, drafts, refresh }) {
   const threads = useMemo(() => groupDiscussion(comments).sort((a, b) => dateOrder(b, a))
     .map((root) => ({ ...root, replies: root.replies.sort(dateOrder) })), [comments]);
   if (!threads.length) return <div className="rounded-lg border border-dashed border-border/80 bg-background/60 p-4 text-sm">
@@ -32,11 +32,11 @@ export default function DiscussionThread({ comments = [], cardId, boardId, membe
   </div>;
   return <div className="space-y-4" aria-label="Discussion threads">
     {threads.map((root) => <DiscussionCard key={root.id} comment={root} depth={0} cardId={cardId} boardId={boardId}
-      members={members} canWrite={canWrite} drafts={drafts} refresh={refresh} />)}
+      members={members} mentionOptions={mentionOptions} canWrite={canWrite} drafts={drafts} refresh={refresh} />)}
   </div>;
 }
 
-function DiscussionCard({ comment, depth, cardId, boardId, members, canWrite, drafts, refresh }) {
+function DiscussionCard({ comment, depth, cardId, boardId, members, mentionOptions, canWrite, drafts, refresh }) {
   const queryClient = useQueryClient();
   const [replying, setReplying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -99,7 +99,7 @@ function DiscussionCard({ comment, depth, cardId, boardId, members, canWrite, dr
         </div>
         {depth > 0 && comment.reply_to_name && <p className="mt-0.5 text-[11px] text-muted-foreground">Replying to {comment.reply_to_name}</p>}
         {editing ? <div className="mt-2">
-          <ActivityComposer cardId={cardId} boardId={boardId} members={members} drafts={drafts} refresh={refresh}
+          <ActivityComposer cardId={cardId} boardId={boardId} members={members} mentionOptions={mentionOptions} drafts={drafts} refresh={refresh}
             mode="edit" targetComment={comment} compact onCancel={() => setEditing(false)} onSuccess={() => setEditing(false)} />
         </div> : <div className="mt-1.5 rounded-lg border border-border/70 bg-background px-3 py-2.5 text-sm shadow-[0_1px_2px_hsl(var(--foreground)/.035)]">
           <DiscussionRenderer richContent={comment.rich_content} content={comment.content || ""} attachments={photos} />
@@ -147,12 +147,12 @@ function DiscussionCard({ comment, depth, cardId, boardId, members, canWrite, dr
           {retryReaction && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => sendReaction(retryReaction.emoji, retryReaction.desired)}>Retry reaction</Button>}
         </div>}
         {replying && canWrite && <div className="mt-2">
-          <ActivityComposer cardId={cardId} boardId={boardId} members={members} drafts={drafts} refresh={refresh}
+          <ActivityComposer cardId={cardId} boardId={boardId} members={members} mentionOptions={mentionOptions} drafts={drafts} refresh={refresh}
             mode="reply" targetComment={comment} compact onCancel={() => setReplying(false)} onSuccess={() => setReplying(false)} />
         </div>}
         {(comment.replies || []).length > 0 && <div className="mt-3 space-y-3 border-l border-border/80 pl-3">
           {(comment.replies || []).map((reply) => <DiscussionCard key={reply.id} comment={reply} depth={depth + 1} cardId={cardId}
-            boardId={boardId} members={members} canWrite={canWrite} drafts={drafts} refresh={refresh} />)}
+            boardId={boardId} members={members} mentionOptions={mentionOptions} canWrite={canWrite} drafts={drafts} refresh={refresh} />)}
         </div>}
       </div>
     </div>
