@@ -59,8 +59,10 @@ stored name after trimming/collapsing whitespace and ignoring case.
 match; the owner's approval replaces the earlier assumption that a pre-existing
 explicit contact-ID mapping was required.
 
-**How to apply:** Exhaust discovery to prove uniqueness, reject missing or
-ambiguous matches, and freeze the Xero contact/company in the accepted authority.
+**How to apply:** Exhaust discovery to prove uniqueness, reject ambiguous matches,
+and freeze the Xero contact/company in the accepted authority. If no active
+contact matches, the owner (Nov 2026) approved creating one from the verified
+organisation's name (and invoicing email); see organisation-xero-contact-identity.md.
 This exception does not authorize name-only matching for free-text customers or
 changing a shared contact's email.
 

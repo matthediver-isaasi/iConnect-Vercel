@@ -1,4 +1,4 @@
-import { uniqueOrganizationContact } from './formInvoiceOrganization.js';
+import { uniqueOrganizationContact, xeroOrganizationContactCreator } from './formInvoiceOrganization.js';
 
 const fail = code => { throw Object.assign(new Error(code), { code, permanent: true }); };
 
@@ -26,23 +26,29 @@ export async function freezeMembershipOrganizationIdentity(db, args) {
 
 export function membershipOrganizationContactResolver(identity, expectedCompanyId, fetcher) {
   if (identity?.version !== 1 || !identity.organizationId || !identity.organizationName) fail('MEMBERSHIP_ORGANIZATION_AUTHORITY_REQUIRED');
-  return async (token, companyId) => {
+  return async (token, companyId, contactInfo = null) => {
     if (expectedCompanyId && companyId !== expectedCompanyId) fail('INVOICE_ORGANIZATION_COMPANY_CHANGED');
-    const contact = await uniqueOrganizationContact(async path => {
-      const response = await fetcher(`https://api.xero.com/api.xro/2.0/${path}`, {
-        headers: { Authorization: `Bearer ${token}`, 'xero-tenant-id': companyId, Accept: 'application/json' },
-      });
-      if (!response.ok) {
-        if (response.status === 429 || response.status >= 500) {
-          throw Object.assign(new Error('XERO_ORGANIZATION_LOOKUP_RETRY_REQUIRED'), {
-            code: 'XERO_ORGANIZATION_LOOKUP_RETRY_REQUIRED', status: response.status,
-            retry: true, retryAfter: response.headers.get('retry-after'),
-          });
-        }
-        fail('XERO_ORGANIZATION_LOOKUP_FAILED');
+    const send = (path, init = {}) => fetcher(`https://api.xero.com/api.xro/2.0/${path}`, { ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${token}`, 'xero-tenant-id': companyId, Accept: 'application/json' },
+    });
+    const providerFailure = response => {
+      if (response.status === 429 || response.status >= 500) {
+        throw Object.assign(new Error('XERO_ORGANIZATION_LOOKUP_RETRY_REQUIRED'), {
+          code: 'XERO_ORGANIZATION_LOOKUP_RETRY_REQUIRED', status: response.status,
+          retry: true, retryAfter: response.headers.get('retry-after'),
+        });
       }
+      fail('XERO_ORGANIZATION_LOOKUP_FAILED');
+    };
+    const contact = await uniqueOrganizationContact(async path => {
+      const response = await send(path);
+      if (!response.ok) providerFailure(response);
       return response.json();
-    }, identity.organizationName);
+    }, identity.organizationName, {
+      // Name comes only from the trusted identity; email is creation detail only.
+      email: contactInfo?.email || null,
+      create: xeroOrganizationContactCreator(send, providerFailure),
+    });
     return contact.ContactID;
   };
 }

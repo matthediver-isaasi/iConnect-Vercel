@@ -48,13 +48,36 @@ test('unique normalized organisation name ignores email without contact mutation
   assert.equal(await resolver('fixture-token', 'company', { email: args.invoicingEmail }), 'contact');
   await assert.rejects(resolver('fixture-token', 'other'), /COMPANY_CHANGED/);
 });
-test('ambiguous, archived and missing contacts fail closed', async () => {
-  for (const values of [[], [{ ...contacts[0], ContactStatus: 'ARCHIVED' }],
-    [contacts[0], { ...contacts[0], ContactID: 'second' }]]) {
-    const resolver = membershipOrganizationContactResolver(identity, 'company',
-      async () => new Response(JSON.stringify({ Contacts: values }), { status: 200 }));
-    await assert.rejects(resolver('fixture-token', 'company'), /CONTACT/);
+test('ambiguous contacts fail closed without creating a contact', async () => {
+  const resolver = membershipOrganizationContactResolver(identity, 'company', async (url, init) => {
+    assert.equal(init.method || 'GET', 'GET', 'Ambiguity must never create a contact');
+    return new Response(JSON.stringify({ Contacts: [contacts[0], { ...contacts[0], ContactID: 'second' }] }), { status: 200 });
+  });
+  await assert.rejects(resolver('fixture-token', 'company'), /AMBIGUOUS/);
+});
+test('no active match creates one organisation contact from the trusted name', async () => {
+  for (const existing of [[], [{ ...contacts[0], ContactStatus: 'ARCHIVED' }]]) {
+    const writes = [];
+    const resolver = membershipOrganizationContactResolver(identity, 'company', async (url, init) => {
+      if ((init.method || 'GET') === 'GET') return new Response(JSON.stringify({ Contacts: existing }), { status: 200 });
+      assert.equal(init.method, 'PUT');
+      assert.ok(url.endsWith('/Contacts'));
+      writes.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ Contacts: [{ ContactID: 'created', Name: 'Example University', ContactStatus: 'ACTIVE' }] }), { status: 200 });
+    });
+    assert.equal(await resolver('fixture-token', 'company', { name: 'Untrusted caller name', email: 'billing@example.test' }), 'created');
+    assert.deepEqual(writes, [{ Contacts: [{ Name: 'Example University', EmailAddress: 'billing@example.test' }] }]);
   }
+});
+test('creation throttling is retryable and an unverifiable creation fails', async () => {
+  const throttled = membershipOrganizationContactResolver(identity, 'company', async (url, init) =>
+    (init.method || 'GET') === 'GET' ? new Response('{"Contacts":[]}', { status: 200 })
+      : new Response('{}', { status: 429, headers: { 'retry-after': '30' } }));
+  await assert.rejects(throttled('fixture-token', 'company'), error => error.retry === true && error.status === 429);
+  const mismatched = membershipOrganizationContactResolver(identity, 'company', async (url, init) =>
+    new Response(JSON.stringify({ Contacts: (init.method || 'GET') === 'GET' ? []
+      : [{ ContactID: 'created', Name: 'Different name', ContactStatus: 'ACTIVE' }] }), { status: 200 }));
+  await assert.rejects(mismatched('fixture-token', 'company'), /CREATE_FAILED/);
 });
 test('provider throttling is retryable and never treated as a missing contact', async () => {
   const resolver = membershipOrganizationContactResolver(identity, 'company',

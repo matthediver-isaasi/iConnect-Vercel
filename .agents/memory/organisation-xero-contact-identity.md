@@ -8,3 +8,9 @@ For an invoice owned by a verified organisation, use its verified Xero contact b
 **Why:** The user explicitly approved this matching policy and reiterated it when organisation membership renewal still used email-dependent matching despite the earlier form-checkout change. Invoice recipient email is not the organisation's identity.
 
 **How to apply:** Carry trusted tenant-scoped organisation identity through each invoicing route and queued preparation, not only form checkout. Preserve ambiguity, inactive-contact and provider/company checks. Do not extend organisation name matching to personal invoices or arbitrary submitted text, silently overwrite Xero contact details, or reinterpret frozen requests without reviewed reconciliation.
+
+When exhaustive normalized-name discovery finds no ACTIVE contact, create one (create-only PUT) from the trusted organisation name plus a valid invoicing email; never update existing contacts.
+
+**Why:** On 2026-11-25 the owner decided a missing organisation contact must not block invoice checkout (a BNMS exhibitor booking failed with CONTACT_NOT_FOUND).
+
+**How to apply:** Applies to form/cart organisation billing and organisation membership invoices. Ambiguous, invalid or incomplete discovery still fails closed and never creates. A refused creation (Xero duplicate-name 400) must rediscover, not retry creation.

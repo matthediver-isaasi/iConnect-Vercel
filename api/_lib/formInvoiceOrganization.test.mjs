@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uniqueOrganizationContact, normalizeOrganizationName, verifyFrozenOrganizationContact, freezeFormOrganizationCustomer } from './formInvoiceOrganization.js';
+import { uniqueOrganizationContact, normalizeOrganizationName, verifyFrozenOrganizationContact, freezeFormOrganizationCustomer, xeroOrganizationContactCreator } from './formInvoiceOrganization.js';
 import { invoiceBillingDetails, prepareFormInvoiceSource } from './formInvoiceOrder.js';
 const id = '837cb871-b1ae-472a-8381-bbaaf8efe919';
 const contact = { ContactID: id, Name: '  Example \t COMPANY  ', ContactStatus: 'ACTIVE' };
@@ -74,4 +74,46 @@ test('real source preparation uses frozen contact without contact mutations and 
   assert.equal(prepared.invoice.envelope.expected.totalMinor, 12000);
   assert.deepEqual(prepared.organizationCustomer, customer);
   assert.equal(prepared.payment, null);
+});
+
+test('missing contact is created only after exhaustive discovery finds no active match', async () => {
+  let reads = 0;
+  const payloads = [];
+  const created = await uniqueOrganizationContact(async () => { reads++; return { Contacts: [{ ...contact, ContactStatus: 'ARCHIVED' }] }; },
+    '  Example \n Company ', { email: ' billing@example.invalid ', create: async payload => {
+      payloads.push(payload);
+      return { body: { Contacts: [{ ContactID: 'new', Name: 'Example Company', ContactStatus: 'ACTIVE' }] } };
+    } });
+  assert.equal(created.ContactID, 'new');
+  assert.equal(reads, 1);
+  assert.deepEqual(payloads, [{ Contacts: [{ Name: 'Example Company', EmailAddress: 'billing@example.invalid' }] }]);
+  // Invalid emails are omitted rather than sent to Xero.
+  await uniqueOrganizationContact(async () => ({ Contacts: [] }), 'Example Company', { email: 'not-an-email',
+    create: async payload => { assert.deepEqual(payload, { Contacts: [{ Name: 'Example Company' }] });
+      return { body: { Contacts: [{ ContactID: 'new', Name: 'Example Company', ContactStatus: 'ACTIVE' }] } }; } });
+});
+test('a refused creation (duplicate name race) rediscovers instead of creating twice', async () => {
+  let reads = 0;
+  let creates = 0;
+  const found = await uniqueOrganizationContact(async () => ({ Contacts: ++reads === 1 ? [] : [contact] }),
+    'example company', { create: async () => { creates++; return { rejected: true }; } });
+  assert.equal(found.ContactID, id);
+  assert.equal(creates, 1);
+  await assert.rejects(uniqueOrganizationContact(async () => ({ Contacts: [] }), 'example company',
+    { create: async () => ({ rejected: true }) }), /CREATE_FAILED/);
+});
+test('ambiguous or incomplete discovery never creates a contact', async () => {
+  const create = async () => assert.fail('must not create');
+  await assert.rejects(uniqueOrganizationContact(async () => ({ Contacts: [contact, { ...contact, ContactID: 'other' }] }),
+    'example company', { create }), /AMBIGUOUS/);
+  await assert.rejects(uniqueOrganizationContact(async () => ({}), 'example company', { create }), /INCOMPLETE/);
+});
+test('Xero creator uses create-only PUT and treats 400 as a refusal', async () => {
+  const calls = [];
+  const creator = xeroOrganizationContactCreator(async (path, init) => {
+    calls.push([path, init.method]);
+    return new Response('{"Elements":[]}', { status: 400 });
+  }, () => assert.fail('400 is not a transport failure'));
+  assert.deepEqual(await creator({ Contacts: [{ Name: 'X' }] }), { rejected: true });
+  assert.deepEqual(calls, [['Contacts', 'PUT']]);
 });
