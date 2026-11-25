@@ -1,6 +1,7 @@
 import { isConfirmedFormInvoice } from '../_lib/formInvoiceOrder.js';
 import {assertNotAwardAmendment} from '../_lib/assessment/amendmentBoundary.js';
 import { organizationNameError } from '../../shared/organizationNameValidation.js';
+import { hasOrganizationInvoicingAddressMappings, takeOrganizationInvoicingAddress, saveFormOrganizationInvoicingAddress } from '../_lib/formOrganizationInvoicingAddress.js';
 
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
@@ -1450,6 +1451,7 @@ export default async function handler(req, res, {
     const hasStripeAddressMappingWork = !!(
       persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
     );
+    const hasPrivateOrganizationAddressWork = hasOrganizationInvoicingAddressMappings(persistedForm);
     // A monthly-card setup can complete before the local plan/payment
     // evidence is recorded (even when Stripe has already paid the invoice).
     // Address mappings are deliberately payment-gated, but that one expected
@@ -1505,12 +1507,14 @@ export default async function handler(req, res, {
       ? persistedStructuredActionResult.completed_primary_kinds
       : [];
     let persistedEntityCreations = signupCreatedRecords || { member: new Set(), organization: new Set() };
-    if (hasStripeAddressMappingWork) {
+    if (hasStripeAddressMappingWork || hasPrivateOrganizationAddressWork) {
       persistedEntityCreations = await loadPersistedFormEntityCreations({
         db: supabase,
         tenantId: effectiveEntityTenantId,
         submissionId: submission_id,
       });
+    }
+    if (hasStripeAddressMappingWork) {
       // Once address application committed, an admin retry must not replay
       // ordinary mappings, structured actions, related records, or workflows:
       // those could overwrite edits made after the payment-time snapshot won.
@@ -3170,6 +3174,7 @@ export default async function handler(req, res, {
       orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     }
 
+    const orgInvoicingAddress = takeOrganizationInvoicingAddress(orgData);
     console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
 
     let createdOrganizationId = null;
@@ -3460,7 +3465,7 @@ export default async function handler(req, res, {
           // Reserve immutable provenance before the entity insert. A crash can
           // now leave only a harmless orphan reservation, never an unprovable
           // created entity that a retry mistakes for a selected reference.
-          if (hasStripeAddressMappingWork) {
+          if (hasStripeAddressMappingWork || hasPrivateOrganizationAddressWork) {
             orgInsertData.id = randomUUID();
             await persistEntityCreationProvenance('organization', orgInsertData.id);
           }
@@ -3472,7 +3477,7 @@ export default async function handler(req, res, {
             .single();
 
           if (orgError) {
-            if (hasStripeAddressMappingWork) {
+            if (hasStripeAddressMappingWork || hasPrivateOrganizationAddressWork) {
               await discardEntityCreationProvenance('organization', orgInsertData.id);
             }
             console.error('[AppProcessor] Failed to create organization:', orgError);
@@ -3496,6 +3501,17 @@ export default async function handler(req, res, {
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
           }
         }
+      }
+
+      // Private mapped fields share the same mutation authority as core
+      // organisation updates. Create-only matches must remain non-mutating.
+      if (createdOrganizationId && (orgAction === 'update' || orgAction === 'upsert'
+        || legacyCreatedRecordIds.organization.has(String(createdOrganizationId)))) {
+        await saveFormOrganizationInvoicingAddress({
+          db: supabase, tenantId: effectiveEntityTenantId,
+          organizationId: createdOrganizationId, address: orgInvoicingAddress,
+          authorize: () => assertLegacyExistingRecordAuthorized('organization', createdOrganizationId),
+        });
       }
 
       // Save/update org custom fields if we have an org ID. Uses the

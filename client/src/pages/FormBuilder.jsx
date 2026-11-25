@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { INVOICING_ADDRESS_FIELDS } from "../../../shared/invoicingAddress.js";
 import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { isTenantUuid, publicClient } from "@/api/publicClient";
 import { adminFetch } from "@/lib/adminFetch";
@@ -825,6 +826,12 @@ const ORG_CORE_FIELDS = [
   { value: 'website_url', label: 'Website URL' },
   { value: 'tags', label: 'Tags' },
 ];
+// Write-only mapping destinations: do not add private billing fields to the
+// public organisation prefill/discovery lists above.
+const ORG_MAPPING_FIELDS = [
+  ...ORG_CORE_FIELDS,
+  ...INVOICING_ADDRESS_FIELDS.map(({ key, label }) => ({ value: key, label, type: 'text' })),
+];
 const ORG_GROUP_PREFILL_FIELDS = [
   { value: 'name', label: 'Group Name' },
   { value: 'description', label: 'Description' },
@@ -840,7 +847,7 @@ const STRUCTURED_ACTION_TARGETS = [
 ];
 const STRUCTURED_CORE_FIELDS = {
   member: MEMBER_CORE_FIELDS.filter(field => !['full_name', 'phone'].includes(field.value)),
-  organization: ORG_CORE_FIELDS,
+  organization: ORG_MAPPING_FIELDS,
   organization_group: [
     { value: 'name', label: 'Group name' },
     { value: 'description', label: 'Description' },
@@ -2136,7 +2143,7 @@ function FieldMappingSection({
   };
 
   const getAvailableCoreFields = (targetEntity) => {
-    return targetEntity === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
+    return targetEntity === 'member' ? MEMBER_CORE_FIELDS : ORG_MAPPING_FIELDS;
   };
 
   const getAvailableCustomFields = (targetEntity) => {

@@ -1,4 +1,6 @@
 import { organizationNameError } from '../../shared/organizationNameValidation.js';
+import { INVOICING_ADDRESS_KEYS } from '../../shared/invoicingAddress.js';
+import { takeOrganizationInvoicingAddress, saveFormOrganizationInvoicingAddress } from './formOrganizationInvoicingAddress.js';
 
 import {
   computeAuthoritativeHiddenFieldIds,
@@ -66,7 +68,7 @@ const ENTITIES = new Set(['member', 'organization', 'organization_group', 'custo
 const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship', 'resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION]);
 const CORE_COLUMNS = {
   member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'organization_group_id', 'role_id', 'login_enabled', 'show_in_directory']),
-  organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id']),
+  organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id', ...INVOICING_ADDRESS_KEYS]),
   organization_group: new Set(['name', 'description', 'logo_url']),
 };
 const CORE_FIELD_TYPES = {
@@ -77,6 +79,7 @@ const CORE_FIELD_TYPES = {
     show_in_directory: 'boolean',
   },
   organization: {
+    ...Object.fromEntries(INVOICING_ADDRESS_KEYS.map(key => [key, 'text'])),
     name: 'text', description: 'text', logo_url: 'text', invoicing_email: 'email',
     invoicing_address: 'text', phone: 'text', website_url: 'text', tags: 'list',
     organization_group_id: 'reference:organization_group',
@@ -538,6 +541,11 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (mappedTargets.has(mappedTargetKey) && !isExplicitFallbackMapping(mapping)) errors.push(`${mp} duplicates another target mapping`);
       else mappedTargets.add(mappedTargetKey);
       if (!targetField(mapping)) errors.push(`${mp}.target_field_id is required`);
+      if (entity === 'organization' && targetType === 'core' && INVOICING_ADDRESS_KEYS.includes(targetField(mapping))
+        && (mapping.is_match || mapping.match || action.uniqueness_field === targetField(mapping)
+          || (action.match_by || []).includes(targetField(mapping)))) {
+        errors.push(`${mp}: private invoicing fields cannot be used to match organisations`);
+      }
       if (!mapping?.source_field_id
         && !['static', 'clear', 'resolved_record_labels'].includes(mapping?.source_type)
         && mapping?.static_value === undefined) {
@@ -2772,6 +2780,7 @@ async function executeInvocation(
     action: payloadAction,
     resolvedMappingValues,
   }, entity, preferenceFields);
+  const invoicingAddress = entity === 'organization' ? takeOrganizationInvoicingAddress(payload.core) : {};
   let trustedCustomObjectService = null;
   if (isRecordReferenceAction(action)) {
     recordReferenceTargetAdapter(action).assertWritable({ action, preferenceFields, tenantId, payload });
@@ -2856,6 +2865,13 @@ async function executeInvocation(
       if (entity !== 'custom_object') {
         await writePreferences(db, tenantId, entity, recovered.id, payload.custom, preferenceFields, payload.clearCustom);
       }
+      if (entity === 'organization') {
+        await saveFormOrganizationInvoicingAddress({
+          db, tenantId, organizationId: recovered.id, address: invoicingAddress,
+          // This exact UUID was reserved by this invocation before creation.
+          authorize: async () => {},
+        });
+      }
       await ensureRelationshipLink(db, tenantId, invocation, recovered.id, relationshipDefinition, authorization);
       return {
         status: 'completed',
@@ -2922,11 +2938,16 @@ async function executeInvocation(
     } else {
       update = payload.core;
     }
-    const { data, error } = await db.from(TABLES[entity]).update(update)
-      .eq('tenant_id', tenantId).eq('id', existing.id).select('*').maybeSingle();
-    if (error) throw error;
-    if (!data) throw new Error('Tenant-scoped update matched no record');
-    record = data;
+    if (entity === 'organization' && !Object.keys(update).length) {
+      // An address-only action has no public organisation columns to update.
+      record = existing;
+    } else {
+      const { data, error } = await db.from(TABLES[entity]).update(update)
+        .eq('tenant_id', tenantId).eq('id', existing.id).select('*').maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Tenant-scoped update matched no record');
+      record = data;
+    }
   } else {
     if (entity === 'member' && !payload.core.email) throw new StructuredActionContractError('Member email is required');
     if ((entity === 'organization' || entity === 'organization_group') && !payload.core.name) throw new StructuredActionContractError(`${entity} name is required`);
@@ -2951,6 +2972,14 @@ async function executeInvocation(
     const { data, error } = await db.from(TABLES[entity]).insert(insert).select('*').single();
     if (error) throw error;
     record = data;
+  }
+  if (entity === 'organization') {
+    await saveFormOrganizationInvoicingAddress({
+      db, tenantId, organizationId: record.id, address: invoicingAddress,
+      // Existing rows passed assertStructuredMutationAuthorized above; new
+      // rows were created by this invocation, not by a respondent selection.
+      authorize: async () => {},
+    });
   }
   if (entity !== 'custom_object') await writePreferences(db, tenantId, entity, record.id, payload.custom, preferenceFields, payload.clearCustom);
   await ensureRelationshipLink(db, tenantId, invocation, record.id, relationshipDefinition, authorization);

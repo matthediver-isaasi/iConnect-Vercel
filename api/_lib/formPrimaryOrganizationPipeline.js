@@ -1,6 +1,8 @@
 import { resolveMappedOrganizationDropdownValue } from '../../shared/formNotListedChoice.js';
+import { INVOICING_ADDRESS_KEYS } from '../../shared/invoicingAddress.js';
 
 export const ORGANIZATION_CORE_FIELD_MAPPINGS = Object.freeze({
+  ...Object.fromEntries(INVOICING_ADDRESS_KEYS.map(key => [key, key])),
   name: 'name',
   organization_name: 'name',
   organisation_name: 'name',

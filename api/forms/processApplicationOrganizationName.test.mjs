@@ -21,6 +21,94 @@ import { retryPersistedStripeAddressMappings } from '../_lib/formStripeAddressMa
 import { triggerWorkflows as productionTriggerWorkflows } from '../_lib/workflows.js';
 import { notifyGuestSignup as productionNotifyGuestSignup } from '../_lib/guestSignupNotification.js';
 
+test('organisation mappings save separate invoicing fields privately on create/update and clear without altering legacy text', async () => {
+  for (const existing of [false, true]) {
+    for (const city of [' Oxford ', '__clear__']) {
+      const calls = [];
+      const result = await invokeProcessor({
+        fields: [{ id: 'title', type: 'text' }, { id: 'city', type: 'text' }],
+        form_values: { title: 'Invoice Organisation', city },
+        entity_pipelines: { organisations: [{ id: 'primary', isPrimary: true, mappings: [
+          { source_type: 'field', source_field_id: 'title', target_type: 'core', target_entity: 'organization', target_field: 'name' },
+          { source_type: 'field', source_field_id: 'city', target_type: 'core', target_entity: 'organization', target_field: 'invoicing_city' },
+          { source_type: 'static', static_value: 'Legacy retained', target_type: 'core', target_entity: 'organization', target_field: 'invoicing_address' },
+        ] }] },
+      }, {
+        existingOrganization: existing ? { id: 'org-invoice', tenant_id: 'tenant-runtime-org', name: 'Invoice Organisation' } : null,
+        rpcResult: (name, args) => {
+          calls.push({ name, args });
+          return { data: name === 'patch_private_invoicing_address' ? [args.p_address] : null, error: null };
+        },
+      });
+      assert.equal(result.response.statusCode, 200, JSON.stringify(result.response.body));
+      const saved = calls.filter(c => c.name === 'patch_private_invoicing_address');
+      assert.equal(saved.length, 1);
+      assert.deepEqual(saved[0].args.p_address, { invoicing_city: city === '__clear__' ? null : 'Oxford' });
+      assert.equal(saved[0].args.p_tenant_id, 'tenant-runtime-org');
+      assert.equal(saved[0].args.p_owner_type, 'organization');
+      const ownerWrite = [...result.inserts, ...result.updates].filter(w => w.table === 'organization');
+      assert.ok(ownerWrite.length > 0);
+      assert.ok(ownerWrite.every(w => !Object.hasOwn(w.payload, 'invoicing_city')));
+      assert.ok(ownerWrite.some(w => w.payload.invoicing_address === 'Legacy retained'));
+    }
+  }
+});
+
+test('private organisation create retries reuse creation provenance after an address save failure', async () => {
+  const payload = {
+    organization_entity_action: 'create',
+    fields: [{ id: 'title', type: 'text' }, { id: 'city', type: 'text' }],
+    form_values: { title: 'Created Invoice Org', city: 'Oxford' },
+    entity_pipelines: { organisations: [{ id: 'primary', isPrimary: true, mappings: [
+      { source_type: 'field', source_field_id: 'title', target_type: 'core', target_entity: 'organization', target_field: 'name' },
+      { source_type: 'field', source_field_id: 'city', target_type: 'core', target_entity: 'organization', target_field: 'invoicing_city' },
+    ] }] },
+  };
+  const first = await invokeProcessor(payload, {
+    rpcResult: (name) => ({ data: null, error: name === 'patch_private_invoicing_address' ? new Error('Storage unavailable') : null }),
+  });
+  assert.notEqual(first.response.statusCode, 200);
+  const created = first.inserts.find(w => w.table === 'organization').payload;
+  assert.ok(created.id);
+  const calls = [];
+  const retry = await invokeProcessor(payload, {
+    existingOrganization: created,
+    provenanceRows: [{ entity_type: 'organization', entity_id: created.id }],
+    rpcResult: (name, args) => { calls.push({ name, args }); return { data: [{}], error: null }; },
+  });
+  assert.equal(retry.response.statusCode, 200, JSON.stringify(retry.response.body));
+  assert.ok(!retry.inserts.some(w => w.table === 'organization'));
+  assert.equal(calls.find(c => c.name === 'patch_private_invoicing_address').args.p_owner_id, created.id);
+
+  const unrelatedMatch = await invokeProcessor({
+    ...payload, entity_pipelines: null,
+    field_mappings: payload.entity_pipelines.organisations[0].mappings,
+  }, {
+    existingOrganization: created,
+    rpcResult: (name) => { throw new Error(`No private write expected: ${name}`); },
+  });
+  assert.equal(unrelatedMatch.response.statusCode, 200, 'create-only match stays non-mutating without creation provenance');
+});
+
+test('private organisation mappings cannot bypass existing-record mutation authority', async () => {
+  const calls = [];
+  const result = await invokeProcessor({
+    fields: [{ id: 'title', type: 'text' }, { id: 'city', type: 'text' }],
+    form_values: { title: 'Invoice Organisation', city: 'Oxford' },
+    entity_pipelines: { organisations: [{ id: 'primary', isPrimary: true, mappings: [
+      { source_type: 'field', source_field_id: 'title', target_type: 'core', target_entity: 'organization', target_field: 'name' },
+      { source_type: 'field', source_field_id: 'city', target_type: 'core', target_entity: 'organization', target_field: 'invoicing_city' },
+    ] }] },
+  }, {
+    existingOrganization: { id: 'org-invoice', tenant_id: 'tenant-runtime-org', name: 'Invoice Organisation' },
+    verifiedAdminAccess: false,
+    rpcResult: (name, args) => { calls.push({ name, args }); return { data: [{}], error: null }; },
+  });
+  assert.notEqual(result.response.statusCode, 200);
+  assert.ok(!calls.some(c => c.name === 'patch_private_invoicing_address'));
+  assert.ok(!result.updates.some(w => w.table === 'organization'));
+});
+
 const dropdown = {
   id: 'organisation',
   type: 'organisation_dropdown',
