@@ -13,3 +13,7 @@ description: Financial rules and pitfalls for replacing a recorded organisation 
 Annual rows whose structure has start_mode 'immediate' cannot be replaced: the existing rolling_commitment_guard rejects the replacement INSERT without a dated commitment.
 **Why:** the guard treats any new immediate-config history row as needing an authoritative commitment, even for annual years.
 **How to apply:** fixing this needs a narrow guard exemption tied to the replacement journal, not a weaker guard.
+
+An original invoice already credited outside the app (e.g. a manual Xero credit note) may be adopted only by explicit admin confirmation of that exact credit note, and only when it is unambiguous: the single credit on the invoice, fully crediting the gross, not applied elsewhere, no cash paid, not linked to another record. Partial or shared credits stay blocked for accounting review. Owner asked for this on 2026-11-25.
+**Why:** finance sometimes raises the credit note manually before the admin replaces the year; creating a second one would double-credit.
+**How to apply:** the adopted note is carried in the operation's invoice snapshot and re-verified at sync; never create a new credit note when the invoice already shows credit.

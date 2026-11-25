@@ -15,11 +15,42 @@ const LEASE_MS = 2 * 60 * 1000;
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export class ReplacementError extends Error {
-  constructor(code, message, status = 409) {
+  constructor(code, message, status = 409, details = null) {
     super(message);
     this.code = code;
     this.status = status;
+    this.details = details;
   }
+}
+
+const near = (a, b) => Math.abs(round2(a) - round2(b)) < 0.005;
+
+/**
+ * A credit note created outside the app (typically by finance in Xero) may
+ * be adopted as the replacement's credit only when it is unambiguous: it is
+ * the one credit on the invoice, it fully credits the invoice gross, it is
+ * not applied anywhere else, and no cash was ever paid. Anything else stays
+ * an accounting-review block. Returns { note } or { reason }.
+ */
+export function evaluateExistingCreditNote(invoice, evidence) {
+  const raw = invoice?.raw || {};
+  const total = round2(invoice?.totalAmt ?? raw.Total);
+  if (!(total > 0)) return { reason: 'no_total' };
+  if (!near(raw.AmountCredited, total)) return { reason: 'partial_credit' };
+  if (Number(raw.AmountPaid) > 0 || (raw.Payments || []).length) return { reason: 'payments_present' };
+  if ((raw.Overpayments || []).length || (raw.Prepayments || []).length) return { reason: 'other_credits_present' };
+  const linked = raw.CreditNotes || [];
+  if (linked.length !== 1) return { reason: 'multiple_credit_notes' };
+  const link = linked[0];
+  if (!link?.CreditNoteID || !near(link.AppliedAmount, total)) return { reason: 'partial_credit' };
+  const notes = (evidence?.notes || []).filter(note => note.providerId === link.CreditNoteID);
+  if (notes.length !== 1) return { reason: 'credit_note_unverified' };
+  const note = notes[0];
+  if (!['AUTHORISED', 'PAID'].includes(String(note.status || '').toUpperCase())) return { reason: 'credit_note_status' };
+  if (note.ambiguousAttribution || !near(note.amount, total)) return { reason: 'credit_note_shared' };
+  if (raw.CurrencyCode && note.currency && note.currency !== raw.CurrencyCode) return { reason: 'currency_mismatch' };
+  return { note: { id: link.CreditNoteID, number: link.CreditNoteNumber || null, amount: total,
+    date: link.DateString ? String(link.DateString).slice(0, 10) : null, currency: note.currency || raw.CurrencyCode || null } };
 }
 
 /** True when a history row is a retired replacement original. */
@@ -108,7 +139,16 @@ export function evaluateReplacementEligibility(row, facts) {
     if (!invoice) return block('invoice_unavailable', 'The original invoice could not be read from the accounting package');
     if (invoice.voided || invoice.status === 'voided') return block('invoice_voided', 'The original invoice has been voided. Void it fully in membership history instead.');
     if (invoice.raw?.Status === 'DRAFT') return block('invoice_draft', 'The original invoice is still a draft in Xero. Approve or delete it first.');
-    if (Number(invoice.raw?.AmountCredited) > 0) return block('already_credited', 'The original invoice has already been partly credited; accounting review required');
+    if (Number(invoice.raw?.AmountCredited) > 0) {
+      const existing = facts.existingCreditNote;
+      if (existing === 'unavailable') return block('credit_evidence_unavailable', 'The credit note on the original invoice could not be checked in the accounting package. Try again later.');
+      if (existing === 'already_linked') return block('already_credited', 'The credit note on the original invoice is already linked to another membership record; accounting review required');
+      if (!existing?.id) return block('already_credited', 'The original invoice has already been partly credited; accounting review required');
+      if (facts.linkCreditNoteId !== existing.id) {
+        return { ...block('existing_credit_note', `The original invoice has already been fully credited by credit note ${existing.number || existing.id}. Confirm that this credit note should be used for the replacement.`), details: { existingCreditNote: existing } };
+      }
+      return { eligible: true, linkedCreditNote: existing };
+    }
     if (facts.priorCredits === 'unavailable') return block('credit_evidence_unavailable', 'Existing credits on the original invoice could not be checked in the accounting package. Try again later.');
     if (facts.priorCredits === 'present') return block('already_credited', 'The original invoice already has a credit applied; accounting review required');
     if (facts.activeProvider === 'quickbooks' && quickBooksTaxCodes(invoice.raw).size > 1) {
@@ -224,6 +264,16 @@ export function createOrganisationMembershipReplacementService(deps) {
     return data || null;
   }
 
+  async function creditNoteLinkedElsewhere(tenantId, creditNoteId, recordId) {
+    const [history, ops] = await Promise.all([
+      db.from('organisation_membership_history').select('id').eq('tenant_id', tenantId).eq('accounting_credit_note_id', creditNoteId),
+      db.from('organisation_membership_replacement').select('id').eq('tenant_id', tenantId).eq('credit_note_id', creditNoteId),
+    ]);
+    if (history.error) throw history.error;
+    if (ops.error) throw ops.error;
+    return (history.data || []).some(row => row.id !== recordId) || (ops.data || []).length > 0;
+  }
+
   async function resolveFacts(tenantId, organizationId, original) {
     const config = await getConfig(tenantId, organizationId);
     if (!config) throw new ReplacementError('no_structure', 'No membership structure applies to this organisation', 400);
@@ -251,12 +301,27 @@ export function createOrganisationMembershipReplacementService(deps) {
         }
       }
     }
+    // Xero: an invoice already credited outside the app can only proceed by
+    // explicitly adopting that one credit note (see evaluateExistingCreditNote).
+    let existingCreditNote = null;
+    if (originalInvoice && activeProvider.name === 'xero' && Number(originalInvoice.raw?.AmountCredited) > 0 && readInvoiceCreditEvidence) {
+      try {
+        const evidence = await readInvoiceCreditEvidence(activeProvider.name, tenantId, invoiceId);
+        existingCreditNote = evaluateExistingCreditNote(originalInvoice, evidence).note || null;
+      } catch {
+        existingCreditNote = 'unavailable';
+      }
+      if (existingCreditNote?.id && await creditNoteLinkedElsewhere(tenantId, existingCreditNote.id, original.id)) {
+        existingCreditNote = 'already_linked';
+      }
+    }
     return {
       config,
       approvedLines,
       activeProvider,
       originalInvoice,
       facts: {
+        existingCreditNote,
         currentYearLabel: currentYearLabel(config),
         activeCollectionPlan: await hasActiveCollectionPlan(tenantId, organizationId),
         hasTrainingFundAddons: approvedLines.some(line => line?.type === 'training_fund'),
@@ -269,11 +334,12 @@ export function createOrganisationMembershipReplacementService(deps) {
     };
   }
 
-  async function buildPreview({ tenantId, organizationId, recordId, override, addonLines }) {
+  async function buildPreview({ tenantId, organizationId, recordId, override, addonLines, linkCreditNoteId = null }) {
     const original = await loadOriginal(tenantId, organizationId, recordId);
     const resolved = await resolveFacts(tenantId, organizationId, original);
-    const eligibility = evaluateReplacementEligibility(original, resolved.facts);
-    if (!eligibility.eligible) throw new ReplacementError(eligibility.code, eligibility.message);
+    const eligibility = evaluateReplacementEligibility(original, { ...resolved.facts, linkCreditNoteId });
+    if (!eligibility.eligible) throw new ReplacementError(eligibility.code, eligibility.message, 409, eligibility.details || null);
+    const linkedCreditNote = eligibility.linkedCreditNote || null;
 
     let lines = resolved.approvedLines;
     if (Array.isArray(addonLines)) {
@@ -306,11 +372,15 @@ export function createOrganisationMembershipReplacementService(deps) {
     const invoice = resolved.originalInvoice;
     const hasOriginalInvoice = !!invoiceIdOf(original);
     const originalTotal = hasOriginalInvoice ? round2(invoice?.totalAmt) : 0;
-    const originalPaid = hasOriginalInvoice ? round2(Math.max(0, (invoice?.totalAmt || 0) - (invoice?.balance || 0))) : 0;
+    // An adopted credit note already cleared the original, and no cash was
+    // paid (enforced when adopting), so nothing carries to the new invoice.
+    const originalPaid = linkedCreditNote ? 0
+      : hasOriginalInvoice ? round2(Math.max(0, (invoice?.totalAmt || 0) - (invoice?.balance || 0))) : 0;
     const plan = planReplacementAccounting({ originalTotal, originalPaid, replacementTotal, hasOriginalInvoice });
     return {
       original,
       sim,
+      linkedCreditNote,
       addonLines: lines,
       addonTotals,
       provider: resolved.activeProvider,
@@ -361,6 +431,7 @@ export function createOrganisationMembershipReplacementService(deps) {
           amountDue: plan.amountDue,
           surplusCredit: plan.surplusCredit,
           originalPaid,
+          existingCreditNote: linkedCreditNote,
         },
       },
     };
@@ -370,7 +441,7 @@ export function createOrganisationMembershipReplacementService(deps) {
     return (await buildPreview(args)).summary;
   }
 
-  async function execute({ tenantId, organizationId, recordId, override, addonLines, reason, actorId, idempotencyKey, period }) {
+  async function execute({ tenantId, organizationId, recordId, override, addonLines, reason, actorId, idempotencyKey, period, linkCreditNoteId = null }) {
     if (!reason || !String(reason).trim()) throw new ReplacementError('reason_required', 'A reason is required', 400);
     if (!actorId) throw new ReplacementError('actor_required', 'Your user could not be identified', 403);
     if (!idempotencyKey || !/^[A-Za-z0-9_-]{8,64}$/.test(idempotencyKey)) {
@@ -387,19 +458,21 @@ export function createOrganisationMembershipReplacementService(deps) {
 
     const originalForPeriod = await loadOriginal(tenantId, organizationId, recordId);
     assertPeriodUnchanged(originalForPeriod, period);
-    const built = await buildPreview({ tenantId, organizationId, recordId, override, addonLines });
-    const { original, sim, summary } = built;
+    const built = await buildPreview({ tenantId, organizationId, recordId, override, addonLines, linkCreditNoteId });
+    const { original, sim, summary, linkedCreditNote } = built;
     const zeroDue = summary.replacement.total === 0;
     const paidAt = now().toISOString();
     const history = replacementHistoryFields(sim, original, { zeroDue, paidAt, addonTotals: built.addonTotals });
     history.notes = `Replacement for ${original.membership_year} (replaces ${invoiceNumberOf(original) || original.id}). Reason: ${String(reason).trim()}`;
     const hasCredit = summary.accounting.creditNoteAmount > 0;
+    const linkedSnapshot = linkedCreditNote ? { linkedCreditNote: { id: linkedCreditNote.id, number: linkedCreditNote.number, amount: linkedCreditNote.amount } } : null;
     const payload = {
       history,
       period: { membership_year: original.membership_year, term_start_date: original.term_start_date, term_end_date: original.term_end_date },
       override,
       addon_lines: built.addonLines,
-      invoice_snapshot: zeroDue ? null : {
+      invoice_snapshot: zeroDue ? linkedSnapshot : {
+        ...(linkedSnapshot || {}),
         membershipFinalCost: round2(sim.finalCost),
         membershipVatAmount: round2(sim.vatAmount || 0),
         reference: original.purchase_order_number
@@ -416,7 +489,8 @@ export function createOrganisationMembershipReplacementService(deps) {
       replacement_total: summary.replacement.total,
       credit_note_state: hasCredit ? 'pending' : 'not_required',
       invoice_state: zeroDue ? 'not_required' : 'pending',
-      allocation_state: hasCredit && (summary.accounting.creditAppliedToOriginal > 0 || summary.accounting.paidCreditToApply > 0) ? 'pending' : 'not_required',
+      // An adopted credit note is already fully applied to the original.
+      allocation_state: !linkedCreditNote && hasCredit && (summary.accounting.creditAppliedToOriginal > 0 || summary.accounting.paidCreditToApply > 0) ? 'pending' : 'not_required',
       email_state: zeroDue ? 'not_required' : 'pending',
     };
     const { data: applied, error } = await db.rpc('apply_organisation_membership_replacement', {
@@ -436,7 +510,8 @@ export function createOrganisationMembershipReplacementService(deps) {
         content: `[Membership Replacement] ${original.membership_year} membership replaced. Reason: ${String(reason).trim()}. `
           + `Original ${invoiceNumberOf(original) ? `invoice ${invoiceNumberOf(original)}` : 'record'} (${summary.original.currency || ''} ${summary.original.totalWithVat.toFixed(2)}) `
           + `retired; replacement ${summary.replacement.tierLabel || ''} ${summary.replacement.currency || ''} ${summary.replacement.total.toFixed(2)}.`
-          + (hasCredit ? ` Credit note of ${summary.accounting.creditNoteAmount.toFixed(2)} to be raised.` : ''),
+          + (linkedCreditNote ? ` Existing credit note ${linkedCreditNote.number || linkedCreditNote.id} (${summary.accounting.creditNoteAmount.toFixed(2)}) linked as the credit for the original invoice.`
+            : hasCredit ? ` Credit note of ${summary.accounting.creditNoteAmount.toFixed(2)} to be raised.` : ''),
       });
     }
     return { operation: await runSync({ tenantId, operationId: applied.operation_id }), replayed: !!applied?.replayed };
@@ -527,8 +602,19 @@ export function createOrganisationMembershipReplacementService(deps) {
     if (['pending', 'failed'].includes(op.credit_note_state)) {
       try {
         let creditNote = null;
+        const linked = op.invoice_snapshot?.linkedCreditNote;
         if (op.credit_note_id) {
           creditNote = { creditNoteId: op.credit_note_id, creditNoteNumber: op.credit_note_number, amount: op.credit_note_amount };
+        } else if (linked?.id) {
+          // Adopted credit note: re-verify it still fully credits the original
+          // invoice; never create a second one.
+          const invoice = await provider.fetchInvoiceStatus(op.original_invoice_id, tenantId);
+          if (!invoice) throw new Error('Original invoice could not be read from the accounting package');
+          const applied = (invoice.raw?.CreditNotes || []).find(note => note?.CreditNoteID === linked.id);
+          if (!applied || !near(applied.AppliedAmount, op.original_total) || !near(invoice.raw?.AmountCredited, op.original_total)) {
+            throw new Error(`Credit note ${linked.number || linked.id} no longer fully credits the original invoice; accounting review required`);
+          }
+          creditNote = { creditNoteId: linked.id, creditNoteNumber: linked.number || applied.CreditNoteNumber || null, amount: round2(op.original_total) };
         } else {
           // Re-verify on every attempt: a credit note created by an earlier
           // attempt is rediscovered by reference and must still match.

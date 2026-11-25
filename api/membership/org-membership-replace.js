@@ -63,9 +63,10 @@ export default async function handler(req, res, { service: injected } = {}) {
     if (!UUID.test(recordId || '')) return res.status(400).json({ error: 'Membership year is required' });
     const override = normalizeReplacementOverride(body.override);
     const addonLines = Array.isArray(body.addonLines) ? body.addonLines : undefined;
+    const linkCreditNoteId = typeof body.linkCreditNoteId === 'string' && UUID.test(body.linkCreditNoteId) ? body.linkCreditNoteId : null;
 
     if (action === 'preview') {
-      const preview = await service.preview({ tenantId, organizationId, recordId, override, addonLines });
+      const preview = await service.preview({ tenantId, organizationId, recordId, override, addonLines, linkCreditNoteId });
       return res.json({ success: true, preview });
     }
     if (action === 'execute') {
@@ -74,6 +75,7 @@ export default async function handler(req, res, { service: injected } = {}) {
         reason: body.reason,
         period: body.period,
         idempotencyKey: body.idempotencyKey,
+        linkCreditNoteId,
         actorId: tenantContext.memberId || tenantContext.tenantUserId || null,
       });
       return res.json({ success: result.operation?.sync_state === 'complete', ...result });
@@ -81,7 +83,7 @@ export default async function handler(req, res, { service: injected } = {}) {
     return res.status(400).json({ error: 'Unknown action' });
   } catch (error) {
     if (error instanceof ReplacementError) {
-      return res.status(error.status).json({ error: error.message, code: error.code });
+      return res.status(error.status).json({ error: error.message, code: error.code, ...(error.details ? { details: error.details } : {}) });
     }
     console.error('[Org Membership Replace] Error:', error);
     return res.status(500).json({ error: 'Could not replace the membership year' });

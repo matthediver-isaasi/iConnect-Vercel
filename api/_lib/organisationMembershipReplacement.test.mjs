@@ -448,3 +448,90 @@ test('existing approved add-on lines open ready to preview', async () => {
   assert.deepEqual(line.vatRate, { effectiveRate: 20 });
   assert.equal(line.quantity, '2');
 });
+
+// ---------------------------------------------------------------------------
+// Adopting a credit note raised outside the app (e.g. manually in Xero).
+// ---------------------------------------------------------------------------
+const CN_ID = '7000ef14-f68f-4f98-8d33-e82583edd3e0';
+function creditedInvoice(overrides = {}, linkOverrides = {}) {
+  return { status: 'paid', totalAmt: 120, balance: 0, amountPaid: 0, raw: {
+    Status: 'PAID', Total: 120, AmountDue: 0, AmountPaid: 0, AmountCredited: 120, CurrencyCode: 'GBP', Payments: [],
+    CreditNotes: [{ CreditNoteID: CN_ID, CreditNoteNumber: 'CN-44990', AppliedAmount: 120, DateString: '2026-10-31T00:00:00', ...linkOverrides }],
+    ...overrides,
+  } };
+}
+const cleanEvidence = async () => ({ notes: [{ providerId: CN_ID, amount: 120, currency: 'GBP', status: 'PAID', ambiguousAttribution: false }] });
+
+test('existing credit note: unambiguous full credit is offered, everything else stays blocked', async () => {
+  const { evaluateExistingCreditNote } = await import('./organisationMembershipReplacement.js');
+  const ev = await cleanEvidence();
+  assert.equal(evaluateExistingCreditNote(creditedInvoice(), ev).note.number, 'CN-44990');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice({ AmountCredited: 60 }, { AppliedAmount: 60 }), ev).reason, 'partial_credit');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice({ AmountPaid: 10 }), ev).reason, 'payments_present');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice({ CreditNotes: [{ CreditNoteID: CN_ID, AppliedAmount: 60 }, { CreditNoteID: 'b', AppliedAmount: 60 }] }), ev).reason, 'multiple_credit_notes');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice(), { notes: [{ ...ev.notes[0], ambiguousAttribution: true }] }).reason, 'credit_note_shared');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice(), { notes: [{ ...ev.notes[0], amount: 200 }] }).reason, 'credit_note_shared');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice(), { notes: [] }).reason, 'credit_note_unverified');
+  assert.equal(evaluateExistingCreditNote(creditedInvoice(), { notes: [{ ...ev.notes[0], status: 'DRAFT' }] }).reason, 'credit_note_status');
+});
+
+test('existing credit note: preview asks for confirmation; confirmed replacement adopts it without a new credit note', async () => {
+  const db = createFakeDb({ organisation_membership_history: [originalRow({ payment_status: 'paid' })], organization: [{ id: ORG, tenant_id: TENANT, name: 'Org' }] }, { rpc: applyRpc });
+  const provider = createProvider({ invoice: creditedInvoice() });
+  const emails = [];
+  const service = createService({ db, provider, emails, deps: { readInvoiceCreditEvidence: cleanEvidence } });
+  const args = { tenantId: TENANT, organizationId: ORG, recordId: ORIGINAL, override: null };
+
+  const asked = await service.preview(args).then(() => null, (e) => e);
+  assert.equal(asked.code, 'existing_credit_note');
+  assert.equal(asked.details.existingCreditNote.id, CN_ID);
+  // A different id is not a confirmation.
+  assert.equal((await service.preview({ ...args, linkCreditNoteId: '00000000-0000-4000-8000-000000000000' }).catch((e) => e)).code, 'existing_credit_note');
+
+  const preview = await service.preview({ ...args, linkCreditNoteId: CN_ID });
+  assert.equal(preview.accounting.existingCreditNote.number, 'CN-44990');
+  assert.equal(preview.accounting.creditNoteAmount, 120);
+  assert.equal(preview.accounting.paidCreditToApply, 0);
+  assert.equal(preview.accounting.amountDue, 240);
+
+  const { operation } = await service.execute({ ...args, linkCreditNoteId: CN_ID, reason: 'Wrong tier', actorId: 'admin-1',
+    idempotencyKey: 'key-linked', period: { membershipYear: '2026/27', termStartDate: '2026-04-01', termEndDate: '2027-03-31' } });
+  assert.equal(operation.sync_state, 'complete');
+  assert.equal(operation.credit_note_id, CN_ID);
+  assert.equal(operation.allocation_state, 'not_required');
+  assert.equal(operation.original_paid, 0);
+  assert.equal(provider.calls.creditNotes.length, 0);
+  assert.equal(provider.calls.allocations.length, 0);
+  assert.equal(provider.calls.invoices.length, 1);
+  assert.equal(emails.length, 1);
+  const source = db.tables.organisation_membership_history.find((r) => r.id === ORIGINAL);
+  assert.equal(source.accounting_credit_note_id, CN_ID);
+  assert.equal(source.accounting_credit_note_number, 'CN-44990');
+  const target = db.tables.organisation_membership_history.find((r) => r.replaces_record_id === ORIGINAL);
+  assert.equal(target.payment_status, 'unpaid');
+});
+
+test('existing credit note: linked elsewhere, evidence failure, or later change block', async () => {
+  const run = async (tables, readInvoiceCreditEvidence) => {
+    const db = createFakeDb({ organisation_membership_history: [originalRow()], ...tables });
+    const service = createService({ db, provider: createProvider({ invoice: creditedInvoice() }), deps: { readInvoiceCreditEvidence } });
+    return service.preview({ tenantId: TENANT, organizationId: ORG, recordId: ORIGINAL, override: null, linkCreditNoteId: CN_ID }).then(() => 'ok', (e) => e.code);
+  };
+  assert.equal(await run({}, cleanEvidence), 'ok');
+  assert.equal(await run({ organisation_membership_replacement: [{ id: 'x', tenant_id: TENANT, credit_note_id: CN_ID }] }, cleanEvidence), 'already_credited');
+  assert.equal(await run({ organisation_membership_history: [originalRow(), originalRow({ id: 'other', accounting_credit_note_id: CN_ID })] }, cleanEvidence), 'already_credited');
+  assert.equal(await run({}, async () => { throw new Error('Xero down'); }), 'credit_evidence_unavailable');
+
+  // Sync re-verifies the adopted note and never creates a second one.
+  const db = createFakeDb({ organisation_membership_history: [originalRow()], organization: [{ id: ORG, tenant_id: TENANT, name: 'Org' }] }, { rpc: applyRpc });
+  const invoice = creditedInvoice();
+  const provider = createProvider({ invoice });
+  const service = createService({ db, provider, deps: { readInvoiceCreditEvidence: cleanEvidence } });
+  provider.fetchInvoiceStatus = (() => { let n = 0; return async () => (++n <= 1 ? invoice : creditedInvoice({ AmountCredited: 0, CreditNotes: [] })); })();
+  const { operation } = await service.execute({ tenantId: TENANT, organizationId: ORG, recordId: ORIGINAL, override: null, linkCreditNoteId: CN_ID,
+    reason: 'Wrong tier', actorId: 'admin-1', idempotencyKey: 'key-linked-2', period: { membershipYear: '2026/27', termStartDate: '2026-04-01', termEndDate: '2027-03-31' } });
+  assert.equal(operation.credit_note_state, 'failed');
+  assert.match(operation.last_error, /no longer fully credits/);
+  assert.equal(provider.calls.creditNotes.length, 0);
+  assert.equal(provider.calls.invoices.length, 0);
+});

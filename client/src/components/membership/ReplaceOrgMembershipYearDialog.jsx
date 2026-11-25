@@ -25,6 +25,7 @@ async function postReplace(body) {
   if (!response.ok) {
     const error = new Error(payload.error || "Request failed");
     error.code = payload.code;
+    error.details = payload.details || null;
     throw error;
   }
   return payload;
@@ -61,6 +62,11 @@ export default function ReplaceOrgMembershipYearDialog({
   const [previewError, setPreviewError] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // A credit note already raised in the accounting package (e.g. manually by
+  // finance) that fully credits the original invoice. The admin must confirm
+  // it before the replacement may adopt it instead of raising a new one.
+  const [existingCreditNote, setExistingCreditNote] = useState(null);
+  const [linkCreditNoteId, setLinkCreditNoteId] = useState(null);
   const idempotencyKey = useRef(null);
 
   // Reset whenever the dialog opens for a record.
@@ -79,17 +85,32 @@ export default function ReplaceOrgMembershipYearDialog({
     setPreview(null);
     setPreviewError(null);
     setBaseline(null);
+    setExistingCreditNote(null);
+    setLinkCreditNoteId(null);
+  }, [open, record?.id, organizationId]);
+
+  // Eligibility + original details (no override). Re-checked once an
+  // existing credit note is confirmed for linking.
+  useEffect(() => {
+    if (!open || !record?.id) return;
     let cancelled = false;
-    // Eligibility + original details (no override).
-    postReplace({ action: "preview", organizationId, recordId: record.id })
+    setPreviewError(null);
+    postReplace({ action: "preview", organizationId, recordId: record.id, ...(linkCreditNoteId ? { linkCreditNoteId } : {}) })
       .then((result) => {
         if (cancelled) return;
         setBaseline(result.preview);
         setAddonLines((result.preview?.replacement?.addonLines || []).map(toEditorLine));
       })
-      .catch((error) => { if (!cancelled) setPreviewError(error.message); });
+      .catch((error) => {
+        if (cancelled) return;
+        if (error.code === "existing_credit_note" && error.details?.existingCreditNote && !linkCreditNoteId) {
+          setExistingCreditNote(error.details.existingCreditNote);
+          return;
+        }
+        setPreviewError(error.message);
+      });
     return () => { cancelled = true; };
-  }, [open, record?.id, organizationId]);
+  }, [open, record?.id, organizationId, linkCreditNoteId]);
 
   const override = useMemo(() => {
     if (!changePricing) return null;
@@ -107,6 +128,7 @@ export default function ReplaceOrgMembershipYearDialog({
     organizationId,
     recordId: record.id,
     override: override || null,
+    ...(linkCreditNoteId ? { linkCreditNoteId } : {}),
     ...(addonsTouched ? { addonLines: serializeAddonLines(addonLines, membershipSettings) } : {}),
   });
 
@@ -165,7 +187,27 @@ export default function ReplaceOrgMembershipYearDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {!original && !previewError && (
+        {existingCreditNote && !linkCreditNoteId && !previewError && (
+          <div className="p-3 rounded-md border border-amber-500/40 bg-amber-500/5 space-y-3 text-sm" data-testid="section-replace-existing-credit">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 shrink-0" />
+              <div className="space-y-1">
+                <p className="font-medium">The original invoice has already been credited</p>
+                <p className="text-muted-foreground">
+                  Credit note <span className="font-medium text-foreground" data-testid="text-existing-credit-number">{existingCreditNote.number || existingCreditNote.id}</span>
+                  {existingCreditNote.date ? ` dated ${existingCreditNote.date}` : ""} for {formatCost(existingCreditNote.amount, existingCreditNote.currency || currency)} fully
+                  credits {record?.accounting_invoice_number || record?.xero_invoice_number || "the original invoice"}. If it was raised for this change,
+                  link it to the replacement and no new credit note will be created. Only the new invoice will be raised.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setLinkCreditNoteId(existingCreditNote.id)} data-testid="button-link-existing-credit">
+              Use credit note {existingCreditNote.number || ""} for this replacement
+            </Button>
+          </div>
+        )}
+
+        {!original && !previewError && !(existingCreditNote && !linkCreditNoteId) && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" /> Checking this year can be replaced...
           </div>
@@ -268,7 +310,9 @@ export default function ReplaceOrgMembershipYearDialog({
                 </div>
                 <div className="p-3 rounded-md border space-y-1" data-testid="section-replace-accounting">
                   <p className="text-sm font-medium flex items-center gap-1"><Repeat className="w-3 h-3" /> Accounting actions ({preview.accounting.provider})</p>
-                  {preview.accounting.creditNoteAmount > 0 ? (
+                  {preview.accounting.existingCreditNote ? (
+                    <Row label={`Existing credit note ${preview.accounting.existingCreditNote.number || ""} linked (no new credit note)`} value={formatCost(preview.accounting.creditNoteAmount, cur)} testId="text-replace-credit-amount" />
+                  ) : preview.accounting.creditNoteAmount > 0 ? (
                     <Row label={`Credit note against ${preview.original.invoiceNumber || "original invoice"}`} value={formatCost(preview.accounting.creditNoteAmount, cur)} testId="text-replace-credit-amount" />
                   ) : (
                     <Row label="Credit note" value="Not required" testId="text-replace-credit-amount" />
