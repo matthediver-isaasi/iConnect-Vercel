@@ -71,8 +71,17 @@ before(async () => {
     'annualRenewalPolicy.js', 'membershipIncentiveSnapshot.js',
     'expiryOnlyRenewalPolicy.js', 'formExpiryOnlyRenewal.js',
     'funnelMembershipEntitlements.js',
+    'formRenewalSimulationAuthority.js', 'reviewedHistoricalRenewal.js',
+    'memberDateTermPolicy.js', 'memberDateTermSimulation.js',
+    'membershipRenewalExceptions.js', 'paymentGraceExitEvidence.js',
+    'postGraceCheckout.js', 'postGraceRenewal.js',
+    'proposalMembershipEntitlements.js',
   ]) await cp(new URL(`../_lib/${file}`, import.meta.url), path.join(lib, file));
-  await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(root, 'shared/rollingMembershipTerm.js'));
+  for (const file of [
+    'rollingMembershipTerm.js', 'memberDateMembershipTerm.js', 'membershipFlatCost.js',
+    'proposalMembershipEntitlements.js', 'salesBillingConfiguration.js',
+    'salesContracts.js', 'salesNaming.js', 'unverifiedMembershipHistory.js',
+  ]) await cp(new URL(`../../shared/${file}`, import.meta.url), path.join(root, 'shared', file));
   await cp(new URL('./org-membership-invoicing.js', import.meta.url), path.join(root, 'api/membership/handler.js'));
   const stubs = {
     'database.js': 'export const supabase = globalThis.__task4858.db;',

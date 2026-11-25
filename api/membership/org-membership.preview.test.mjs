@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
+import { attachMembershipInvoiceAvailability } from '../_lib/membershipInvoiceAvailability.js';
+import { organisationImmediateMembershipView } from '../_lib/organisationImmediateMembershipView.js';
 import { createMembershipSimulator } from '../_lib/membershipSimulationCore.js';
 import { createMembershipConfigResolver } from '../_lib/membershipConfigResolverCore.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
@@ -72,7 +74,8 @@ async function isolatedRoute({ db = readOnlyDb(), simulation = async (_tenant, _
   currentWindow = () => windows.current, nextWindow = () => windows.next } = {}) {
   const source = await readFile(new URL('./org-membership.js', import.meta.url), 'utf8');
   const deps = {
-    attachLinkedHistoryStructureNames,
+    attachLinkedHistoryStructureNames, attachMembershipInvoiceAvailability,
+    organisationImmediateMembershipView,
     supabase: db, getTenantContext: async () => tenantContext,
     getConfigForOrganisation: resolveConfig, resolveBasisFieldLabel: async () => 'Membership',
     matchBand: () => null, calculateMembershipYearWindow: currentWindow,
