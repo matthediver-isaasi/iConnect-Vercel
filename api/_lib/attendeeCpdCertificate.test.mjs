@@ -193,7 +193,8 @@ test('preview and test email do not issue; real send and resend use a retained P
 });
 
 test('issued guest certificate survives verified member conversion and an equal initial award, never changed points', async () => {
-  for (const source of ['standard', 'complex']) {
+  for (const { source, memberLink } of ['standard', 'complex'].flatMap(source =>
+    [null, undefined, 'converted'].map(memberLink => ({ source, memberLink })))) {
     const f = await fixture(source);
     claims(f);
     f.db.rows.event_cpd_points_rule = [{ id: 'rule', tenant_id: tenantId,
@@ -208,7 +209,7 @@ test('issued guest certificate survives verified member conversion and an equal 
     });
     assert.equal(first.statusCode, 200, JSON.stringify(first.body));
     const archiveBefore = JSON.stringify(f.db.rows.issued_cpd_certificate);
-    f.booking.member_id = 'converted';
+    f.booking.member_id = memberLink;
     f.db.rows.member = [{ id: 'converted', tenant_id: tenantId, email: f.booking.attendee_email }];
     r = await resolveAttendeeCertificate(f.db, f.identity);
     assert.equal(r.available, true, r.reason);
@@ -217,6 +218,7 @@ test('issued guest certificate survives verified member conversion and an equal 
     assert.deepEqual(await renderAttendeeCertificate(f.db, r), original);
     const download = await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' });
     assert.equal(download.available, true, download.reason);
+    assert.deepEqual(await renderAttendeeCertificate(f.db, download), original);
     assert.equal((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'someone-else' })).available, false);
     const resend = await invoke(f, { ...input, action: 'send', confirmed: true, deliberate_resend: true,
       request_id: randomUUID(), expected_fingerprint: r.fingerprint }, {
@@ -235,6 +237,10 @@ test('issued guest certificate survives verified member conversion and an equal 
     assert.notEqual(r.fingerprint, beforeAwardFingerprint);
     assert.equal(r.award_status, 'awarded');
     assert.deepEqual(await renderAttendeeCertificate(f.db, r), original);
+    const awardedDownload = await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' });
+    assert.equal(awardedDownload.available, true, awardedDownload.reason);
+    assert.deepEqual(await renderAttendeeCertificate(f.db, awardedDownload), original);
+    assert.equal(f.booking.member_id, memberLink, 'reading a guest certificate must not link the booking');
     award.points_value = '2';
     assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
     award.points_value = '1';
@@ -248,6 +254,14 @@ test('issued guest certificate survives verified member conversion and an equal 
     f.booking.attendee_first_name = 'Another person';
     assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
     f.booking.attendee_first_name = oldName;
+    const snapshot = f.db.rows.issued_cpd_certificate[0].snapshot;
+    const savedEmail = snapshot.values['attendee.email'];
+    snapshot.values['attendee.email'] = 'someone-else@example.test';
+    assert.equal((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' })).available, false);
+    snapshot.values['attendee.email'] = savedEmail;
+    snapshot.policy.provenance.event_id = 'another-event';
+    assert.equal((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' })).available, false);
+    snapshot.policy.provenance.event_id = eventId;
     f.booking.member_id = 'purchaser';
     assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
     f.booking.member_id = 'converted';

@@ -17,10 +17,13 @@ export const validCertificateRecipient = value => typeof value === 'string'
 
 // Legacy guest archives have no explicit member identity. Prove their original
 // guest signature, then require the same booking, event, email and attendee name.
+// A legacy guest booking may still have no member_id after the attendee joins.
+// resolveMember has already independently proved an unambiguous email match;
+// a missing link is not a conflict, but a different explicit link still is.
 // A new member award may match the certificate; adjustments/reversals may not.
 function convertedGuestCertificate(saved, { booking, member, attendeeMemberId, recipient, attendeeName, pointsRows }) {
   const normal = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  if (!attendeeMemberId || !member || booking.member_id !== attendeeMemberId
+  if (!attendeeMemberId || !member || (booking.member_id != null && booking.member_id !== attendeeMemberId)
     || normal(member.email) !== normal(recipient) || !validCertificateRecipient(recipient)
     || normal(saved.values?.['attendee.email']) !== normal(recipient)
     || !normal(attendeeName) || normal(saved.values?.['attendee.full_name']) !== normal(attendeeName)
