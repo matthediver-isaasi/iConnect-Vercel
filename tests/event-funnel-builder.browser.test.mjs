@@ -28,7 +28,10 @@ before(async () => {
       const catalog=[{id:'admission',kind:'simple',title:'Annual conference',status:'active',tickets:[
         {id:'standard',name:'Standard admission'},{id:'premium',name:'Premium admission'},{id:'parking',name:'Parking'},{id:'dinner',name:'Dinner'}]}];
       window.previewCalls=[];window.saved=[];window.publishCalls=[];
-      createRoot(document.getElementById('root')).render(<Builder tenantId="tenant" catalog={catalog} definitions={[definition]} busy={false}
+      const membershipTiers=[{id:'00000000-0000-4000-8000-000000000011',name:'Individual',scope:'member',active:true},
+        {id:'00000000-0000-4000-8000-000000000012',name:'Corporate',scope:'organization',active:true},
+        {id:'00000000-0000-4000-8000-000000000013',name:'Retired tier',scope:'member',active:false}];
+      createRoot(document.getElementById('root')).render(<Builder tenantId="tenant" catalog={catalog} membershipTiers={membershipTiers} definitions={[definition]} busy={false}
         onPreview={async input=>{window.previewCalls.push(input); if(window.failPreview)throw new Error('Preview unavailable');return evaluateFunnelRoute(input.graph,input);}}
         onSave={async input=>{window.saved.push(input);if(window.failSave)throw new Error('Concurrent edit: reload before saving');return {...input,revision:input.expectedRevision+1};}}
         onPublish={async input=>{window.publishCalls.push(input);throw new Error('Checkout activation is not ready');}} />);
@@ -142,6 +145,32 @@ test('auto layout preserves routing, saves positions and allows subsequent manua
     await page.getByTestId('funnel-definition-choice').selectOption('fixture');
     await page.getByTestId('funnel-node-source').waitFor();
     assert.equal(await page.getByTestId('funnel-save').isDisabled(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('membership stage chooses an active tier and recipient, and saves without ticket fields', async () => {
+  const { page, errors } = await open();
+  try {
+    await page.getByTestId('funnel-add-membership').click();
+    const tier = page.getByTestId('funnel-membership-tier');
+    await tier.waitFor();
+    assert.deepEqual(await tier.locator('option:not([disabled])').allInnerTexts(), ['Corporate', 'Individual']);
+    await tier.selectOption({ label: 'Corporate' });
+    assert.equal(await page.getByTestId('funnel-membership-recipient').count(), 0);
+    await tier.selectOption({ label: 'Individual' });
+    await page.getByTestId('funnel-membership-recipient').selectOption('attendees');
+    await page.getByTestId('funnel-membership-description').fill('One year on us');
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    const saved = await page.evaluate(() => window.saved[0]);
+    const node = saved.graph.nodes.find(item => item.type === 'membership');
+    assert.deepEqual(node.membership, { scheduleId: '00000000-0000-4000-8000-000000000011', scope: 'member',
+      recipientMode: 'attendees', description: 'One year on us' });
+    for (const field of ['event', 'ticketIds']) assert.equal(field in node, false);
+    assert.ok(saved.graph.nodes.some(item => item.accept === node.id || item.fallback === node.id
+      || item.rules?.some(rule => rule.to === node.id)));
+    assert.equal(JSON.stringify(saved).includes('Retired tier'), false);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

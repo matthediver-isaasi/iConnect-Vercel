@@ -98,3 +98,37 @@ test('evaluation does not mutate persisted definition or selections', () => {
   evaluateFunnelRoute(definition, input);
   assert.equal(JSON.stringify({ definition, input }), before);
 });
+
+const TIER = '00000000-0000-4000-8000-000000000011';
+const membership = (overrides = {}) => ({ id: 'member', type: 'membership', requires: ['source'], accept: 'checkout', skip: 'checkout',
+  membership: { scheduleId: TIER, scope: 'member', recipientMode: 'attendees', description: 'Join us' }, ...overrides });
+function membershipGraph(node = membership()) {
+  return { version: 1, tenantId: 'tenant', entry: 'source', reservationSeconds: 900, invoiceMode: 'per_event', nodes: [
+    purchase('source', 'source', 'admission', ['standard'], 'member'), node, { id: 'checkout', type: 'checkout' },
+  ] };
+}
+test('membership stage pauses until answered and reports accepted offers only at checkout', () => {
+  const selections = [selection('source', 'standard')];
+  const paused = evaluateFunnelRoute(membershipGraph(), { selections });
+  assert.equal(paused.currentNodeId, 'member');
+  assert.deepEqual(paused.acceptedMembershipNodeIds, []);
+  const accepted = evaluateFunnelRoute(membershipGraph(), { selections, decisions: { member: 'accept' } });
+  assert.equal(accepted.atCheckout, true);
+  assert.deepEqual(accepted.acceptedMembershipNodeIds, ['member']);
+  const declined = evaluateFunnelRoute(membershipGraph(), { selections, decisions: { member: 'skip' } });
+  assert.deepEqual(declined.acceptedMembershipNodeIds, []);
+  assert.equal(declined.atCheckout, true);
+});
+test('membership stage validation rejects invalid tiers, recipients and ticket fields', () => {
+  assert.doesNotThrow(() => validateFunnelGraph(membershipGraph()));
+  const invalid = [
+    membership({ membership: { scope: 'member', recipientMode: 'purchaser' } }),
+    membership({ membership: { scheduleId: TIER, scope: 'organization', recipientMode: 'attendees' } }),
+    membership({ membership: { scheduleId: TIER, scope: 'member', recipientMode: 'everyone' } }),
+    membership({ membership: { scheduleId: TIER, scope: 'member', recipientMode: 'purchaser', description: 'x'.repeat(1001) } }),
+    membership({ ticketIds: ['standard'] }),
+  ];
+  for (const node of invalid) assert.throws(() => validateFunnelGraph(membershipGraph(node)));
+  assert.throws(() => evaluateFunnelRoute(membershipGraph(), { selections: [selection('source', 'standard')], decisions: { member: 'maybe' } }));
+  assert.throws(() => evaluateFunnelRoute(membershipGraph(), { selections: [selection('source', 'standard')], decisions: { source: 'accept' } }));
+});

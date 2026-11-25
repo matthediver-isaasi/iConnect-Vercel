@@ -1,3 +1,4 @@
+import { complimentaryMembership } from './funnelMembershipEntitlements.js';
 import { monthlyCommitmentFields, monthlyInstalmentCount, monthlySnapshotCommitment, monthlyActivationSchedule } from './rollingMonthlyRenewal.js';
 // Task #3620 — Monthly membership payments by card via Stripe Subscriptions.
 //
@@ -106,7 +107,7 @@ function isFinitePlanBillingBoundary({ billingAnchor, candidate, instalmentCount
  * Returns null when not offered (config disabled, no monthly amount, org-scoped).
  */
 export function resolveCardMonthlyOffer(simResult) {
-  if (simResult?.proposalMembership) return null;
+  if (complimentaryMembership(simResult)) return null;
   if (!simResult?.success) return null;
   const config = simResult.config;
   if (!config?.card_monthly_enabled) return null;

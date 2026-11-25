@@ -1947,7 +1947,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     if (addonLines.length > 0) {
       record.notes += `. ${addonLines.length} add-on line(s) invoiced.`;
     }
-    if (simResult.proposalMembership) {
+    if ((simResult.proposalMembership || simResult.funnelMembership)) {
       record.final_cost = addonTotals?.subtotal || 0;
       record.vat_amount = addonTotals?.vat || 0;
       record.total_with_vat = addonTotals?.total || 0;

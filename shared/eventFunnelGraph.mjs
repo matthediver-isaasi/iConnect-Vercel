@@ -11,6 +11,33 @@ const key = event => JSON.stringify([event.kind, event.id]);
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 const isEvent = event => event && ['simple', 'complex'].includes(event.kind) && identifier(event.id);
 const purchasing = node => ['source', 'event', 'addon'].includes(node.type);
+const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+/**
+ * Complimentary membership offer: a non-purchasing, non-charging stage. It
+ * grants eligibility for one base-fee period only after a confirmed checkout;
+ * conditions can never reference it and it never reserves inventory.
+ */
+export function validateMembershipStage(node) {
+  const m = node.membership;
+  if (!m || typeof m !== 'object' || Array.isArray(m)
+    || Object.keys(m).some(field => !['scheduleId', 'scope', 'recipientMode', 'description'].includes(field))) {
+    fail('Membership stages require a membership tier');
+  }
+  if (!uuid(m.scheduleId)) fail('Membership stages require a membership tier');
+  if (!['organization', 'member'].includes(m.scope)) fail('Invalid membership tier type');
+  if (m.scope === 'organization' ? m.recipientMode !== 'purchaser' : !['purchaser', 'attendees'].includes(m.recipientMode)) {
+    fail('Invalid membership recipient');
+  }
+  if (m.description != null && (typeof m.description !== 'string' || m.description.length > 1000)) {
+    fail('Membership descriptions must be 1000 characters or fewer');
+  }
+  if (!Array.isArray(node.requires) || node.requires.some(id => !identifier(id))
+    || new Set(node.requires).size !== node.requires.length) fail('Invalid prerequisites');
+  if (['event', 'ticketIds', 'unlisted', 'funnelOnly'].some(field => node[field] !== undefined)) {
+    fail('Membership stages cannot sell tickets');
+  }
+}
 const destinations = node => node.type === 'checkout' ? []
   : node.type === 'condition' ? [...node.rules.map(rule => rule.to), node.fallback]
     : node.type === 'source' ? [node.accept] : [node.accept, node.skip];
@@ -25,8 +52,9 @@ export function validateFunnelGraph(graph) {
   const nodes = new Map();
   for (const node of graph.nodes) {
     if (!node || !identifier(node.id) || nodes.has(node.id)) fail('Invalid or duplicate node ID');
-    if (!['source', 'event', 'addon', 'condition', 'checkout'].includes(node.type)) fail('Unknown node type');
+    if (!['source', 'event', 'addon', 'membership', 'condition', 'checkout'].includes(node.type)) fail('Unknown node type');
     nodes.set(node.id, node);
+    if (node.type === 'membership') validateMembershipStage(node);
     if (purchasing(node)) {
       if (!isEvent(node.event) || node.event.tenantId !== graph.tenantId) fail('Invalid or cross-tenant event');
       if (!Array.isArray(node.ticketIds) || !node.ticketIds.length || node.ticketIds.length > 100
@@ -116,7 +144,8 @@ export function validateFunnelGraph(graph) {
 }
 
 /**
- * Selections: [{nodeId, tickets:[{id, quantity}]}]; decisions: {nodeId:'skip'}.
+ * Selections: [{nodeId, tickets:[{id, quantity}]}]; decisions: {nodeId:'skip'}
+ * for purchase offers, {nodeId:'accept'|'skip'} for membership offers.
  * Only selections encountered on the current route can satisfy conditions.
  * Unanswered offers pause traversal; missing prerequisites automatically skip.
  */
@@ -136,10 +165,13 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
   }
   if (!decisions || typeof decisions !== 'object' || Array.isArray(decisions)) fail('Invalid decisions');
   for (const [id, decision] of Object.entries(decisions)) {
-    if (!['event', 'addon'].includes(nodes.get(id)?.type) || decision !== 'skip') fail('Invalid skip decision');
+    const type = nodes.get(id)?.type;
+    if (!(type === 'membership' ? ['accept', 'skip'].includes(decision) : ['event', 'addon'].includes(type) && decision === 'skip')) {
+      fail('Invalid skip decision');
+    }
     if (selected.has(id)) fail('A selected offer cannot also be skipped');
   }
-  const route = [], retained = new Set(), matchedRules = [];
+  const route = [], retained = new Set(), matchedRules = [], accepted = [];
   let current = graph.entry;
   const matches = test => {
     const found = [...retained].some(id => {
@@ -160,6 +192,12 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
       current = rule?.to ?? node.fallback;
     } else {
       if (!node.requires.every(id => retained.has(id))) { current = node.skip; continue; }
+      if (node.type === 'membership') {
+        if (decisions[current] === 'accept') { accepted.push(current); current = node.accept; }
+        else if (decisions[current] === 'skip') current = node.skip;
+        else break;
+        continue;
+      }
       if (selected.has(current)) {
         retained.add(current);
         // Source-only checkout deliberately removes every optional selection.
@@ -195,6 +233,8 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
     route, matchedRules, currentNodeId: route.at(-1),
     atCheckout: route.at(-1) === checkoutId,
     retainedNodeIds: [...retained],
+    // Accepted offers are eligibility requests only; checkout re-verifies them.
+    acceptedMembershipNodeIds: route.at(-1) === checkoutId ? accepted : [],
     pendingNodeIds: [...pending],
     removed: [...selected.keys()].filter(id => !retained.has(id) && !pending.has(id)).map(nodeId => ({
       nodeId, reason: 'This selection is no longer reachable from your current choices.',

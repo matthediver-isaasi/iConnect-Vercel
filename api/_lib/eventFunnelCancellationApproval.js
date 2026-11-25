@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import { funnelMembershipEnabled } from './funnelMembershipRollout.js';
 import {prepareFunnelCancellation} from './eventFunnelCancellationPreparation.js';
 import {requireSameOriginJson} from './eventFunnelJourneyHandler.js';
 import {runFunnelReversalWorker} from './eventFunnelReversalWorker.js';
@@ -48,5 +49,13 @@ export async function approveFunnelCancellation({db,ctx,req,requests,reviewerNam
   try {recovery=(await run({db,tenantId:ctx.tenantId,operationId,deadlineAt:Date.now()+12000})).status;}catch{
     // The accepted operation is durable and discoverable through recovery UI.
   }
-  return {operationId,orderId:plan.orderId,recovery,reviewedAt:accepted.data.cancelled_at};
+  // Withdrawal of unused complimentary memberships commits with the
+  // cancellation itself; this read only reports which outcome applied.
+  let membershipBenefits=null;
+  if(funnelMembershipEnabled()){
+    const outcome=await db.rpc('event_funnel_order_membership_outcome',{p_tenant:ctx.tenantId,p_order:plan.orderId});
+    membershipBenefits=outcome.error||!Array.isArray(outcome.data)?'unavailable'
+      :outcome.data.map(item=>({scheduleName:item.scheduleName,scope:item.scope,state:item.state}));
+  }
+  return {operationId,orderId:plan.orderId,recovery,reviewedAt:accepted.data.cancelled_at,membershipBenefits};
 }

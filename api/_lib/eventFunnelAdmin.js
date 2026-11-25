@@ -52,7 +52,29 @@ export async function validateFunnelReferences(db, tenantId, graph) {
     const { tickets } = references.get(reference);
     if (node.ticketIds.some(id => !tickets.some(ticket => String(ticket.id) === id))) fail('A selected ticket is no longer available.');
   }
+  await validateMembershipReferences(db, tenantId, graph);
   return references;
+}
+export const membershipTierScope = tier => tier?.structure_scope_type === 'member' ? 'member' : 'organization';
+export async function listFunnelMembershipTiers(db, tenantId) {
+  const rows = check(await db.from('membership_tier_config').select('id,name,structure_scope_type,is_active')
+    .eq('tenant_id', tenantId).order('name', { ascending: true }).limit(500));
+  return (rows || []).map(tier => ({ id: tier.id, name: tier.name || 'Untitled membership tier',
+    scope: membershipTierScope(tier), active: tier.is_active !== false }));
+}
+// Saved stages that refer to an unavailable tier are rejected, never pruned:
+// the administrator must replace the tier before saving or previewing.
+export async function validateMembershipReferences(db, tenantId, graph) {
+  const stages = graph.nodes.filter(node => node.type === 'membership');
+  if (!stages.length) return;
+  const ids = [...new Set(stages.map(node => node.membership.scheduleId))];
+  const rows = check(await db.from('membership_tier_config').select('id,name,structure_scope_type,is_active')
+    .eq('tenant_id', tenantId).in('id', ids));
+  for (const node of stages) {
+    const tier = (rows || []).find(row => row.id === node.membership.scheduleId);
+    if (!tier || tier.is_active === false) fail('A membership stage refers to a membership tier that is no longer available. Choose another tier.');
+    if (membershipTierScope(tier) !== node.membership.scope) fail('A membership stage no longer matches its tier type. Choose the tier again.');
+  }
 }
 export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, hasFeatureAccess }) {
   return async function handler(req, res) {
@@ -86,7 +108,8 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
         const definitions = check(await db.from('event_funnel_definition').select('id,name,revision,graph,layout,published_version_id')
           .eq('tenant_id', context.tenantId).order('updated_at', { ascending: false }).limit(101));
         if (definitions.length > 100) fail('This tenant has more than 100 funnel definitions; paginated authoring is required.', 409);
-        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness });
+        const membershipTiers = await listFunnelMembershipTiers(db, context.tenantId);
+        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness, membershipTiers });
       }
       const body = req.body;
       if (!body || typeof body !== 'object' || Array.isArray(body) || JSON.stringify(body).length > 350000) fail('Invalid request.');

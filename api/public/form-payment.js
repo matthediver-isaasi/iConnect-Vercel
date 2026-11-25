@@ -615,7 +615,7 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
         return { error: { status: 400, body: { error: `A membership record for ${simResult.membershipYear?.label} already exists for this organisation`, code: 'MEMBERSHIP_EXISTS' } } };
       }
       quote = quoteFromSimulationResult(simResult, 'organization');
-      if (simResult.proposalMembership) {
+      if (simResult.proposalMembership || simResult.funnelMembership) {
         const { loadAddonLines, computeAddonTotals } = await import('../_lib/membershipAddons.js');
         const lines = await loadAddonLines(tenantData.id, organizationId, quote.membership_year);
         const totals = computeAddonTotals(lines);

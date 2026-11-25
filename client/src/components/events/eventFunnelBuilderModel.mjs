@@ -9,15 +9,20 @@ export const selectableEvents = catalog => catalog
   .filter(event => event.selectable !== false)
   .slice()
   .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' }));
-export const nodeTitle = (node, catalog) => !node ? 'Unavailable destination'
+export const findMembershipTier = (tiers, node) => (tiers || []).find(tier => tier.id === node?.membership?.scheduleId);
+// Membership stage titles use the tier name only, never its identifier.
+export const nodeTitle = (node, catalog, tiers = []) => !node ? 'Unavailable destination'
   : isPurchase(node) ? (findEvent(catalog, node.event)?.title || 'Previously selected event unavailable')
+    : node.type === 'membership' ? `Complimentary membership: ${findMembershipTier(tiers, node)?.name || (node.membership?.scheduleId ? 'unavailable tier' : 'choose a tier')}`
     : node.type === 'condition' ? 'Selection condition' : node.type === 'checkout' ? 'Checkout' : 'Unsupported funnel step';
 
-export function describeFunnelIssue(issue, graph, catalog = []) {
+export function describeFunnelIssue(issue, graph, catalog = [], tiers = []) {
   let message = String(issue || 'Review this funnel step.');
   const nodes = graph?.nodes || [];
   for (const node of graph?.nodes || []) {
-    if (node.id) message = message.replaceAll(node.id, nodeTitle(node, catalog));
+    if (node.id) message = message.replaceAll(node.id, nodeTitle(node, catalog, tiers));
+    if (node.membership?.scheduleId) message = message.replaceAll(node.membership.scheduleId,
+      findMembershipTier(tiers, node)?.name || 'an unavailable membership tier');
     for (const requiredId of node.requires || []) {
       if (!nodes.some(other => other.id === requiredId)) message = message.replaceAll(requiredId, 'an unavailable earlier offer');
     }
@@ -110,12 +115,36 @@ export function purchaseVisibilityIssues(node, nodes) {
   return issues;
 }
 
-export function graphIssues(graph, catalog, tenantId) {
+export function membershipStageIssues(node, tiers) {
+  if (node.type !== 'membership') return [];
   const issues = [];
-  try { validateFunnelGraph(graph); } catch (error) { issues.push(describeFunnelIssue(error.message, graph, catalog)); }
+  if (!node.membership?.scheduleId) return ['Complimentary membership: choose a membership tier.'];
+  const tier = findMembershipTier(tiers, node);
+  if (!tier) issues.push('Complimentary membership: the previously selected membership tier is no longer available. Its saved selection is preserved; choose another tier before saving or previewing.');
+  else {
+    if (!tier.active) issues.push(`${tier.name}: this membership tier is inactive. Its saved selection is preserved; choose an active tier before saving or previewing.`);
+    if (tier.scope !== node.membership.scope) issues.push(`${tier.name}: this tier changed between organisation and individual membership. Choose the tier again.`);
+  }
+  return issues;
+}
+
+export function membershipStagePatch(node, tier) {
+  const scope = tier?.scope === 'member' ? 'member' : 'organization';
+  const previous = node.membership || {};
+  return { membership: {
+    scheduleId: tier?.id || '', scope,
+    recipientMode: scope === 'organization' ? 'purchaser' : previous.recipientMode === 'attendees' ? 'attendees' : 'purchaser',
+    ...(previous.description ? { description: previous.description } : {}),
+  } };
+}
+
+export function graphIssues(graph, catalog, tenantId, tiers = []) {
+  const issues = [];
+  try { validateFunnelGraph(graph); } catch (error) { issues.push(describeFunnelIssue(error.message, graph, catalog, tiers)); }
   if (graph?.tenantId !== tenantId) issues.push('This funnel is not available to the current organization.');
   for (const node of graph?.nodes || []) {
     issues.push(...purchaseVisibilityIssues(node, graph.nodes));
+    issues.push(...membershipStageIssues(node, tiers));
     const references = isPurchase(node) ? [{ event: node.event, tickets: node.ticketIds || [] }]
       : (node.rules || []).flatMap(rule => (rule.tests || []).map(test => ({ event: test.event, tickets: test.ticketId ? [test.ticketId] : [] })));
     for (const reference of references) {

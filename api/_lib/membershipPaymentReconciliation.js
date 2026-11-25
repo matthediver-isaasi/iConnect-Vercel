@@ -425,7 +425,8 @@ export async function recordSucceededMembershipPaymentIntent(
       const early = new Date().toISOString().slice(0, 10) < start;
       savedFields = {
         ...membershipIncentiveSnapshot({ ...cb, config: quote.config, incentiveConfig: quote.incentiveConfig,
-          ...(cb.proposalMembership ? { proposalMembership: { ...cb.proposalMembership, feeTokenId: feeToken.id } } : {}) }),
+          ...(cb.proposalMembership ? { proposalMembership: { ...cb.proposalMembership, feeTokenId: feeToken.id } } : {}),
+          ...(cb.funnelMembership ? { funnelMembership: { ...cb.funnelMembership, feeTokenId: feeToken.id } } : {}) }),
         config_id: quote.config.id, tier_label: feeToken.tier_label,
         annual_cost: cb.annualCost, billing_period: quote.config.billing_period || 'annual',
         year_number: cb.yearNumber || null,
@@ -462,6 +463,7 @@ export async function recordSucceededMembershipPaymentIntent(
     }
     const cb = feeToken?.cost_breakdown || {};
     if (cb.proposalMembership) savedFields.proposal_membership = { ...cb.proposalMembership, feeTokenId: feeToken.id };
+    if (cb.funnelMembership) savedFields.funnel_membership = { ...cb.funnelMembership, feeTokenId: feeToken.id };
     const nowIso = new Date().toISOString();
     const { data: insertedRow, error: insertErr } = await db
       .from(table)

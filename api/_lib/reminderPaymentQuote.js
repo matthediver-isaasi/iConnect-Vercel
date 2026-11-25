@@ -119,6 +119,13 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
       currency: successor.currency, tierLabel: successor.tier_label,
       vatAmount: Number(successor.vat_amount || 0), totalWithVat: Number(successor.total_with_vat ?? successor.final_cost) });
   }
+  // Event booking benefit: the base fee is waived; only add-ons are payable.
+  // The marker must survive token creation and payment recovery, or the new
+  // history row is rejected by the consumption check.
+  const funnelMembership = !successor && quote.funnelMembership ? structuredClone(quote.funnelMembership) : null;
+  if (funnelMembership && !(Number(quote.totalWithVat) > 0)) {
+    return blocked('complimentary', 'Renewal payment link suppressed: the base fee is covered by an event booking benefit and nothing else is payable.');
+  }
   const costBreakdown = {
     ...Object.fromEntries([
       'annualCostBeforeDiscounts', 'customDiscountTotal', 'customDiscountDetails',
@@ -129,6 +136,7 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
     annualCost: quote.annualCost, finalCost: quote.finalCost, vatAmount: quote.vatAmount,
     vatRatePercent: quote.vatRatePercent, totalWithVat: quote.totalWithVat,
     ...(addonLines.length ? { addonLines } : {}),
+    ...(funnelMembership ? { funnelMembership } : {}),
     renewalQuote: reminderRenewalSnapshot(quote, history),
     ...(history.term_key ? { commitment: successor?.commitment_snapshot ? commitmentFromQuote(successor) : upfrontRollingCommitment(quote),
       previousTerm: reminderRenewalSnapshot(quote, history).previousTerm } : {}),

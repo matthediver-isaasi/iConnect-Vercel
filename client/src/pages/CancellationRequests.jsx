@@ -1,4 +1,4 @@
-import {funnelCancellationRecoveryNotice} from '@/lib/eventFunnelCancellationNotice';
+import {funnelCancellationRecoveryNotice,funnelMembershipBenefitNotice} from '@/lib/eventFunnelCancellationNotice';
 import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -447,6 +447,8 @@ export default function CancellationRequests() {
         const warnings = [];
         for (const rr of allReversalResults) {
           const recoveryNotice=funnelCancellationRecoveryNotice(rr.funnel);
+          const membershipNotice=funnelMembershipBenefitNotice(rr.funnel);
+          if(membershipNotice)(membershipNotice.warning?warnings:messages).push(membershipNotice.text);
           if(recoveryNotice){
             (recoveryNotice.warning?warnings:messages).push(recoveryNotice.text);
             continue;

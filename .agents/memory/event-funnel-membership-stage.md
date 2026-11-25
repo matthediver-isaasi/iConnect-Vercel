@@ -16,3 +16,12 @@ proposal coverage was organisation-only.
 **How to apply:** Generalise the entitlement and consumption rules to member
 recipients instead of building a separate waiver path. Keep proposal behaviour
 unchanged.
+
+Implementation decisions (2026-11-25): a benefit reserved by a membership
+checkout (payment quote, form submission or fee link) is never withdrawn by a
+booking cancellation; it is reported as `reserved` for admin review. An admin
+membership Start can only apply the benefit through No charge; payable Start
+modes are refused while an unused benefit for that tier exists.
+**Why:** withdrawing under an in-flight add-on payment would make the paid
+history insert fail; individual tiers have no add-ons, so a payable Start would
+charge a covered base fee.

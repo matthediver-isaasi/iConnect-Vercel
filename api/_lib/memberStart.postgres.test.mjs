@@ -92,6 +92,12 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     const pastDatesSql = readFileSync(new URL('../../supabase/migrations/202612310030_member_start_past_dates.sql', import.meta.url), 'utf8');
     await db.query(pastDatesSql);
     await db.query(pastDatesSql); // replay must preserve the same authority and grants
+    // The event booking membership migration patches these exact anchors in
+    // the fully patched Start function; keep them stable.
+    const startDef = (await db.query(`SELECT pg_get_functiondef('public.create_member_start(uuid,uuid,uuid,text,jsonb,jsonb)'::regprocedure) d`)).rows[0].d;
+    for (const anchor of ['INSERT INTO member_membership_history (tenant_id,member_id,', 'VALUES (p_tenant_id,p_member_id,']) {
+      assert.equal(startDef.split(anchor).length, 2, anchor);
+    }
     assert.equal((await db.query(`SELECT to_regprocedure('public.approve_manual_dd_membership_activation(uuid,uuid,text)')::text signature`)).rows[0].signature,
       'approve_manual_dd_membership_activation(uuid,uuid,text)');
     assert.equal((await db.query(`SELECT has_function_privilege('service_role','public.approve_manual_dd_membership_activation(uuid,uuid,text)','EXECUTE') allowed`)).rows[0].allowed, true);

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import EventFunnelMembershipOffer, { AcceptedMembershipSummary } from '@/components/booking/EventFunnelMembershipOffer';
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { readEventFunnelOffer } from '@/hooks/useEventFunnelEntry';
@@ -59,6 +60,8 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
   const checkout = !displayed && snapshot.route.atCheckout;
   const index = reachable.findIndex(node => node.id === currentId);
   const historicalNode = displayed && reachable.find(node => node.id === currentId);
+  const membershipNode = !displayed && !checkout
+    && snapshot.graph.nodes.find(node => node.id === snapshot.route.currentNodeId && node.type === 'membership');
   return <div data-viewing-history={Boolean(displayed)}>
     {renderEventFields(<>
     <nav className="event-reservation-nav" aria-label="Saved event selections">
@@ -74,7 +77,9 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
         const result = await change({ type: 'skip', nodeId: historicalNode.id });
         if (result) setDisplayed(null);
       }}>Remove this optional event</Button>}
-    {!checkout && (reachable.some(node => node.id === currentId)
+    {membershipNode && <EventFunnelMembershipOffer node={membershipNode}
+      offer={snapshot.membershipOffers?.[membershipNode.id]} change={change} pending={pending} />}
+    {!checkout && !membershipNode && (reachable.some(node => node.id === currentId)
         ? <ReservationOffer key={currentId} snapshot={snapshot} change={change} pending={pending}
           nodeId={currentId} onSaved={() => setDisplayed(null)} />
         : <div className="event-reservation-notice" role="status">
@@ -83,6 +88,7 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
           <Button type="button" variant="outline" className="mt-3" onClick={() => refresh()}>Check reservation</Button>
         </div>)}
     </>)}
+    {checkout && <AcceptedMembershipSummary snapshot={snapshot} change={change} pending={pending} />}
     {checkout && <EventFunnelCheckoutSlot snapshot={snapshot} change={change} refresh={refresh}
       checkoutEligibility={checkoutEligibility} />}
   </div>;

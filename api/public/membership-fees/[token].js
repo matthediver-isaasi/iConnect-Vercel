@@ -34,8 +34,10 @@ export function simulationFromRenewalQuote(token) {
 
 function savedFeeSimulation(token) {
   const sim = token.cost_breakdown?.formJoiningVoucher?.simulation || token.cost_breakdown?.formVoucher?.simulation || token.cost_breakdown?.membershipVoucherRequote?.simulation || simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
-  return sim && token.cost_breakdown?.proposalMembership ? { ...sim,
+  const withProposal = sim && token.cost_breakdown?.proposalMembership ? { ...sim,
     proposalMembership: { ...token.cost_breakdown.proposalMembership, feeTokenId: token.id } } : sim;
+  return withProposal && token.cost_breakdown?.funnelMembership ? { ...withProposal,
+    funnelMembership: { ...token.cost_breakdown.funnelMembership, feeTokenId: token.id } } : withProposal;
 }
 
 export function publicFeeBreakdown(breakdown = {}) {

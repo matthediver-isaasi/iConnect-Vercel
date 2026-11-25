@@ -5,6 +5,7 @@ import { createEventFunnelJourneyService } from './eventFunnelJourney.js';
 import { buildFunnelRegistrationPlan,allocateFunnelAmounts } from './eventFunnelRegistrationPlan.js';
 import { assertFunnelCommercialCompatibility,funnelLineTotal } from './eventFunnelCommercial.js';
 import { quoteEventFunnelVouchers } from './eventFunnelVoucherQuote.js';
+import { resolveFunnelMemberships, publicMemberships } from './eventFunnelMembership.js';
 import { resolveUnifiedBookingCustomer, bindUnifiedBookingCustomer, unifiedBookingChoices } from './unifiedBookingContract.js';
 
 const fail = (message,code='CHECKOUT_UNAVAILABLE',status=409) => { throw new FunnelJourneyError(message,code,status); };
@@ -16,7 +17,8 @@ function publicQuote(plan,revision) {
     paymentMethod:plan.paymentMethod,paymentMethods:plan.paymentMethods,invoiceMode:plan.invoiceMode,
     lines:plan.lines.map(line=>({nodeId:line.nodeId,ticketId:line.ticketId,eventId:line.eventId,eventKind:line.eventKind,
       quantity:line.quantity,amountMinor:line.amountMinor,payableMinor:line.payableMinor,
-      trainingFundMinor:line.trainingFundMinor,voucherMinor:line.voucherMinor}))};
+      trainingFundMinor:line.trainingFundMinor,voucherMinor:line.voucherMinor})),
+    memberships:publicMemberships(plan.memberships)};
 }
 function submissionKey(command) {
   const customer = command.customer;
@@ -153,6 +155,9 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         purchaseOrderNumber: command.purchaseOrderNumber?.trim() || null,
         organizationId: command.trainingFundMinor ? training.organizationId : contact.provenance?.kind === 'organization' ? contact.provenance.id : null });
       plan.submissionKey = requestKey;
+      // Accepted complimentary memberships add no charge; recipient eligibility
+      // is checked here, before any payment, and re-verified on confirmation.
+      plan.memberships = await resolveFunnelMemberships({ db, tenantId: owner.tenantId, snapshot, route: journey.route, plan });
       if(quoteOnly) return publicQuote(plan,snapshot.session.revision);
       if(command.expectedPayableMinor != null && command.expectedPayableMinor!==plan.payableMinor) {
         fail('The amount changed. Review a fresh quote before confirming.','QUOTE_CHANGED');

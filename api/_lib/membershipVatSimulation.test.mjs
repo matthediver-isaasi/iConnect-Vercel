@@ -201,6 +201,8 @@ before(async () => {
     'membershipSimulationCore.js',
     'proposalMembershipEntitlements.js',
     'proposalMembershipRollout.js',
+    'funnelMembershipEntitlements.js',
+    'funnelMembershipRollout.js',
     'formRenewalSimulationAuthority.js',
     'memberDateTermSimulation.js',
     'memberDateTermPolicy.js',

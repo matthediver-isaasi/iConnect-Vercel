@@ -14,3 +14,4 @@ description: Function permissions, pooled locks, nullable JSON and legacy schema
 - [Extension function resolution](postgres-extension-resolution.md) — production pgcrypto is in extensions; restricted RPCs must qualify its functions.
 - [Function body comparisons](postgres-function-body-comparison.md) — SQL and JavaScript trimming differ; normalize edge whitespace consistently before drift checks.
 - [Absent typed-row audit JSON](postgres-absent-row-audit.md) — a missing SELECT INTO row can serialize as an all-null object rather than JSON null.
+- [PL/pgSQL trigger row JSON](plpgsql-trigger-row-json.md) — to_jsonb JSON null vs SQL NULL, generated columns NULL in BEFORE NEW, shared guards, CASE in IF.

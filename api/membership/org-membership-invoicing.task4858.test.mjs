@@ -70,6 +70,7 @@ before(async () => {
     'invoiceAddressResolver.js', 'tierBandMatcher.js', 'membershipYear.js',
     'annualRenewalPolicy.js', 'membershipIncentiveSnapshot.js',
     'expiryOnlyRenewalPolicy.js', 'formExpiryOnlyRenewal.js',
+    'funnelMembershipEntitlements.js',
   ]) await cp(new URL(`../_lib/${file}`, import.meta.url), path.join(lib, file));
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(root, 'shared/rollingMembershipTerm.js'));
   await cp(new URL('./org-membership-invoicing.js', import.meta.url), path.join(root, 'api/membership/handler.js'));

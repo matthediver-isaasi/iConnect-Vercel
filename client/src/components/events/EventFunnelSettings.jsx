@@ -73,7 +73,7 @@ export default function EventFunnelSettings({ standalone = false }) {
               Draft authoring is available. {state.data.readiness?.reason || 'Customer purchasing is not activated.'}
             </p>}
             <EventFunnelBuilder key={state.data.tenantId} tenantId={state.data.tenantId}
-              definitions={state.data.definitions} catalog={catalog.data} busy={saving}
+              definitions={state.data.definitions} catalog={catalog.data} membershipTiers={state.data.membershipTiers || []} busy={saving}
               unavailable={error?.message || null}
               onSave={async input => {
                 setSaving(true);

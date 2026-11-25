@@ -15,6 +15,7 @@ import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembersh
 import { simulateMemberDateTerm } from './memberDateTermSimulation.js';
 import { assertRenewalCategory } from './membershipRenewalExceptions.js';
 import { applyProposalMembershipPreview } from './proposalMembershipEntitlements.js';
+import { applyFunnelMembershipPreview } from './funnelMembershipEntitlements.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -129,7 +130,7 @@ function calculateIncentiveRolloverAmounts({ original, goLiveDate, annualCost, o
   return result;
 }
 
-export function createMembershipSimulator(supabase, clock = () => new Date(), { proposalMemberships = false } = {}) {
+export function createMembershipSimulator(supabase, clock = () => new Date(), { proposalMemberships = false, funnelMemberships = false } = {}) {
 const { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } = createDiscountHelper(supabase);
 const { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } = createVatOverrideHelper(supabase);
 const { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel, resolveRollingSuccessorConfig } = createMembershipConfigResolver(supabase);
@@ -1100,7 +1101,8 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     vatOverrideDetail,
     steps,
   };
-  return proposalMemberships ? applyProposalMembershipPreview(supabase, tenantId, simulation) : simulation;
+  const proposed = proposalMemberships ? await applyProposalMembershipPreview(supabase, tenantId, simulation) : simulation;
+  return funnelMemberships ? applyFunnelMembershipPreview(supabase, tenantId, proposed, 'organization') : proposed;
 }
 
 function formatDate(date, includeTime = false) {
@@ -2052,7 +2054,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
   const rolloverDiscount = yearNumber === 2 ? freeDiscount : 0;
   const year1FreeDiscount = yearNumber === 1 ? freeDiscount : 0;
 
-  return {
+  const memberSimulation = {
     success: true,
     member: { id: member.id, name: memberName, email: member.email },
     config,
@@ -2105,5 +2107,6 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
     vatOverrideDetail,
     steps,
   };
+  return funnelMemberships ? applyFunnelMembershipPreview(supabase, tenantId, memberSimulation, 'member') : memberSimulation;
 }
 }

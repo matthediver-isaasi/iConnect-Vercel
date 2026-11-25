@@ -1,3 +1,4 @@
+import { complimentaryMembership } from './funnelMembershipEntitlements.js';
 import { assertMonthlyCollectionsWithinTerm, monthlyActivationSchedule } from './rollingMonthlyRenewal.js';
 import { resolveDdOffer as resolveDdOfferCore, buildAgreementSnapshot as buildAgreementSnapshotCore } from './ddOfferCore.js';
 // GoCardless Phase 2 — individual membership monthly Direct Debit.
@@ -246,7 +247,7 @@ export function toMinorUnits(amount) {
 export function resolveDdOffer(simResult) {
   // Coverage applies to the whole term, not the first instalment. Add-ons can
   // use the upfront/invoice path; do not establish a recurring base-fee plan.
-  if (simResult?.proposalMembership) return null;
+  if (complimentaryMembership(simResult)) return null;
   return resolveDdOfferCore(simResult);
 }
 

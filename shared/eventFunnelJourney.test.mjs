@@ -108,3 +108,21 @@ test('invalid quantities and duplicate stored lines cannot silently change the r
   const snapshot = journeyFixture(); snapshot.holds.push(snapshot.holds[0]);
   assert.throws(() => readFunnelJourney(snapshot), { code: 'JOURNEY_UNAVAILABLE' });
 });
+
+test('membership offers accept or decline without tickets, including after the hold expires', () => {
+  const snapshot = journeyFixture([['source', 'A']]);
+  snapshot.graph.nodes.find(node => node.id === 'source').accept = 'member';
+  snapshot.graph.nodes.splice(1, 0, { id: 'member', type: 'membership', requires: ['source'], accept: 'branch', skip: 'branch',
+    membership: { scheduleId: '00000000-0000-4000-8000-000000000011', scope: 'member', recipientMode: 'purchaser' } });
+  assert.equal(readFunnelJourney(snapshot).route.currentNodeId, 'member');
+  const accepted = planFunnelJourneyChange(snapshot, { type: 'membership', expectedRevision: 5, nodeId: 'member', decision: 'accept' });
+  assert.equal(accepted.journey.decisions.member, 'accept');
+  assert.equal(accepted.route.currentNodeId, 'parking');
+  assert.deepEqual(accepted.selections.map(s => s.nodeId), ['source']);
+  snapshot.session.state = 'expired';
+  const declined = planFunnelJourneyChange(snapshot, { type: 'skip', expectedRevision: 5, nodeId: 'member' });
+  assert.equal(declined.journey.decisions.member, 'skip');
+  assert.throws(() => planFunnelJourneyChange(snapshot, { type: 'membership', expectedRevision: 5, nodeId: 'member', decision: 'maybe' }));
+  assert.throws(() => planFunnelJourneyChange(snapshot, { type: 'membership', expectedRevision: 5, nodeId: 'parking', decision: 'accept' }));
+  assert.throws(() => planFunnelJourneyChange(snapshot, { type: 'select', expectedRevision: 5, nodeId: 'source', decision: 'accept', tickets: [{ id: 'A', quantity: 1 }] }));
+});

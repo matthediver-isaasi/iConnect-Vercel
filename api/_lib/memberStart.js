@@ -9,12 +9,14 @@ import { startPaymentOptions, startQuoteSimulation, SELF_SERVICE_START_MODES } f
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getGocardlessCredentials } from './gocardlessCredentials.js';
 import { memberStartInvoiceParties, resolveMemberStartBilling } from './memberStartBilling.js';
+import { pendingFunnelMembership } from './funnelMembershipEntitlements.js';
+import { funnelMembershipEnabled } from './funnelMembershipRollout.js';
 
 function checked(result) {
   if (result.error) {
     const { code } = result.error;
     if (['42P01', 'PGRST202', 'PGRST205', '42883'].includes(code)) throw startError('The reviewed member-start database migration is required.', 503, 'migration_required');
-    if (['40001', '23505', '23P01', 'P0001'].includes(code)) throw startError(result.error.message, 409, 'start_conflict');
+    if (['40001', '23505', '23P01', 'P0001', 'PT409'].includes(code)) throw startError(result.error.message, 409, 'start_conflict');
     throw startError('Membership start data could not be read or persisted.', 500, 'database_error');
   }
   return result.data;
@@ -35,7 +37,7 @@ export function createMemberStartService({
   invoice = queueMembershipInvoice, fireFree = fireNewZeroDueMembershipPaidWorkflow,
   address = resolveInvoiceAddress, nominal = resolveMembershipNominalCode, invoiceParties = memberStartInvoiceParties,
   stripeCredentials = getStripeCredentials, ddCredentials = getGocardlessCredentials,
-  accountingBinding = resolveAccountingQueueBinding,
+  accountingBinding = resolveAccountingQueueBinding, funnelMemberships = funnelMembershipEnabled,
 } = {}) {
   const today = () => now().toISOString().slice(0, 10);
   const one = async (table, tenantId, id) => checked(await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle());
@@ -183,6 +185,20 @@ export function createMemberStartService({
       const memberDateTerm = config?.term_end_mode === 'member_date_field'
         ? await resolveMemberDateTerm(db, { tenantId, memberId: request.memberId, config, startDate: request.startDate }) : null;
       const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today(), memberDateTerm });
+      // An unused event booking benefit for this exact tier is consumed by the
+      // next created period. It covers the base fee only, so the period is
+      // created through No charge; payable modes would charge a covered fee.
+      if (funnelMemberships()) {
+        const benefit = await pendingFunnelMembership(db, tenantId, 'member', request.memberId, config.id);
+        if (benefit) {
+          if (request.paymentMode !== 'free') throw startError('This member has a complimentary event booking membership for this tier. Choose No charge to apply it; no payment is due for the base fee.');
+          const original = quote.adminWaiver?.originalAmounts || {};
+          quote.funnelMembership = { entitlementId: benefit.id, scheduleId: config.id, scope: 'member', orderId: benefit.order_id,
+            scheduleName: benefit.benefit_snapshot?.scheduleName || config.name || null,
+            originalBaseNetMinor: Math.round(Number(original.finalCost || 0) * 100),
+            originalBaseVatMinor: Math.round(Number(original.vatAmount || 0) * 100) };
+        }
+      }
       const history = await rows('member_membership_history', tenantId, 'member_id', request.memberId);
       if (history.some(row => row.payment_status !== 'voided' && row.term_start_date && row.term_end_date
         && row.term_start_date <= quote.termEnd && row.term_end_date >= quote.termStart)) {

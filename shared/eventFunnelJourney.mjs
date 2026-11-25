@@ -47,8 +47,9 @@ export function readFunnelJourney(snapshot) {
  */
 export function planFunnelJourneyChange(snapshot, command) {
   const { selections, journey, route: before, nodes } = readFunnelJourney(snapshot);
-  if (!fields(command, ['type', 'expectedRevision', 'nodeId', 'tickets', 'answers'])
-    || !['select', 'skip', 'source_only', 'resume_offers', 'rereserve'].includes(command.type)) {
+  if (!fields(command, ['type', 'expectedRevision', 'nodeId', 'tickets', 'answers', 'decision'])
+    || !['select', 'skip', 'membership', 'source_only', 'resume_offers', 'rereserve'].includes(command.type)
+    || (command.decision !== undefined && command.type !== 'membership')) {
     reject('Invalid selection change.');
   }
   if (!Number.isSafeInteger(command.expectedRevision) || command.expectedRevision !== snapshot.session.revision) {
@@ -63,13 +64,27 @@ export function planFunnelJourneyChange(snapshot, command) {
     reject('Unable to verify the reservation time.', 'JOURNEY_UNAVAILABLE', 503);
   }
   const expired = snapshot.session.state === 'expired' || (expires !== null && expires <= now);
-  if (expired && !['rereserve', 'skip', 'source_only', 'resume_offers'].includes(command.type)) {
+  if (expired && !['rereserve', 'skip', 'membership', 'source_only', 'resume_offers'].includes(command.type)) {
     reject('Your reservation expired. Check availability and prices again before changing tickets.', 'RESERVATION_EXPIRED', 409);
   }
   if (command.type === 'rereserve' && !expired) reject('A live reservation cannot be extended.', 'RESERVATION_ACTIVE', 409);
   const original = new Set(selections.keys());
   let answerNode = null, answers = null;
-  if (command.type === 'select' || command.type === 'skip') {
+  const membershipNode = nodes.get(command.nodeId)?.type === 'membership';
+  if (command.type === 'membership' || (command.type === 'skip' && membershipNode)) {
+    // Accept/decline a complimentary membership offer: no tickets, no price.
+    const node = nodes.get(command.nodeId);
+    const index = before.route.indexOf(command.nodeId);
+    if (!membershipNode || index < 0 || !node.requires.every(id =>
+      before.retainedNodeIds.includes(id) && before.route.indexOf(id) < index)) {
+      reject('This offer is not available from your current selections.', 'OFFER_UNREACHABLE', 409);
+    }
+    const decision = command.type === 'skip' ? 'skip' : command.decision;
+    if (!['accept', 'skip'].includes(decision) || command.tickets !== undefined || command.answers !== undefined) {
+      reject('Invalid membership offer answer.');
+    }
+    set(journey.decisions, node.id, decision);
+  } else if (command.type === 'select' || command.type === 'skip') {
     const node = nodes.get(command.nodeId);
     const index = before.route.indexOf(command.nodeId);
     if (!node?.event || index < 0 || !node.requires.every(id =>

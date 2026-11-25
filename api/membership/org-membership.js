@@ -1,4 +1,6 @@
 import { supabase } from '../_lib/database.js';
+import { listFunnelMemberships } from '../_lib/funnelMembershipEntitlements.js';
+import { funnelMembershipEnabled } from '../_lib/funnelMembershipRollout.js';
 import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { attachMembershipInvoiceAvailability } from '../_lib/membershipInvoiceAvailability.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -32,6 +34,16 @@ export default async function handler(req, res) {
 
     const { tenantId } = tenantContext;
 
+    if (req.method === 'GET' && req.query.action === 'funnel-entitlements') {
+      if (!await hasAdminAccess(tenantContext)) return res.status(403).json({ error: 'Administrator access required' });
+      res.setHeader('Cache-Control', 'private, no-store');
+      const scope = req.query.scope === 'member' ? 'member' : 'organization';
+      const recipientId = scope === 'member' ? req.query.memberId : req.query.organizationId;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipientId || '')) {
+        return res.status(400).json({ error: scope === 'member' ? 'Member is required' : 'Organisation is required' });
+      }
+      return res.json(await listFunnelMemberships(supabase, tenantId, scope, recipientId, { enabled: funnelMembershipEnabled() }));
+    }
     if (req.method === 'GET' && req.query.action === 'proposal-entitlements') {
       if (!await hasAdminAccess(tenantContext)) return res.status(403).json({ error: 'Administrator access required' });
       res.setHeader('Cache-Control', 'private, no-store');
@@ -221,6 +233,7 @@ function determineMembershipYearNumber(goLiveDate, targetYear, config) {
 function mapSimResultToYearData(sim, startDate) {
   return {
     proposalMembership: sim.proposalMembership || null,
+    funnelMembership: sim.funnelMembership || null,
     membershipYear: sim.membershipYear?.label || null,
     yearNumber: sim.yearNumber,
     startDate,
@@ -497,7 +510,7 @@ async function handleGet(req, res, tenantId) {
   // attaches display metadata; VAT/total are recomputed from finalCost via
   // recomputeVatForYear so the card is always internally consistent.
   async function applyOverrideToYear(yearData, override) {
-    if (yearData?.proposalMembership) return;
+    if (yearData?.proposalMembership || yearData?.funnelMembership) return;
     if (!override || !yearData) return;
     if (override.override_type === 'price' && override.manual_price !== null) {
       yearData.overrideType = 'price';

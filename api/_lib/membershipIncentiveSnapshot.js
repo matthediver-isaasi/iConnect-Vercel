@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { proposalMembershipHistoryFields } from './proposalMembershipEntitlements.js';
+import { funnelMembershipHistoryFields } from './funnelMembershipEntitlements.js';
 
 // Freeze joining incentive evidence separately from dated commitment metadata.
 // Only the rolling/DD commitment builder may populate commitment_snapshot.
@@ -7,9 +8,10 @@ import { proposalMembershipHistoryFields } from './proposalMembershipEntitlement
 // must never be used to reconstruct an original new-member entitlement.
 export function membershipIncentiveSnapshot(sim) {
   const incentiveConfig = sim.incentiveConfig || sim.config;
-  if (sim.previewOnly || sim.yearNumber !== 1 || !incentiveConfig) return proposalMembershipHistoryFields(sim);
+  if (sim.previewOnly || sim.yearNumber !== 1 || !incentiveConfig) return { ...proposalMembershipHistoryFields(sim), ...funnelMembershipHistoryFields(sim) };
   return {
     ...proposalMembershipHistoryFields(sim),
+    ...funnelMembershipHistoryFields(sim),
     incentive_snapshot: {
       config: structuredClone(incentiveConfig),
       amounts: { annual_cost: sim.annualCost },
@@ -24,7 +26,8 @@ export function incentiveFieldsFromSavedQuote(quote) {
   const saved = quote?.incentive_snapshot;
   const legacy = quote?.commitment_snapshot;
   const fields = { ...(saved == null ? {} : { incentive_snapshot: structuredClone(saved) }),
-    ...(quote?.proposal_membership ? { proposal_membership: structuredClone(quote.proposal_membership) } : {}) };
+    ...(quote?.proposal_membership ? { proposal_membership: structuredClone(quote.proposal_membership) } : {}),
+    ...(quote?.funnel_membership ? { funnel_membership: structuredClone(quote.funnel_membership) } : {}) };
   if (legacy == null) return fields;
   if (legacy?.start_mode === 'immediate' || legacy?.start_mode === 'fixed_date') {
     const term = quote.term_key ? quote : quote.commitment;

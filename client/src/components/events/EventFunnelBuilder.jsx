@@ -1,15 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType } from '@xyflow/react';
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
-import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue } from './eventFunnelBuilderModel.mjs';
+import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue, findMembershipTier, membershipStagePatch } from './eventFunnelBuilderModel.mjs';
 import '@xyflow/react/dist/style.css';
 import './EventFunnelBuilder.css';
 import { autoLayoutFunnel } from './eventFunnelLayout.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
-const typeNames = { source: 'Source event', event: 'Further event', addon: 'Event add-on', condition: 'Condition', checkout: 'Checkout' };
+const typeNames = { source: 'Source event', event: 'Further event', addon: 'Event add-on', membership: 'Membership', condition: 'Condition', checkout: 'Checkout' };
+// Tenant membership tiers, supplied by the admin endpoint (names only for labels).
+const TiersContext = createContext([]);
 
 function Field({ label, children }) {
   return <label className="efb-field"><span>{label}</span>{children}</label>;
@@ -51,10 +53,11 @@ function EventChoice({ value, catalog, tenantId, onChange, label = 'Event' }) {
 }
 
 function Destination({ label, value, nodes, catalog, onChange }) {
+  const tiers = useContext(TiersContext);
   return <Field label={label}><select aria-label={label} value={value || ''} onChange={event => onChange(event.target.value)}>
     <option value="">Choose a destination</option>
     {value && !nodes.some(node => node.id === value) && <option value={value}>Previously connected destination unavailable</option>}
-    {nodes.map(node => <option key={node.id} value={node.id}>{nodeTitle(node, catalog)}{isPurchase(node) ? ` — ${typeNames[node.type]}` : ''}</option>)}
+    {nodes.map(node => <option key={node.id} value={node.id}>{nodeTitle(node, catalog, tiers)}{isPurchase(node) ? ` — ${typeNames[node.type]}` : ''}</option>)}
   </select></Field>;
 }
 
@@ -77,6 +80,7 @@ function FunnelNode({ data, selected }) {
 const nodeTypes = { funnel: FunnelNode };
 
 function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
+  const tiers = useContext(TiersContext);
   const event = findEvent(catalog, node.event);
   const tickets = event?.tickets || [];
   const ticketIds = node.ticketIds || [];
@@ -111,13 +115,60 @@ function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
     </div>}
     {node.type !== 'source' && <div className="efb-field"><span>Required earlier purchases</span>
       <p className="efb-muted">{node.type === 'addon' ? 'An add-on must follow an earlier offer for the same event and use different tickets.' : 'If an earlier required offer is not included, this offer follows its skip choice.'}</p>
-      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog)}</label>)}
+      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog, tiers)}</label>)}
       {!earlierPurchases.length && <p className="efb-muted">Connect an earlier purchase to this offer to select a prerequisite.</p>}
       {unavailablePrerequisites.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => update({ requires: prerequisites.filter(value => value !== id) })} />
          {nodes.some(other => other.id === id) ? 'Not a connected earlier purchase' : 'Previously selected prerequisite unavailable'} (uncheck to remove)</label>)}
     </div>}
      <Destination label={node.type === 'source' ? 'Continue to' : 'If accepted, continue to'} value={node.accept} nodes={nodes} catalog={catalog} onChange={accept => update({ accept })} />
     {node.type !== 'source' && <Destination label="If skipped, continue to" value={node.skip} nodes={nodes} catalog={catalog} onChange={skip => update({ skip })} />}
+  </>;
+}
+
+function MembershipInspector({ node, nodes, catalog, update }) {
+  const tiers = useContext(TiersContext);
+  const membership = node.membership || {};
+  const tier = findMembershipTier(tiers, node);
+  const active = tiers.filter(item => item.active);
+  const groups = [['organization', 'Organisation memberships'], ['member', 'Individual memberships']];
+  const prerequisites = node.requires || [];
+  const earlierPurchases = earlierPurchaseNodes(nodes, node.id);
+  const unavailablePrerequisites = prerequisites.filter(id => !earlierPurchases.some(other => other.id === id));
+  const unavailableTier = membership.scheduleId && (!tier || !tier.active);
+  return <>
+    <p className="efb-muted">Offers one complimentary period of this membership tier. Accepting adds no charge. The base fee is waived once, when that membership period is next created; add-ons and later periods use normal pricing.</p>
+    <Field label="Membership tier"><select aria-label="Membership tier" data-testid="funnel-membership-tier" value={membership.scheduleId || ''} onChange={event => {
+      const choice = active.find(item => item.id === event.target.value);
+      if (choice) update(membershipStagePatch(node, choice));
+    }}>
+      <option value="" disabled>Choose a membership tier</option>
+      {unavailableTier && <option value={membership.scheduleId} disabled>{tier?.name || 'Previously selected tier'} — unavailable</option>}
+      {groups.map(([scope, label]) => {
+        const options = active.filter(item => item.scope === scope);
+        return options.length ? <optgroup key={scope} label={label}>{options.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup> : null;
+      })}
+    </select></Field>
+    {!active.length && <p className="efb-notice">No active membership tiers are available. Create or activate a tier first.</p>}
+    {unavailableTier && <p role="alert" className="efb-notice efb-error">The saved membership tier is no longer available. It is kept until you choose another tier.</p>}
+    {membership.scope === 'organization' && <p className="efb-muted">Organisation tiers go to the purchaser’s organisation. Purchasers without an organisation cannot accept this offer.</p>}
+    {membership.scope === 'member' && <Field label="Who receives the membership"><select aria-label="Who receives the membership" data-testid="funnel-membership-recipient" value={membership.recipientMode || 'purchaser'} onChange={event => update({ membership: { ...membership, recipientMode: event.target.value } })}>
+      <option value="purchaser">The purchaser only</option>
+      <option value="attendees">Each named attendee</option>
+    </select></Field>}
+    {membership.scope === 'member' && membership.recipientMode === 'attendees' && <p className="efb-muted">Every named attendee on the qualifying bookings must already have a member record.</p>}
+    <Field label="Description shown to purchasers (optional)"><textarea data-testid="funnel-membership-description" maxLength={1000} rows={3} value={membership.description || ''} onChange={event => {
+      const next = { ...membership };
+      if (event.target.value) next.description = event.target.value; else delete next.description;
+      update({ membership: next });
+    }} /></Field>
+    <div className="efb-field"><span>Only if they bought…</span>
+      <p className="efb-muted">Optional. If a chosen earlier offer is not included, this membership offer is skipped. Without a choice, the source event qualifies.</p>
+      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog, tiers)}</label>)}
+      {unavailablePrerequisites.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => update({ requires: prerequisites.filter(value => value !== id) })} />
+        {nodes.some(other => other.id === id) ? 'Not a connected earlier purchase' : 'Previously selected prerequisite unavailable'} (uncheck to remove)</label>)}
+    </div>
+    <Destination label="If accepted, continue to" value={node.accept} nodes={nodes} catalog={catalog} onChange={accept => update({ accept })} />
+    <Destination label="If declined, continue to" value={node.skip} nodes={nodes} catalog={catalog} onChange={skip => update({ skip })} />
   </>;
 }
 
@@ -164,7 +215,8 @@ function ConditionInspector({ node, nodes, catalog, tenantId, update }) {
   </>;
 }
 
-function Builder({ tenantId, catalog = [], definitions = [], busy = false, unavailable = null, onSave, onPreview, onPublish }) {
+function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], busy = false, unavailable = null, onSave, onPreview, onPublish }) {
+  const tiers = useMemo(() => membershipTiers || [], [membershipTiers]);
   const [draft, setDraft] = useState(null);
   const [baseline, setBaseline] = useState('');
   const [localDefinitions, setLocalDefinitions] = useState([]);
@@ -193,8 +245,8 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
   const graphNodes = graph?.nodes || [];
   const selected = graphNodes.find(node => node.id === selectedId);
   const dirty = !!draft && draftFingerprint(draft) !== baseline;
-  const issues = useMemo(() => graph ? graphIssues(graph, catalog, tenantId) : [], [graph, catalog, tenantId]);
-  const readableIssues = useMemo(() => issues.map(issue => describeFunnelIssue(issue, graph, catalog)), [issues, graph, catalog]);
+  const issues = useMemo(() => graph ? graphIssues(graph, catalog, tenantId, tiers) : [], [graph, catalog, tenantId, tiers]);
+  const readableIssues = useMemo(() => issues.map(issue => describeFunnelIssue(issue, graph, catalog, tiers)), [issues, graph, catalog, tiers]);
   const problems = draft && !draft.name?.trim() ? ['Give this funnel a name.', ...readableIssues] : readableIssues;
   const invalidSampleQuantity = graphNodes.filter(isPurchase).some(node => !samples[node.id]?.skip &&
     (node.ticketIds || []).some(id => {
@@ -209,7 +261,10 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
       const tickets = (node.ticketIds || []).filter(id => Number(sample?.quantities?.[id]) > 0).map(id => ({ id, quantity: Number(sample.quantities[id]) }));
       return tickets.length ? [{ nodeId: node.id, tickets }] : [];
     }),
-    decisions: Object.fromEntries(graphNodes.filter(node => ['event', 'addon'].includes(node.type) && samples[node.id]?.skip).map(node => [node.id, 'skip'])),
+    decisions: Object.fromEntries([
+      ...graphNodes.filter(node => ['event', 'addon'].includes(node.type) && samples[node.id]?.skip).map(node => [node.id, 'skip']),
+      ...graphNodes.filter(node => node.type === 'membership' && ['accept', 'skip'].includes(samples[node.id]?.decision)).map(node => [node.id, samples[node.id].decision]),
+    ]),
     checkoutNow,
   }), [graphNodes, samples, checkoutNow]);
   const localPreview = useMemo(() => {
@@ -260,7 +315,10 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
     const destination = anchor?.type === 'condition' ? anchor.fallback : anchor?.accept;
     const next = destination || checkoutId;
     const conditionEvent = relatedEvent && relatedEvent.selectable !== false ? related.event : eventReference(choices[0], tenantId);
-    const node = type === 'condition'
+    const firstTier = tiers.find(tier => tier.active);
+    const node = type === 'membership'
+      ? { id, type, ...membershipStagePatch({}, firstTier), requires: [], accept: next, skip: next }
+      : type === 'condition'
       ? { id, type, rules: [{ priority: 0, match: 'all', tests: [{ event: conditionEvent, selected: true }], to: next }], fallback: next }
       : { id, type, event: eventReference(choice, tenantId), ticketIds: firstTicket ? [firstTicket.id] : [], requires: type === 'addon' && owner ? [owner.id] : [], accept: next, skip: next };
     changeDraft(current => ({
@@ -283,7 +341,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
       setDraft(current => current?.id === submitted.id ? { ...current, revision: saved.revision, published_version_id: saved.published_version_id ?? current.published_version_id } : current);
       setBaseline(fingerprint);
       setMessage({ kind: 'success', text: `Draft saved at revision ${saved.revision}.` });
-    } catch (error) { setMessage({ kind: 'error', text: `Could not save. ${describeFunnelIssue(error?.message || 'Please retry.', graph, catalog)} Your edits are still here.` }); }
+    } catch (error) { setMessage({ kind: 'error', text: `Could not save. ${describeFunnelIssue(error?.message || 'Please retry.', graph, catalog, tiers)} Your edits are still here.` }); }
     finally { setOperation(null); operationLock.current = false; }
   }
   async function publish() {
@@ -299,7 +357,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
       setDraft(current => ({ ...current, ...metadata }));
       setLocalDefinitions(current => current.map(item => item.id === draft.id ? { ...item, ...metadata } : item));
       setMessage({ kind: 'success', text: 'Saved funnel published successfully.' });
-    } catch (error) { setMessage({ kind: 'error', text: `Could not publish. ${describeFunnelIssue(error?.message || 'Please retry.', graph, catalog)} Your draft has not been discarded.` }); }
+    } catch (error) { setMessage({ kind: 'error', text: `Could not publish. ${describeFunnelIssue(error?.message || 'Please retry.', graph, catalog, tiers)} Your draft has not been discarded.` }); }
     finally { setOperation(null); operationLock.current = false; }
   }
   async function preview() {
@@ -330,8 +388,9 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
   const flowNodes = graphNodes.map((node, index) => ({
     id: node.id, type: 'funnel', selected: selectedId === node.id,
     position: draft?.layout?.positions?.[node.id] || { x: 80 + (index % 2) * 300, y: 60 + Math.floor(index / 2) * 180 },
-    data: { node, title: nodeTitle(node, catalog),
+    data: { node, title: nodeTitle(node, catalog, tiers),
        detail: isPurchase(node) ? `${(node.ticketIds || []).length} ticket classes`
+         : node.type === 'membership' ? (node.membership?.scope === 'member' ? (node.membership.recipientMode === 'attendees' ? 'Individual · each named attendee' : 'Individual · purchaser') : 'Organisation · purchaser’s organisation')
          : node.type === 'condition' ? `${(node.rules || []).length} rules · first match wins` : 'All selected offers finish here',
        ports: connections.filter(edge => edge.source === node.id).map(edge => ({ id: edge.sourceHandle, label: edge.label, short: edge.sourceHandle.startsWith('rule-') ? `Rule ${Number(edge.sourceHandle.slice(5)) + 1}` : edge.label })),
       inRoute: routeResult?.route?.includes(node.id),
@@ -344,7 +403,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
     labelStyle: { fontSize: 11, fill: '#42586b' }, labelBgStyle: { fill: '#f7f9fb' },
   }));
 
-  return <section className="event-funnel-builder" aria-label="Event funnel builder" data-testid="event-funnel-builder">
+  return <TiersContext.Provider value={tiers}><section className="event-funnel-builder" aria-label="Event funnel builder" data-testid="event-funnel-builder">
     <div className="efb-header">
       <div><h3 className="efb-row"><GitBranch size={19} />Event funnels</h3><p className="efb-muted">Offer parking, lunch and further events without changing each event’s identity.</p></div>
       <div className="efb-actions">
@@ -353,7 +412,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
         <Button type="button" size="sm" data-testid="funnel-publish" disabled={blocked || !draft?.revision || dirty || !!problems.length || !onPublish} onClick={publish}><Upload />{operation === 'publish' ? 'Publishing…' : 'Publish saved draft'}</Button>
       </div>
     </div>
-    {unavailable && <div role="alert" className="efb-notice efb-error" data-testid="funnel-unavailable">{describeFunnelIssue(unavailable, graph, catalog)} Saving, publishing and preview are unavailable. In-progress edits are preserved.</div>}
+    {unavailable && <div role="alert" className="efb-notice efb-error" data-testid="funnel-unavailable">{describeFunnelIssue(unavailable, graph, catalog, tiers)} Saving, publishing and preview are unavailable. In-progress edits are preserved.</div>}
     {message && <div role={message.kind === 'error' ? 'alert' : 'status'} className={`efb-notice efb-${message.kind}`} data-testid="funnel-operation-message">{message.text}</div>}
     <Field label="Saved funnel"><select data-testid="funnel-definition-choice" disabled={locked} value={draft && availableDefinitions.some(item => item.id === draft.id) ? draft.id : ''} onChange={event => {
       const definition = availableDefinitions.find(item => item.id === event.target.value);
@@ -375,7 +434,7 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
       <div className="efb-row efb-muted"><span>{dirty ? 'Unsaved changes' : `Saved revision ${draft.revision}`}</span><span>·</span><span>{graphNodes.length} / 100 steps</span><span>·</span><span>Reservation: 60–3600 seconds</span></div>
        {problems.length > 0 ? <div className="efb-notice" data-testid="funnel-validation" role="status"><strong>Finish these details before saving or publishing</strong><ul style={{ paddingLeft: 18, marginTop: 5 }}>{problems.map(problem => <li key={problem}>{problem}</li>)}</ul></div> : <div className="efb-notice efb-success" data-testid="funnel-validation"><span className="efb-row"><CheckCircle2 size={15} />Funnel steps and event selections look good. We’ll check them again when you save or publish.</span></div>}
        <div className="efb-toolbar"><span className="efb-muted">Add after selected step</span>
-        {['event', 'addon', 'condition'].map(type => <Button type="button" variant="outline" size="sm" key={type} disabled={locked || graphNodes.length >= 100} data-testid={`funnel-add-${type}`} onClick={() => addNode(type)}><Plus />{typeNames[type]}</Button>)}
+        {['event', 'addon', 'membership', 'condition'].map(type => <Button type="button" variant="outline" size="sm" key={type} disabled={locked || graphNodes.length >= 100} data-testid={`funnel-add-${type}`} onClick={() => addNode(type)}><Plus />{typeNames[type]}</Button>)}
         <Button type="button" variant="outline" size="sm" data-testid="funnel-auto-layout" disabled={locked || !graphNodes.length} onClick={arrange} title="Arrange steps from top to bottom without changing the funnel">Auto layout</Button>
          <span className="efb-muted">Drag steps to arrange; connect their labelled choices. Paths can rejoin.</span>
       </div>
@@ -395,8 +454,9 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
         </div>
         <aside className="efb-inspector" aria-label="Selected node settings" data-testid="funnel-inspector">
           {!selected ? <div className="efb-empty"><h4>Select a node</h4><p className="efb-muted">Choose an offer, condition or checkout to inspect its configuration.</p></div> : <fieldset disabled={locked}>
-             <h4>{isPurchase(selected) ? nodeTitle(selected, catalog) : typeNames[selected.type] || 'Unsupported funnel step'}</h4>
+             <h4>{isPurchase(selected) || selected.type === 'membership' ? nodeTitle(selected, catalog, tiers) : typeNames[selected.type] || 'Unsupported funnel step'}</h4>
             {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
+            {selected.type === 'membership' && <MembershipInspector node={selected} nodes={graphNodes} catalog={catalog} update={updateNode} />}
             {selected.type === 'condition' && <ConditionInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'checkout' && <p className="efb-muted">All routes must end at this checkout. Only eligible retained purchases are included. The reservation and invoice settings above apply to this funnel.</p>}
             {!typeNames[selected.type] && <div className="efb-notice efb-error">This saved node type is not supported. Its data has been preserved.</div>}
@@ -420,8 +480,8 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
             const event = findEvent(catalog, node.event);
             const sample = samples[node.id] || {};
             return <div className="efb-sample" key={node.id} data-testid={`funnel-sample-${node.id}`}>
-              <strong>{nodeTitle(node, catalog)}</strong><p className="efb-muted">{typeNames[node.type]}</p>
-              {(node.ticketIds || []).map(id => <label className="efb-quantity" key={id}><span>{event?.tickets?.find(ticket => ticket.id === id)?.name || 'Previously selected ticket unavailable'}</span><input aria-label={`Sample quantity for ${nodeTitle(node, catalog)} — ${event?.tickets?.find(ticket => ticket.id === id)?.name || 'unavailable ticket'}`} data-testid={`funnel-quantity-${node.id}-${id}`} type="number" min="0" step="1" disabled={sample.skip} value={sample.quantities?.[id] ?? 0} onChange={change => {
+              <strong>{nodeTitle(node, catalog, tiers)}</strong><p className="efb-muted">{typeNames[node.type]}</p>
+              {(node.ticketIds || []).map(id => <label className="efb-quantity" key={id}><span>{event?.tickets?.find(ticket => ticket.id === id)?.name || 'Previously selected ticket unavailable'}</span><input aria-label={`Sample quantity for ${nodeTitle(node, catalog, tiers)} — ${event?.tickets?.find(ticket => ticket.id === id)?.name || 'unavailable ticket'}`} data-testid={`funnel-quantity-${node.id}-${id}`} type="number" min="0" step="1" disabled={sample.skip} value={sample.quantities?.[id] ?? 0} onChange={change => {
                 const quantity = change.target.value;
                 invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { ...current[node.id], quantities: { ...current[node.id]?.quantities, [id]: quantity } } }));
               }} /></label>)}
@@ -430,21 +490,28 @@ function Builder({ tenantId, catalog = [], definitions = [], busy = false, unava
                 invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { ...current[node.id], skip } }));
               }} />Sample answer: skip this offer</label>}
             </div>;
-          })}</div>
+          })}
+          {graphNodes.filter(node => node.type === 'membership').map(node => <div className="efb-sample" key={node.id} data-testid={`funnel-sample-${node.id}`}>
+            <strong>{nodeTitle(node, catalog, tiers)}</strong><p className="efb-muted">{typeNames.membership}</p>
+            <label className="efb-quantity"><span>Sample answer</span><select aria-label={`Sample answer for ${nodeTitle(node, catalog, tiers)}`} data-testid={`funnel-membership-sample-${node.id}`} value={samples[node.id]?.decision || ''} onChange={change => {
+              const decision = change.target.value;
+              invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { decision } }));
+            }}><option value="">Unanswered</option><option value="accept">Accept</option><option value="skip">Decline</option></select></label>
+          </div>)}</div>
           <Button type="button" size="sm" variant="ghost" onClick={() => { invalidatePreview(); setSamples({}); setCheckoutNow(false); }}>Reset sample answers</Button>
         </fieldset>
         {previewError && <div className="efb-notice efb-error" role="alert" data-testid="funnel-preview-error">Server preview could not be completed. Sample answers are preserved; try again.</div>}
-        {localPreview?.error && <div className="efb-notice" role="status">Preview unavailable: {describeFunnelIssue(localPreview.error, graph, catalog)}</div>}
+        {localPreview?.error && <div className="efb-notice" role="status">Preview unavailable: {describeFunnelIssue(localPreview.error, graph, catalog, tiers)}</div>}
         {routeResult && <div aria-live="polite" data-testid="funnel-preview-result">
           <p className="efb-muted">{serverPreview ? 'Confirmed preview' : 'Draft simulation'} · {routeResult.atCheckout ? 'Checkout reached' : 'Paused at an unanswered offer'}</p>
-           <ol className="efb-route" aria-label="Preview route">{routeResult.route.map((id, index) => <li key={`${id}-${index}`}>{index + 1}. {nodeTitle(graphNodes.find(node => node.id === id), catalog)}</li>)}</ol>
-           <p className="efb-muted">Included at checkout: {(routeResult.retainedNodeIds || []).map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog)).join(', ') || 'None'}<br />Still awaiting an answer: {(routeResult.pendingNodeIds || []).map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog)).join(', ') || 'None'}</p>
-           {(routeResult.matchedRules || []).map(match => <p className="efb-muted" key={match.nodeId}>{nodeTitle(graphNodes.find(node => node.id === match.nodeId), catalog)}: {match.priority == null ? 'used the required fallback' : `matched priority ${match.priority}`}</p>)}
-           {(routeResult.removed || []).map(item => <p className="efb-notice" key={item.nodeId}>{nodeTitle(graphNodes.find(node => node.id === item.nodeId), catalog)}: {describeFunnelIssue(item.reason, graph, catalog)}</p>)}
+           <ol className="efb-route" aria-label="Preview route">{routeResult.route.map((id, index) => <li key={`${id}-${index}`}>{index + 1}. {nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)}</li>)}</ol>
+           <p className="efb-muted">Included at checkout: {[...(routeResult.retainedNodeIds || []), ...(routeResult.acceptedMembershipNodeIds || [])].map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)).join(', ') || 'None'}<br />Still awaiting an answer: {(routeResult.pendingNodeIds || []).map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)).join(', ') || 'None'}</p>
+           {(routeResult.matchedRules || []).map(match => <p className="efb-muted" key={match.nodeId}>{nodeTitle(graphNodes.find(node => node.id === match.nodeId), catalog, tiers)}: {match.priority == null ? 'used the required fallback' : `matched priority ${match.priority}`}</p>)}
+           {(routeResult.removed || []).map(item => <p className="efb-notice" key={item.nodeId}>{nodeTitle(graphNodes.find(node => node.id === item.nodeId), catalog, tiers)}: {describeFunnelIssue(item.reason, graph, catalog, tiers)}</p>)}
         </div>}
       </section>
     </>}
-  </section>;
+  </section></TiersContext.Provider>;
 }
 
 export default function EventFunnelBuilder(props) {

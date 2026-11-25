@@ -12,3 +12,22 @@ test('completed recovery is distinct from approval and legacy results stay uncha
   assert.equal(funnelCancellationRecoveryNotice({operationId:'operation',orderId:'order',recovery:'complete'}).warning,false);
   assert.equal(funnelCancellationRecoveryNotice(null),null);
 });
+
+test('membership benefit notice explains withdrawn, kept and unconfirmed outcomes', async () => {
+  const { funnelMembershipBenefitNotice } = await import('./eventFunnelCancellationNotice.js');
+  assert.equal(funnelMembershipBenefitNotice({}), null);
+  assert.equal(funnelMembershipBenefitNotice({ membershipBenefits: [] }), null);
+  assert.deepEqual(funnelMembershipBenefitNotice({ membershipBenefits: [{ scheduleName: 'Individual', state: 'withdrawn' }] }),
+    { warning: false, text: 'Individual: unused benefit withdrawn.' });
+  const kept = funnelMembershipBenefitNotice({ membershipBenefits: [{ scheduleName: 'Corporate', state: 'consumed' }] });
+  assert.equal(kept.warning, true);
+  assert.match(kept.text, /already applied/);
+  assert.equal(funnelMembershipBenefitNotice({ membershipBenefits: 'unavailable' }).warning, true);
+});
+
+test('a benefit held by a membership checkout is reported for review, not withdrawn', async () => {
+  const { funnelMembershipBenefitNotice } = await import('./eventFunnelCancellationNotice.js');
+  const notice = funnelMembershipBenefitNotice({ membershipBenefits: [{ state: 'reserved', scheduleName: 'Corporate' }] });
+  assert.equal(notice.warning, true);
+  assert.match(notice.text, /Corporate: held by a membership checkout in progress/);
+});

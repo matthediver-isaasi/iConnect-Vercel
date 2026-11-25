@@ -23,6 +23,7 @@
 .efb-node.is-route { background: #edf7f2; border-color: #43846a; }
 .efb-node.condition { border-top-color: #aa7d34; background: #fcf9f1; }
 .efb-node.addon { border-top-color: #72834e; }
+.efb-node.membership { border-top-color: #6a5a9c; background: #f8f6fc; }
 .efb-node.checkout { border-top-color: #63738b; }
 .efb-node strong { display: block; font-size: 13px; margin: 7px 0 4px; overflow-wrap: anywhere; }
 .efb-node-kind { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .07em; color: var(--funnel-muted); }

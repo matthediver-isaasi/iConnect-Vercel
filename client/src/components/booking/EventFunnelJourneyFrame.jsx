@@ -128,7 +128,7 @@ function OwnedJourneyFrame({ sessionId, enabled, sourceLabel, onBack, children, 
   async function change(command) {
     if (blocked || !snapshot) return null;
     const isRereserve = command?.type === 'rereserve';
-    const isNonStockChange = ['source_only', 'skip', 'resume_offers'].includes(command?.type);
+    const isNonStockChange = ['source_only', 'skip', 'membership', 'resume_offers'].includes(command?.type);
     if (isRereserve ? !expired || !mutableState || reopenRequired
       : frozen || (expired && !isNonStockChange)) return null;
     return safely(async () => {

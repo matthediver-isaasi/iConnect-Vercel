@@ -29,6 +29,23 @@ function scope(owner) {
  * validate eligibility, attendee answers and compatibility and return authoritative
  * new-line prices. No default resolver or early booking fallback is allowed.
  */
+// Display-only offer text for complimentary membership stages. Unavailable
+// tiers stay visible as unavailable; checkout re-verifies eligibility.
+export async function membershipOffers(db, tenantId, graph) {
+  const stages = (graph?.nodes || []).filter(node => node.type === 'membership');
+  if (!stages.length) return {};
+  const { data, error } = await db.from('membership_tier_config').select('id,name,structure_scope_type,is_active')
+    .eq('tenant_id', tenantId).in('id', [...new Set(stages.map(node => node.membership.scheduleId))]);
+  if (error) throw new FunnelJourneyError('Membership offers could not be loaded.', 'JOURNEY_UNAVAILABLE', 503);
+  return Object.fromEntries(stages.map(node => {
+    const tier = (data || []).find(row => row.id === node.membership.scheduleId);
+    const available = !!tier && tier.is_active !== false
+      && (tier.structure_scope_type === 'member' ? 'member' : 'organization') === node.membership.scope;
+    return [node.id, { name: available ? tier.name : null, available, scope: node.membership.scope,
+      recipientMode: node.membership.recipientMode, description: node.membership.description || '' }];
+  }));
+}
+
 export function createEventFunnelJourneyService({ db, resolveSelection, validateLines }) {
   async function read(owner) {
     const snapshot = checked(await db.rpc('event_funnel_read_session', scope(owner)));
@@ -41,7 +58,8 @@ export function createEventFunnelJourneyService({ db, resolveSelection, validate
   return {
     async read(owner) {
       const snapshot = await read(owner);
-      return { ...snapshot, route: readFunnelJourney(snapshot).route };
+      return { ...snapshot, route: readFunnelJourney(snapshot).route,
+        membershipOffers: await membershipOffers(db, owner.tenantId, snapshot.graph) };
     },
     async change(owner, command) {
       const snapshot = await read(owner);
@@ -94,7 +112,8 @@ export function createEventFunnelJourneyService({ db, resolveSelection, validate
         p_answers: plan.answerNode && answerUpdates[plan.answerNode] || plan.answers,
         p_answer_updates: answerUpdates, p_rereserve: plan.rereserve,
       }));
-      return { ...committed, route: readFunnelJourney(committed).route, removed: plan.removed };
+      return { ...committed, route: readFunnelJourney(committed).route, removed: plan.removed,
+        membershipOffers: await membershipOffers(db, owner.tenantId, committed.graph) };
     },
   };
 }

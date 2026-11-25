@@ -41,3 +41,15 @@ test('workflow add-on failure returns failure before a history can be inserted',
   assert.equal(result.status, 'failed');
   assert.match(result.error, /Approved add-ons could not be verified/);
 });
+
+test('event booking benefit fee link is reserved before any charge', async () => {
+  const calls = [];
+  const db = { async rpc(name) { calls.push(name); return { error: { message: 'reserved by another checkout' } }; } };
+  const stripe = { paymentIntents: { create() { throw new Error('must never charge'); } } };
+  await assert.rejects(createGuardedPortalMembershipIntent(db, stripe, {
+    tenantId: 'tenant', organizationId: 'org', token: { id: 'token', cost_breakdown: {
+      funnelMembership: { entitlementId: 'grant', scope: 'organization' },
+    } },
+  }, { amount: 3000 }), /Event booking membership reservation failed/);
+  assert.deepEqual(calls, ['reserve_event_funnel_membership_fee_token']);
+});

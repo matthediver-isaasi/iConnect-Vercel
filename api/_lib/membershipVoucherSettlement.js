@@ -9,6 +9,10 @@ export async function createGuardedPortalMembershipIntent(db, stripe, owner, pay
     const reserved = await db.rpc('reserve_proposal_membership_fee_token', { p_tenant: owner.tenantId, p_token: owner.token.id });
     if (reserved.error) throw new Error(`Proposal membership reservation failed: ${reserved.error.message}`);
   }
+  if (owner.token?.cost_breakdown?.funnelMembership) {
+    const reserved = await db.rpc('reserve_event_funnel_membership_fee_token', { p_tenant: owner.tenantId, p_token: owner.token.id });
+    if (reserved.error) throw new Error(`Event booking membership reservation failed: ${reserved.error.message}`);
+  }
   const sourceKey = owner.sourceKey || `portal:${owner.memberId ? 'member' : 'organization'}:${owner.memberId || owner.organizationId}:${owner.membershipYear}`;
   if (owner.token) await claimMembershipFeePayment(db, owner.token, 'create_payment');
   const guard = await claimMembershipTermPayment(db, { ...owner, sourceKey, rail: 'create_payment' });

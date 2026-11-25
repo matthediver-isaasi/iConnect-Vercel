@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import FunnelMembershipEntitlements from "@/components/FunnelMembershipEntitlements";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -783,6 +784,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       </CardContent>
     </Card>
     <ProposalMembershipEntitlements organizationId={organizationId} />
+    <FunnelMembershipEntitlements scope="organization" recipientId={organizationId} />
     </>
   );
 

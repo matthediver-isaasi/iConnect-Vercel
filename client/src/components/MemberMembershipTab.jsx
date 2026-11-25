@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
+import FunnelMembershipEntitlements from "@/components/FunnelMembershipEntitlements";
 import ApproveCardMembership from "@/components/membership/ApproveCardMembership";
 import MemberMembershipAmendments from "@/components/MemberMembershipAmendments";
 import MemberMembershipStart from "@/components/MemberMembershipStart";
@@ -1406,6 +1407,7 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
       {pauseControls}
       <MemberMembershipStart memberId={memberId} tenantId={activeTenantId} />
       <MemberMembershipAmendments memberId={memberId} tenantId={activeTenantId} />
+      <FunnelMembershipEntitlements scope="member" recipientId={memberId} />
       {legacyCurrentMembership && (
         <Card className="border-green-200 dark:border-green-900" data-testid="card-member-legacy-current">
           <CardHeader>

@@ -158,3 +158,38 @@ for (const member of [true, false]) for (const rolling of [true, false]) {
     assert.equal(f.calls.find(c => c[0] === 'prepare')[1].xeroInvoiceId, null);
   });
 }
+test('event booking benefit: add-on-only reminder payment keeps its provenance through recovery', async () => {
+  const { membershipIncentiveSnapshot } = await import('./membershipIncentiveSnapshot.js');
+  const funnelMembership = { entitlementId: 'grant', scheduleId: 'config', scope: 'organization', orderId: 'order',
+    originalBaseNetMinor: 12500, originalBaseVatMinor: 2500 };
+  const history = { id: 'current', tenant_id: 'tenant', organization_id: 'org', config_id: 'config', membership_year: '2025/2026',
+    billing_period: 'annual', term_start_date: '2025-01-01', term_end_date: '2025-12-31', final_cost: 100 };
+  const client = { from() { const q = { select() { return q; }, eq() { return q; }, in() { return q; },
+    maybeSingle() { return Promise.resolve({ data: config }); }, then(r) { return Promise.resolve({ data: [] }).then(r); } }; return q; } };
+  let prepared;
+  const run = addons => resolveReminderPaymentQuote({ client, tenantId: 'tenant', history, histories: [history], now: new Date('2025-12-15'),
+    simulate: async () => ({ success: true, config, membershipYear: { label: '2026/2027', start: '2026-01-01', end: '2026-12-31' },
+      finalCost: 0, annualCost: 125, vatAmount: 0, totalWithVat: 0, currency: 'GBP', tierLabel: 'Tier', funnelMembership }),
+    loadAddonQuote: async () => addons,
+    prepare: async options => { prepared = options; return { success: true, ...options, historyRecordId: null }; },
+    resolveStripeCredentials: async () => ({ is_enabled: true, secret_key: 'x', publishable_key: 'x' }),
+    recipients: [{ email: 'fixture@example.test' }] });
+
+  // Nothing payable: no payment link for a fully complimentary period.
+  assert.equal((await run({ lines: [], subtotal: 0, vat: 0 })).code, 'complimentary');
+  assert.equal(prepared, undefined);
+
+  const result = await run({ lines: [{ label: 'Extra seat', amount: 30 }], subtotal: 30, vat: 6 });
+  assert.equal(result.success, true);
+  assert.equal(prepared.finalCost, 30);
+  assert.equal(prepared.costBreakdown.totalWithVat, 36);
+  assert.deepEqual(prepared.costBreakdown.funnelMembership, funnelMembership);
+
+  // The saved token rebuilds the same history evidence at payment time.
+  const source = readFileSync(new URL('../public/membership-fees/[token].js', import.meta.url), 'utf8');
+  const renewal = source.slice(source.indexOf('export function simulationFromRenewalQuote'), source.indexOf('export function publicFeeBreakdown'));
+  const saved = new Function('simulationFromFeeCommitment', `${renewal.replace('export function', 'function')}; return savedFeeSimulation;`)(() => null);
+  const sim = saved({ id: 'token', membership_year: '2026/2027', final_cost: 30, currency: 'GBP', cost_breakdown: prepared.costBreakdown });
+  assert.deepEqual(membershipIncentiveSnapshot(sim).funnel_membership, { ...funnelMembership, feeTokenId: 'token' });
+  assert.equal(sim.totalWithVat, 36);
+});

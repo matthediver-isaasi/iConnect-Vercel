@@ -103,3 +103,19 @@ test('validation display replaces internal node and catalog references with huma
   assert.ok(!readable.includes('opaque-node-key'));
   assert.ok(!readable.includes('conference-key'));
 });
+
+test('membership stage titles, issues and tier switching never expose tier identifiers', async () => {
+  const { membershipStageIssues, membershipStagePatch } = await import('./eventFunnelBuilderModel.mjs');
+  const id = '00000000-0000-4000-8000-000000000011';
+  const tiers = [{ id, name: 'Individual', scope: 'member', active: true }, { id: 'org', name: 'Corporate', scope: 'organization', active: false }];
+  const node = { id: 'm', type: 'membership', membership: { scheduleId: id, scope: 'member', recipientMode: 'attendees', description: 'Hi' } };
+  assert.equal(nodeTitle(node, [], tiers), 'Complimentary membership: Individual');
+  assert.equal(nodeTitle({ ...node, membership: { scheduleId: 'gone' } }, [], tiers), 'Complimentary membership: unavailable tier');
+  assert.deepEqual(membershipStageIssues(node, tiers), []);
+  const missing = membershipStageIssues({ ...node, membership: { ...node.membership, scheduleId: 'gone' } }, tiers);
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].includes('gone'), false);
+  assert.match(membershipStageIssues({ ...node, membership: { scheduleId: 'org', scope: 'organization', recipientMode: 'purchaser' } }, tiers)[0], /inactive/);
+  assert.deepEqual(membershipStagePatch(node, tiers[1]).membership, { scheduleId: 'org', scope: 'organization', recipientMode: 'purchaser', description: 'Hi' });
+  assert.equal(membershipStagePatch(node, tiers[0]).membership.recipientMode, 'attendees');
+});

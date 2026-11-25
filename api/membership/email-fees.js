@@ -117,6 +117,7 @@ export default async function handler(req, res) {
 
     const costBreakdown = {
       ...(simResult.proposalMembership ? { proposalMembership: structuredClone(simResult.proposalMembership) } : {}),
+      ...(simResult.funnelMembership ? { funnelMembership: structuredClone(simResult.funnelMembership) } : {}),
       xeroProjectCode: simResult.xeroProjectCode || null,
       annualCost: simResult.annualCost,
       annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
