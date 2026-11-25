@@ -14,6 +14,19 @@ invoice creation and update paths.
 not just the organisation editor or one provider helper. Do not interpret this
 requirement as approval to overwrite accounting contacts or historical invoices.
 
+Xero's ordinary invoice billing address comes from the contact's POBOX address;
+its Accounting API does not support a per-invoice postal-address override.
+InvoiceAddresses is US sales-tax-specific, not a general workaround.
+
+**Why:** Xero's official Invoices documentation explicitly states this limitation.
+An address correction for one invoice can also change other invoices' displayed
+addresses, including paid invoices.
+
+**How to apply:** Enumerate every invoice using the contact before correcting it.
+If other invoices exist, disclose their numbers and obtain approval for that
+shared-contact effect. A mismatched customer identity needs separate resolution;
+never overwrite another customer's address to make one invoice appear correct.
+
 API redaction alone is not sufficient protection for new billing-address
 columns. Check direct database grants and policies before choosing storage.
 
