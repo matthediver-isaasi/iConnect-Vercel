@@ -172,6 +172,7 @@
 - [Subscriber count authority](subscriber-count-authority.md) — input readiness is not consent eligibility; separate cached rendering, database evidence and campaign recipients.
 - [GFI Heads briefing policy](gfi-heads-briefing-policy.md) — one-time correction only; no future role-driven enrollment or count-semantic changes.
 - [Event funnel purchase policy](event-funnel-policy.md) — same-checkout prerequisites, event-owned registrations, fixed expiry and separate live-operation approval.
+- [Event funnel membership stage](event-funnel-membership-stage.md) — offered, one-free-period eligibility for org and individual tiers; admin picks individual recipient; cancellation withdraws unused.
 - [QuickBooks tax evidence](quickbooks-tax-evidence.md) — returned percentages may not explain overridden tax; preserve issued amounts and original rate references.
 - [Proposal default VAT](proposal-default-vat-policy.md) — sales default also applies to new free-text lines; preserve explicit selections and saved tax snapshots.
 - [PostgreSQL test adapters](postgres-test-adapters.md) — preserve JSON result types and service-role RLS visibility; fixture mismatches can disguise successful writes or existing rows.
