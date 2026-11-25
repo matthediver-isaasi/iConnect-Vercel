@@ -76,6 +76,8 @@ test('verified payment-grace expiry uses Continue your membership and the full r
   assert.match(html,/Continue your membership/);
   assert.match(html,/href="\/FormView\?slug=continuing-with-bnms"/);
   assert.doesNotMatch(html,/Restart your membership<\/span>/);
+  assert.doesNotMatch(html,/membership-payment-panel/,
+    'the exited arrangement\'s payment facts are not shown beside the restart action');
 });
 test('confirmed-cancelled Direct Debit shows Restart your membership beside the cancellation warning', () => {
   const data = normalizeCanvasMembershipSummary({membership:{state:'active'},

@@ -97,11 +97,13 @@ export function MembershipDataView({
   const renewalHref = safeMembershipLink(summary.renewal.entryHref || (
     summary.renewal.journeyMode === 'questionnaire' ? null : content.renewalLink));
   const restart = summary.renewal.state === 'post_grace_renewal';
-  // A confirmed-cancelled Direct Debit or monthly card plan: the old
-  // arrangement's payment facts are no longer actionable, so the payment card
-  // shows only the restart explanation and the Restart button.
+  // A confirmed-cancelled Direct Debit or monthly card plan, or a verified
+  // payment-grace exit: the old arrangement's payment facts are no longer
+  // actionable, so the payment card shows only the restart explanation and
+  // the restart button. Unpaid arrears remain recorded server-side.
   const cancelledPlanRestart = restart && summary.renewal.eligible
-    && (summary.renewal.cancelledDirectDebit === true || summary.renewal.cancelledCardPlan === true);
+    && (summary.renewal.cancelledDirectDebit === true || summary.renewal.cancelledCardPlan === true
+      || summary.renewal.paymentGraceExit === true);
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   const joiningHref = safeMembershipLink(summary.joining.entryHref);
