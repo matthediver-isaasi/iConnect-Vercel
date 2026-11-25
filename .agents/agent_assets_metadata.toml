@@ -2161,3 +2161,17 @@ mtime_ms = 1795546382061
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/92117407-33e0-41d6-9253-68bd1a811249/beea6579-3a79-4213-b8f3-4bbea2298988"
 storage_version_token = "1795546398726796"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "gsnDz20_pahhT7wpc4L-Q"
+uri = "file://generated-artifacts/birmingham-newman-activity/Birmingham-Newman-University-Activity-Findings.xlsx"
+type = "table"
+title = "Birmingham Newman University – Activity Findings"
+description = "Event bookings and resource access for current Birmingham Newman University members, all history to 25 Nov 2026 08:25 UTC (live, read-only)."
+logical_id = "4e987bb6-7f9c-434f-b063-64978cd60a7c"
+content_hash = "sha256:26d3cfe684f76460bf2b50cf299df21f20d277f68a8b1cfedfd36fbff62e8014"
+size = 12418
+mtime_ms = 1795595221781
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4e987bb6-7f9c-434f-b063-64978cd60a7c/d51cb23f-3da4-4249-bedd-978556f71c8d"
+storage_version_token = "1795595228107025"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
