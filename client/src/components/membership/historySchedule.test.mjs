@@ -296,3 +296,20 @@ test('ignores current pricing/configuration-shaped data and never assumes twelve
     endDate: null,
   });
 });
+test('unfinished upfront card checkout shows provisional dates only', async () => {
+  const { isAwaitingUpfrontCardPayment, awaitingPaymentTermLabels } = await import('./historySchedule.js');
+  const row = {
+    status: 'pending_payment_setup', payment_status: 'unpaid', payment_method: 'stripe',
+    billing_agreement_id: null, term_start_date: '2026-11-03', term_end_date: '2027-11-02',
+  };
+  assert.equal(isAwaitingUpfrontCardPayment(row), true);
+  assert.deepEqual(awaitingPaymentTermLabels(row), {
+    heading: 'Dates set when payment succeeds',
+    quoted: 'Quoted as 3 November 2026 – 2 November 2027',
+  });
+  assert.equal(isAwaitingUpfrontCardPayment({ ...row, payment_status: 'paid' }), false);
+  assert.equal(isAwaitingUpfrontCardPayment({ ...row, billing_agreement_id: 'a1' }), false);
+  assert.equal(isAwaitingUpfrontCardPayment({ ...row, payment_method: 'gocardless' }), false);
+  assert.equal(isAwaitingUpfrontCardPayment({ ...row, status: 'active' }), false);
+  assert.equal(awaitingPaymentTermLabels({ ...row, term_end_date: null }).quoted, null);
+});

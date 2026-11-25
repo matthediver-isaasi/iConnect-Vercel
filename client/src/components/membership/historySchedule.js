@@ -100,6 +100,32 @@ export function membershipHistoryTermLabel(record) {
   return 'Unknown';
 }
 
+/**
+ * An unfinished upfront card checkout. Its row exists only to hold the saved
+ * quote against one payment; it is not a membership period, and its dates are
+ * provisional until the payment succeeds.
+ */
+export function isAwaitingUpfrontCardPayment(record) {
+  const row = object(record);
+  return row.status === 'pending_payment_setup'
+    && row.payment_status === 'unpaid'
+    && !row.billing_agreement_id
+    && ['stripe', 'card', 'upfront'].includes(row.payment_method);
+}
+
+/** Quoted dates are shown only as provisional; never as a confirmed term. */
+export function awaitingPaymentTermLabels(record) {
+  const row = object(record);
+  const start = retainedHistoryDate(row.term_start_date);
+  const end = retainedHistoryDate(row.term_end_date);
+  return {
+    heading: 'Dates set when payment succeeds',
+    quoted: start && end && end >= start
+      ? `Quoted as ${historyScheduleDateLabel(start)} – ${historyScheduleDateLabel(end)}`
+      : null,
+  };
+}
+
 function normaliseToken(value) {
   return typeof value === 'string'
     ? value.trim().toLowerCase().replace(/\s+/g, '_')

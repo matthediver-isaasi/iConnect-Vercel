@@ -266,13 +266,19 @@ test('unpaid upfront card history describes the method without claiming full pay
   await mounted({ dataOverrides: {
     history: [{ ...historical, payment_method: 'stripe',
       status: 'pending_payment_setup', payment_status: 'unpaid',
+      term_start_date: '2026-11-03', term_end_date: '2027-11-02', membership_renewal_date: '2027-11-03',
+      term_duration_months: 12,
       annual_cost: 156, final_cost: 156, total_with_vat: 156 }],
   } }, container => {
     const row = container.querySelector('[data-testid="row-member-history-paid-history"]');
     assert.ok(row);
     assert.match(row.textContent, /Card \(upfront\)/);
-    assert.match(row.textContent, /Unpaid/);
     assert.match(row.textContent, /Awaiting payment/);
+    assert.match(row.textContent, /Dates set when payment succeeds/);
+    assert.match(row.textContent, /Quoted as 3 November 2026 – 2 November 2027/);
+    assert.match(row.textContent, /Card payment not completed/);
+    assert.doesNotMatch(row.textContent, /Renewal:/);
+    assert.doesNotMatch(row.textContent, /\bUnpaid\b/);
     assert.doesNotMatch(row.textContent, /pending_payment_setup/);
     assert.doesNotMatch(row.textContent, /paid in full/i);
   });

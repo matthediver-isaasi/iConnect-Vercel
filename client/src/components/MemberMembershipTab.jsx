@@ -53,6 +53,8 @@ import { formatMembershipMessageDates } from "@/components/membership/membership
 import {
   historyScheduleDateLabel,
   membershipHistoryTermLabel,
+  isAwaitingUpfrontCardPayment,
+  awaitingPaymentTermLabels,
 } from "@/components/membership/historySchedule";
 import MemberMembershipInstalments, {
   getMembershipSource,
@@ -1799,10 +1801,20 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                     const isMonthlyRecord = isMonthlyMembershipRecord(record);
                     const pricing = getMembershipPricingPresentation(record);
                     const isInstalmentsExpanded = expandedInstalmentHistoryId === membershipRecordKey;
+                    const awaitingPayment = isAwaitingUpfrontCardPayment(record);
+                    const awaitingTerm = awaitingPayment ? awaitingPaymentTermLabels(record) : null;
                     return (
                       <Fragment key={membershipRecordKey}>
                       <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">
+                          {awaitingPayment ? (
+                            <div data-testid={`text-member-history-awaiting-term-${record.id}`}>
+                              <div>{awaitingTerm.heading}</div>
+                              {awaitingTerm.quoted && (
+                                <div className="text-xs text-muted-foreground font-normal mt-1">{awaitingTerm.quoted}</div>
+                              )}
+                            </div>
+                          ) : <>
                           <div>{membershipHistoryTermLabel(record)}</div>
                           {membershipSource === 'personal' && record.term_source_snapshot?.type === 'member_date_field' && (
                             <ExtendMemberDateTerm
@@ -1832,6 +1844,7 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                               Legacy record · commitment dates unknown
                             </div>
                           )}
+                          </>}
                         </td>
                         <td className="p-3">
                           <HistoricalStructureLabel record={record} />
@@ -1875,12 +1888,15 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                               {record.mandatePresentation?.awaitingFirstPayment
                                 ? 'Awaiting first payment'
-                                : record.status === 'pending_payment_setup' && record.payment_status === 'unpaid'
-                                  && !record.billing_agreement_id && ['stripe', 'card', 'upfront'].includes(record.payment_method)
-                                  ? 'Awaiting payment' : record.status || 'active'}
+                                : awaitingPayment ? 'Awaiting payment' : record.status || 'active'}
                             </Badge>
-                            <PaymentStatusBadge paymentStatus={record.payment_status} />
+                            {!awaitingPayment && <PaymentStatusBadge paymentStatus={record.payment_status} />}
                           </div>
+                          {awaitingPayment && (
+                            <p className="mt-1 text-xs text-muted-foreground" data-testid={`text-member-history-awaiting-payment-${record.id}`}>
+                              Card payment not completed. This term has not started and gives no membership access. The member can finish paying from their portal.
+                            </p>
+                          )}
                           <ApproveCardMembership memberId={memberId} record={record} allowed={data?.canApproveCardMembership === true} />
                             {record.mandatePresentation && (
                               <p className="mt-1 text-xs text-muted-foreground">
