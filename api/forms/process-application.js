@@ -1,7 +1,7 @@
 import { isConfirmedFormInvoice } from '../_lib/formInvoiceOrder.js';
 import {assertNotAwardAmendment} from '../_lib/assessment/amendmentBoundary.js';
 import { organizationNameError } from '../../shared/organizationNameValidation.js';
-import { hasOrganizationInvoicingAddressMappings, takeOrganizationInvoicingAddress, saveFormOrganizationInvoicingAddress } from '../_lib/formOrganizationInvoicingAddress.js';
+import { hasOrganizationInvoicingAddressMappings, saveFormOrganizationInvoicingAddress, takeOrganizationInvoicingAddress } from '../_lib/formOrganizationInvoicingAddress.js';
 
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
