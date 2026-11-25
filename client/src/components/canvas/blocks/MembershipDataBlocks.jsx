@@ -97,6 +97,11 @@ export function MembershipDataView({
   const renewalHref = safeMembershipLink(summary.renewal.entryHref || (
     summary.renewal.journeyMode === 'questionnaire' ? null : content.renewalLink));
   const restart = summary.renewal.state === 'post_grace_renewal';
+  // A confirmed-cancelled Direct Debit or monthly card plan: the old
+  // arrangement's payment facts are no longer actionable, so the payment card
+  // shows only the restart explanation and the Restart button.
+  const cancelledPlanRestart = restart && summary.renewal.eligible
+    && (summary.renewal.cancelledDirectDebit === true || summary.renewal.cancelledCardPlan === true);
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   const joiningHref = safeMembershipLink(summary.joining.entryHref);
@@ -261,7 +266,7 @@ export function MembershipDataView({
             Please wait while we check your membership details.
           </> : content.messages[result?.status] || content.messages.error}
         </p>
-      ) : paymentCard ? (
+      ) : paymentCard && cancelledPlanRestart ? null : paymentCard ? (
         <div data-testid="membership-payment-panel" style={{
           marginTop: 30, padding: '18px 22px', background: content.panel.background,
           border: `${content.panel.borderWidth}px solid ${content.panel.borderColor || 'transparent'}`,

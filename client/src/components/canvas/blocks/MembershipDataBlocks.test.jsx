@@ -69,6 +69,17 @@ test('confirmed-cancelled Direct Debit shows Restart your membership beside the 
   assert.match(html,/Restart your membership<\/span>/);
   assert.match(html,/href="\/FormView\?slug=restart-with-bnms"/);
   assert.doesNotMatch(html,/grace period has ended/);
+  assert.doesNotMatch(html,/membership-payment-panel|Direct Debit status|Collection structure|Amount not available/,
+    'the cancelled arrangement\'s payment facts are not shown');
+});
+test('payment facts stay visible for other paused or restart scenarios', () => {
+  const payment={state:'paused',method:'direct_debit',mandateStatus:'cancelled'};
+  for (const renewal of [{eligible:true,state:'post_grace_renewal',journeyMode:'questionnaire',entryHref:'/FormView?slug=restart-with-bnms'},
+    {eligible:false,state:'post_grace_renewal',cancelledDirectDebit:true}, {eligible:true,state:'renewal',entryHref:'/FormView?slug=renew'}]) {
+    const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+      result={{status:'ready',data:{membership:{state:'active'},payment,renewal}}} />);
+    assert.match(html,/membership-payment-panel/, JSON.stringify(renewal));
+  }
 });
 test('confirmed-cancelled monthly card plan shows Restart your membership with the immediate restart notice', () => {
   const renewal={eligible:true,state:'post_grace_renewal',cancelledCardPlan:true,
@@ -88,6 +99,7 @@ test('confirmed-cancelled monthly card plan shows Restart your membership with t
   assert.match(warned,/membership-payment-warning/);
   assert.match(warned,/monthly card payment plan has been cancelled/);
   assert.match(warned,/Restart your membership<\/span>/);
+  assert.doesNotMatch(html+warned,/membership-payment-panel/);
   assert.doesNotMatch(warned,/Direct Debit|untrusted copy/);
   const ignored = normalizeCanvasMembershipSummary({membership:{state:'active'},payment:{state:'paused'},
     renewal:{...renewal,state:'renewal'}});
