@@ -82,6 +82,13 @@ test('confirmed-cancelled monthly card plan shows Restart your membership with t
   assert.match(html,/href="\/FormView\?slug=restart-with-bnms"/);
   assert.match(html,/Your new membership starts on successful payment/);
   assert.doesNotMatch(html,/grace period has ended/);
+  const warned = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{status:'ready',data:{membership:{state:'active'},
+      payment:{state:'paused',warning:{code:'card_plan_cancelled',message:'untrusted copy'}},renewal}}} />);
+  assert.match(warned,/membership-payment-warning/);
+  assert.match(warned,/monthly card payment plan has been cancelled/);
+  assert.match(warned,/Restart your membership<\/span>/);
+  assert.doesNotMatch(warned,/Direct Debit|untrusted copy/);
   const ignored = normalizeCanvasMembershipSummary({membership:{state:'active'},payment:{state:'paused'},
     renewal:{...renewal,state:'renewal'}});
   assert.equal(ignored.renewal.cancelledCardPlan,undefined,'only a restart carries the card-plan flag');

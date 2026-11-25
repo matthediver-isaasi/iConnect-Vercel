@@ -32,3 +32,29 @@ test('active failed plan warns and successful or absent evidence does not', () =
   assert.equal(membershipPaymentWarning({ plan: { status: 'active', last_payment_status: 'paid_out' }, now }), null);
   assert.equal(membershipPaymentWarning({ now }), null);
 });
+test('Stripe-cancelled monthly card plan gets card copy, never Direct Debit copy or debt clearance', () => {
+  // Stripe ending the subscription leaves the card agreement's own status.
+  const result = membershipPaymentWarning({
+    agreement: { provider: 'stripe', status: 'active' },
+    plan: { provider: 'stripe', status: 'payment_plan_cancelled', last_payment_status: 'paid' }, now,
+  });
+  assert.equal(result.code, 'card_plan_cancelled');
+  assert.match(result.message, /monthly card payment plan has been cancelled/);
+  assert.doesNotMatch(result.message, /Direct Debit|cleared|nothing (more )?(is )?owed|no longer owe/i);
+  const late = membershipPaymentWarning({
+    agreement: { provider: 'stripe', status: 'active' },
+    plan: { provider: 'stripe', status: 'payment_plan_cancelled', last_payment_status: 'failed',
+      grace_expires_at: '2026-11-07T07:01:53Z' }, now,
+  });
+  assert.equal(late.code, 'card_plan_cancelled_after_grace');
+  assert.match(late.message, /needs attention/);
+  assert.doesNotMatch(late.message, /Direct Debit/);
+  assert.equal(membershipPaymentWarning({
+    agreement: { provider: 'gocardless', status: 'payment_plan_cancelled' },
+    plan: { provider: 'gocardless', status: 'payment_plan_cancelled' }, now,
+  }).code, 'cancelled');
+  assert.equal(membershipPaymentWarning({
+    agreement: { provider: 'stripe', status: 'active' },
+    plan: { provider: 'stripe', status: 'active', last_payment_status: 'paid' }, now,
+  }), null);
+});
