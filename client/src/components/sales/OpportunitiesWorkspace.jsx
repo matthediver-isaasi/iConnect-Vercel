@@ -39,6 +39,7 @@ import OpportunityProjectTasksPanel from "@/components/sales/OpportunityProjectT
 import OpportunityTaskChoice, { DEFAULT_TASK_CHOICE, taskChoiceReady, useOpportunityTaskOptions } from "@/components/sales/OpportunityTaskChoice";
 import CollaboratorPicker from "@/components/sales/CollaboratorPicker";
 import { showOpportunitySettingsError } from "./opportunitySettingsFeedback";
+import { netMoney } from "./salesNetMoney.mjs";
 
 const FALLBACK_STAGES = [];
 const opportunityValue = (value) => value?.value ?? (value?.value_minor == null ? 0 : Number(value.value_minor) / 100);
@@ -171,7 +172,7 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       <div><Label>Contact role</Label><Input value={form.contactRole} onChange={(e) => setForm({ ...form, contactRole: e.target.value })} disabled={!form.contactId} /></div>
       <div><Label>Stage</Label><Select value={form.stageId} onValueChange={(stageId) => setForm({ ...form, stageId })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Priority</Label><Select value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>)}</SelectContent></Select></div>
-      <div><Label>Value</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
+      <div><Label>Net estimate (excluding tax)</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
       <div><Label>Expected close</Label><Input type="date" value={form.expectedCloseDate} onChange={(e) => setForm({ ...form, expectedCloseDate: e.target.value })} /></div>
       <div className="sm:col-span-2"><OpportunityTaskChoice open={open} choice={taskChoice} onChoice={setTaskChoice} board={taskBoard} onBoard={setTaskBoard} options={taskOptions} /></div>
     </div>
@@ -180,20 +181,20 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
   </DialogContent></Dialog>;
 }
 
-function OpportunityCard({ opportunity, onMove, stages }) {
+export function OpportunityCard({ opportunity, onMove, stages, net = false }) {
   const navigate = useNavigate();
   const stageId = opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage);
   return <Card draggable onDragStart={(e) => e.dataTransfer.setData("text/opportunity-id", idOf(opportunity))} className="cursor-pointer hover:border-blue-300 hover:shadow-sm" onClick={() => navigate(`/sales/opportunities/${idOf(opportunity)}`)}>
     <CardContent className="p-4">
       <div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{nameOf(opportunity)}</p><Badge variant="outline" className="capitalize">{opportunity.priority || "medium"}</Badge></div>
       <p className="mt-1 truncate text-sm text-slate-500">{nameOf(opportunity.organization || { name: opportunity.organization_name })}</p>
-      <p className="mt-3 text-lg font-semibold">{money(opportunityValue(opportunity), opportunity.currency)}</p>
+      <p className="mt-3 text-lg font-semibold">{net ? netMoney(opportunity.netValueMinor, opportunity.currency, opportunity.netValueSource) : money(opportunityValue(opportunity), opportunity.currency)}</p>
       <div className="mt-3 flex items-center justify-between text-xs text-slate-500"><span>{opportunity.probability ?? opportunity.stage?.probability ?? stages.find((s) => idOf(s) === stageId)?.probability ?? 0}%</span><span>{date(opportunity.expected_close_date || opportunity.expectedCloseDate)}</span></div>
     </CardContent>
   </Card>;
 }
 
-function OpportunitiesList({ destination }) {
+export function OpportunitiesList({ destination }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -210,10 +211,11 @@ function OpportunitiesList({ destination }) {
   useEffect(() => setView(destination === "pipeline" ? "kanban" : "table"), [destination]);
   useEffect(() => setPage(1), [debouncedSearch, stageId, mine, view, archived]);
   const query = useQuery({
-    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view, archived],
+    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view, archived, destination],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: view === "kanban" ? "100" : "20", search: debouncedSearch, view });
       params.set("archived", String(archived));
+      if (destination === "pipeline") params.set("moneyBasis", "net");
       if (stageId !== "all") params.set("stageId", stageId);
       if (mine) { params.set("my", "true"); params.set("mine", "true"); }
       return request(`/api/opportunities?${params}`);
@@ -250,6 +252,7 @@ function OpportunitiesList({ destination }) {
     onSettled: () => qc.invalidateQueries({ queryKey: ["opportunities"] }),
   });
   return <div className="space-y-4">
+    {destination === "pipeline" && <p className="text-sm text-slate-600">Values exclude tax. Manual values are net estimates; proposal-backed values use recorded net totals. Missing net evidence is shown as unavailable.</p>}
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative min-w-[220px] flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" aria-label="Search opportunities" placeholder="Search opportunities…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
       <Select value={stageId} onValueChange={setStageId}><SelectTrigger className="w-44"><SelectValue placeholder="All stages" /></SelectTrigger><SelectContent><SelectItem value="all">All stages</SelectItem>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)}</SelectItem>)}</SelectContent></Select>
@@ -269,10 +272,23 @@ function OpportunitiesList({ destination }) {
             const rows = opportunities.filter((item) => (item.stage_id || item.stageId || idOf(item.stage)) === idOf(stage));
             return <section key={idOf(stage)} className="w-[290px] shrink-0 snap-start rounded-xl bg-slate-100 p-3" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const opportunity = opportunities.find((x) => idOf(x) === e.dataTransfer.getData("text/opportunity-id")); if (opportunity) (stage.is_lost || stage.isLost) ? setPendingLossMove({ opportunity, targetStageId: idOf(stage) }) : move.mutate({ opportunity, targetStageId: idOf(stage) }); }}>
               <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color || "#64748b" }} /><h3 className="font-semibold">{nameOf(stage)}</h3></div><Badge variant="secondary">{rows.length}</Badge></div>
-              <div className="space-y-3">{rows.map((item) => <OpportunityCard key={idOf(item)} opportunity={item} stages={stages} />)}</div>
+              <div className="space-y-3">{rows.map((item) => <OpportunityCard key={idOf(item)} opportunity={item} stages={stages} net={destination === "pipeline"} />)}</div>
             </section>;
           })}</div>
-             : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Organisation</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3 text-right">Value</th><th className="px-4 py-3">{archived ? "Archived" : "Close date"}</th></tr></thead><tbody>{opportunities.map((item) => <tr key={idOf(item)} tabIndex={0} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => navigate(`/sales/opportunities/${idOf(item)}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/sales/opportunities/${idOf(item)}`); }}><td className="px-4 py-3 font-medium">{nameOf(item)}</td><td className="px-4 py-3">{nameOf(item.organization || { name: item.organization_name })}</td><td className="px-4 py-3"><Badge variant="outline">{nameOf(item.stage || stages.find((s) => idOf(s) === (item.stage_id || item.stageId)))}</Badge></td><td className="px-4 py-3">{nameOf(item.owner || { name: item.owner_name })}</td><td className="px-4 py-3 text-right font-medium">{money(opportunityValue(item), item.currency)}</td><td className="px-4 py-3">{date(archived ? item.archived_at : item.expected_close_date || item.expectedCloseDate)}</td></tr>)}</tbody></table></div></Card>}
+             : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm">
+               <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
+                 <th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Organisation</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Owner</th>
+                 <th className="px-4 py-3 text-right">{destination === "pipeline" ? "Net value (excluding tax)" : "Value"}</th>
+                 <th className="px-4 py-3">{archived ? "Archived" : "Close date"}</th>
+               </tr></thead>
+               <tbody>{opportunities.map((item) => <tr key={idOf(item)} tabIndex={0} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => navigate(`/sales/opportunities/${idOf(item)}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/sales/opportunities/${idOf(item)}`); }}>
+                 <td className="px-4 py-3 font-medium">{nameOf(item)}</td><td className="px-4 py-3">{nameOf(item.organization || { name: item.organization_name })}</td>
+                 <td className="px-4 py-3"><Badge variant="outline">{nameOf(item.stage || stages.find((s) => idOf(s) === (item.stage_id || item.stageId)))}</Badge></td>
+                 <td className="px-4 py-3">{nameOf(item.owner || { name: item.owner_name })}</td>
+                 <td className="px-4 py-3 text-right font-medium">{destination === "pipeline" ? netMoney(item.netValueMinor, item.currency, item.netValueSource) : money(opportunityValue(item), item.currency)}</td>
+                 <td className="px-4 py-3">{date(archived ? item.archived_at : item.expected_close_date || item.expectedCloseDate)}</td>
+               </tr>)}</tbody>
+             </table></div></Card>}
     {view === "table" && pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} opportunities · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
     <OpportunityDialog open={createOpen} onOpenChange={setCreateOpen} stages={stages} onCreated={(created) => { qc.invalidateQueries({ queryKey: ["opportunities"] }); if (idOf(created)) navigate(`/sales/opportunities/${idOf(created)}`); }} />
     <LossReasonDialog open={Boolean(pendingLossMove)} onOpenChange={(open) => !open && setPendingLossMove(null)} reasons={arr(lossReasonsQuery.data)} onConfirm={(lossReasonId) => { move.mutate({ ...pendingLossMove, lossReasonId }); setPendingLossMove(null); }} />

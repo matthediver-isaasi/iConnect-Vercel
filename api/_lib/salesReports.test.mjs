@@ -170,7 +170,7 @@ test('view and frontend report key aliases normalize to supported reports', () =
 test('dashboard, organisation, and event builders expose frontend contract sections', () => {
   const result = buildSalesReport(fixture, filters());
   const dashboard = buildSalesDashboard(fixture, result);
-  assert.equal(dashboard.byCurrency.find((row) => row.currency === 'USD').wonValue, 1200);
+  assert.equal(dashboard.byCurrency.find((row) => row.currency === 'USD').wonValue, 1000);
   assert.equal(dashboard.recentWins.length, 1);
   assert.equal(dashboard.recentActivity.length, 1);
   assert.equal(dashboard.overdueTasks.length, 1);
@@ -189,6 +189,59 @@ test('dashboard, organisation, and event builders expose frontend contract secti
   });
   assert.equal(event.capacity[0].trueAvailability, 15);
   assert.equal(event.capacity.find((row) => row.id === 'untouched').trueAvailability, 5);
+});
+
+test('dashboard uses authoritative net amounts while report and organisation contracts stay gross-compatible', () => {
+  const query = parseSalesReportQuery({ view: 'dashboard', expectedCloseFrom: '2020-01-01' });
+  const result = buildSalesReport(fixture, query);
+  const dashboard = buildSalesDashboard(fixture, result, query);
+  const gbp = dashboard.byCurrency.find(row => row.currency === 'GBP');
+  assert.equal(gbp.pipelineValue, 500, 'linked proposal replaces manual/gross-backed opportunity amount');
+  assert.equal(gbp.weightedPipeline, 125);
+  assert.equal(gbp.outstandingQuoteValue, 500);
+  assert.equal(dashboard.recentWins[0].value, 1000);
+  assert.equal(dashboard.expectedCloses.find(row => row.id === 'o-sale').value, 1000);
+  assert.equal(dashboard.outstandingQuotes[0].opportunityName, 'Pipeline');
+  assert.equal(dashboard.outstandingQuotes[0].quoteNumber, 'Q2');
+  assert.equal(dashboard.outstandingQuotes[0].organisationName, 'Alpha');
+  assert.equal(dashboard.outstandingQuotes[0].date, '2026-02-02T00:00:00Z');
+  const gbpQuery = parseSalesReportQuery({ view: 'dashboard', currency: 'GBP' });
+  const single = buildSalesDashboard(fixture, buildSalesReport(fixture, gbpQuery), gbpQuery);
+  assert.equal(single.summary.currency, 'GBP');
+  assert.equal(single.summary.pipelineValue, 500);
+  assert.equal(single.summary.weightedPipeline, 125);
+  assert.equal(single.summary.outstandingQuoteValue, 500);
+  assert.equal(single.summary.wonValue, 0);
+  assert.equal(buildOrganisationCommercial(fixture, result, 'org-b').summary.salesValue, 1200);
+  assert.equal(buildSalesReport(fixture, filters({ report: 'pipeline' })).details.find(row => row.id === 'o-open').valueMinor, 10001);
+});
+
+test('outstanding eligibility, counts, zero amounts and missing net evidence remain explicit', () => {
+  const data = structuredClone(fixture);
+  for (let i = 0; i < 11; i++) {
+    data.quotes.push({ id: `extra-${i}`, quote_number: i ? `P-${i}` : null, current_version: 1 });
+    data.versions.push({ id: `extra-v-${i}`, quote_id: `extra-${i}`, version_number: 1,
+      status: ['issued', 'sent', 'accepted'][i % 3], currency: i % 2 ? 'EUR' : 'GBP',
+      net_minor: 0, tax_minor: 0, gross_minor: 0, issue_date: i ? '2026-02-03' : null });
+  }
+  // Accepted version with confirmed sale must still be excluded.
+  data.versions[0].status = 'accepted';
+  const query = parseSalesReportQuery({ view: 'dashboard' });
+  let dashboard = buildSalesDashboard(data, buildSalesReport(data, query), query);
+  assert.equal(dashboard.summary.outstandingQuotes, 12);
+  assert.equal(dashboard.outstandingQuotes.some(row => row.quoteId === 'q1'), false);
+  const zero = dashboard.outstandingQuotes.find(row => row.quoteId === 'extra-0');
+  assert.equal(zero.netMinor, 0);
+  assert.equal(zero.quoteNumber, null);
+  assert.equal(zero.organisationName, null);
+  assert.equal(zero.opportunityName, null);
+  assert.equal(zero.date, null);
+  data.versions.find(row => row.id === 'v2').net_minor = null;
+  dashboard = buildSalesDashboard(data, buildSalesReport(data, query), query);
+  assert.equal(dashboard.byCurrency.find(row => row.currency === 'GBP').outstandingQuoteValue, null);
+  assert.equal(dashboard.byCurrency.find(row => row.currency === 'GBP').pipelineValue, null);
+  assert.equal(dashboard.outstandingQuotes.find(row => row.quoteId === 'q2').netMinor, null);
+  assert.equal(dashboard.byCurrency.find(row => row.currency === 'EUR').outstandingQuoteValue, 0);
 });
 
 test('event report handler exposes reconciled allocation and true availability', async () => {

@@ -9,6 +9,7 @@ import {
   actorFields, enrichOpportunities, sendOpportunityError, validatePrincipal, validateTenantRecord,
 } from '../_lib/opportunityService.js';
 import { resolveOpportunityTaskChoice } from '../_lib/salesProjects.js';
+import { loadOpportunityNetProjections } from '../_lib/salesNetProjection.js';
 
 // Clear, non-internal messages for the atomic create-with-board RPC.
 function projectCreateError(error) {
@@ -92,8 +93,13 @@ export function createOpportunitiesHandler(dependencies = {}) {
         const { data, error, count } = await query.order('updated_at', { ascending: false }).order('id', { ascending: true })
           .range(pagination.from, pagination.to);
         if (error) throw error;
+        const items = await enrichOpportunities(db, context.tenantId, data || []);
+        if (req.query.moneyBasis === 'net') {
+          const projections = await loadOpportunityNetProjections(db, context.tenantId, data || []);
+          for (const item of items) Object.assign(item, projections.get(String(item.id)));
+        }
         return res.status(200).json({
-          items: await enrichOpportunities(db, context.tenantId, data || []),
+          items,
           page: pagination.page, pageSize: pagination.pageSize, total: count || 0,
         });
       }

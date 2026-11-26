@@ -42,7 +42,18 @@ export function createSalesReportsHandler(dependencies = {}) {
         },
       };
       if (filters.mode === 'dashboard') {
-        return res.status(200).json({ ...base, ...buildSalesDashboard(data, result, filters) });
+        return res.status(200).json({
+          ...base,
+          metadata: {
+            ...base.metadata,
+            money: { ...base.metadata.money, basis: 'net, excluding tax; unavailable evidence is not zero' },
+            pipeline: {
+              ...base.metadata.pipeline,
+              source: 'manual net estimates or authoritative proposal/sale net snapshots',
+            },
+          },
+          ...buildSalesDashboard(data, result, filters),
+        });
       }
       if (filters.mode === 'organisation' || filters.mode === 'organization') {
         if (filters.organisation.length !== 1) throw new SalesHttpError(400, 'organizationId is required');

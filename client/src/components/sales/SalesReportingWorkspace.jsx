@@ -17,6 +17,8 @@ import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { quotePath } from "@shared/salesNaming.js";
 import { dashboardReportParams, formatDashboardDate, validateExpectedCloseRange } from "./dashboardDates.mjs";
 import { SalesRecentActivity } from "./SalesRecentActivity";
+import { OutstandingProposalSummary } from "./OutstandingProposalSummary";
+import { netMoney } from "./salesNetMoney.mjs";
 
 const REPORTS = [
   ["pipeline", "Pipeline"], ["owners", "Owners"], ["products", "Products"],
@@ -77,8 +79,8 @@ function ActivityList({ title, rows, emptyText, controls, total, query, quoteRow
     {!list(rows).length ? <p className="py-5 text-center text-sm text-slate-500">{emptyText}</p> : list(rows).slice(0, 8).map((row, index) => {
       const opportunityId = row.opportunityId || row.opportunity_id || (row.type === "opportunity" ? id(row) : null);
       const quoteId = row.quoteId || row.quote_id || (quoteRows || row.type === "quote" ? id(row) : null);
-       const content = <div className="flex items-center justify-between gap-4 rounded-lg border p-3 hover:bg-slate-50"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{label(row)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{row.organizationName || row.organisation_name || row.description || row.status || "Sales activity"}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold">{row.value != null || row.amount != null ? currency(row.value ?? row.amount, row.currency, true) : ""}</p>{(row.date || row.createdAt || row.expectedCloseDate) && <p className="text-xs text-slate-500">{formatDashboardDate(row.date || row.createdAt || row.expectedCloseDate)}</p>}</div></div>;
-      const to = quoteId ? quotePath(naming, quoteId) : opportunityId ? `/sales/opportunities/${opportunityId}` : null;
+       const content = <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-3 hover:bg-slate-50"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{label(row)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{row.organizationName || row.organisation_name || row.description || row.status || "Sales activity"}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold">{row.moneyBasis === "net" ? netMoney(row.value, row.currency, row.netValueSource) : row.value != null || row.amount != null ? currency(row.value ?? row.amount, row.currency, true) : ""}</p>{(row.date || row.createdAt || row.expectedCloseDate) && <p className="text-xs text-slate-500">{formatDashboardDate(row.date || row.createdAt || row.expectedCloseDate)}</p>}</div></div>;
+      const to = quoteId ? quotePath(naming, quoteId) : opportunityId ? `/sales/opportunities/${encodeURIComponent(opportunityId)}` : null;
       return to ? <Link key={id(row) || index} to={to}>{content}</Link> : <div key={id(row) || index}>{content}</div>;
     })}
   </CardContent></Card>;
@@ -117,16 +119,15 @@ export function SalesDashboard() {
     [`Outstanding ${naming.plural}`, summary.outstandingQuoteValue ?? summary.quoteValue ?? summary.outstanding_quotes_value, FileText, summary.outstandingQuotes ?? list(data.outstandingQuotes).length],
   ];
   return <div className="space-y-5">
+    <p className="text-sm text-slate-600">All monetary values are net, excluding tax. Manual opportunity values are net estimates; unavailable net evidence is not counted as zero.</p>
     {query.isLoading && <p className="text-sm text-slate-500" role="status">Loading sales data…</p>}
     {data.definitions?.description && <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">{reportLabel(data.definitions.description, naming)}</p>}
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([name, value, icon, hint]) => <SummaryCard key={name} title={name} value={summary.currency ? currency(value, summary.currency, true) : "By currency"} icon={icon} hint={hint} />)}</div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([name, value, icon, hint]) => <SummaryCard key={name} title={`${name} (net)`} value={summary.currency ? netMoney(value, summary.currency) : "By currency"} icon={icon} hint={hint} />)}</div>
     {currencyRows.length > 0 && <Card><CardHeader><CardTitle className="text-base">Pipeline by currency</CardTitle></CardHeader><CardContent className="space-y-4">{currencyRows.map((row, index) => {
-      const amount = Number(row.value ?? row.amount ?? row.total ?? 0);
-      const max = Math.max(...currencyRows.map((item) => Number(item.value ?? item.amount ?? item.total ?? 0)), 1);
-       return <div key={row.currency || index}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{row.currency || "Unspecified"}</span><span>{currency(amount, row.currency, true)}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(2, amount / max * 100)}%` }} /></div></div>;
+      return <div key={row.currency || index} className="rounded-lg border p-3"><p className="font-medium">{row.currency || "Unspecified"}</p><dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">{[["Open pipeline", row.pipelineValue], ["Weighted pipeline", row.weightedPipeline], ["Won", row.wonValue], [`Outstanding ${naming.plural}`, row.outstandingQuoteValue]].map(([name, amount]) => <div key={name}><dt className="text-slate-500">{name} (net)</dt><dd>{netMoney(amount, row.currency)}</dd></div>)}</dl></div>;
     })}</CardContent></Card>}
-    <div className="grid gap-5 xl:grid-cols-2"><div className="space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><SalesRecentActivity rows={data.recentActivity} query={query} /></div><div className="space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
-    {list(data.outstandingQuotes).length > 0 && <ActivityList title={`Outstanding ${naming.plural}`} rows={data.outstandingQuotes} emptyText={`No outstanding ${naming.plural}.`} quoteRows />}
+    <div className="grid gap-5 xl:grid-cols-2"><div className="min-w-0 space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><SalesRecentActivity rows={data.recentActivity} query={query} /></div><div className="min-w-0 space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
+    <OutstandingProposalSummary rows={list(data.outstandingQuotes)} total={summary.outstandingQuotes ?? list(data.outstandingQuotes).length} />
   </div>;
 }
 

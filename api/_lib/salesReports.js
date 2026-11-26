@@ -1,6 +1,7 @@
 import { SalesHttpError } from './salesAccess.js';
 import { mergeTicketCommercialCapacity } from './eventCommercialCapacity.js';
 import { buildSalesActivity } from './salesDashboardActivity.js';
+import { netMinor, opportunityNetProjections, netPipelineGroups } from './salesNetProjection.js';
 
 export const SALES_REPORT_MAX_SCAN = 50000;
 export const SALES_REPORT_MAX_PAGE_SIZE = 100;
@@ -452,11 +453,22 @@ export function buildSalesDashboard(data, result, filters = {}) {
   const now = Date.now();
   const closeFrom = filters.expectedCloseFrom || (filters.expectedCloseTo ? null : new Date(now).toISOString().slice(0, 10));
   const closeTo = filters.expectedCloseTo;
-  const pipelineByCurrency = result.summary.pipeline;
+  const projections = opportunityNetProjections(data.opportunities || [], data.quotes, data.versions, data.sales);
+  const netOpportunity = row => ({ ...row, ...projections.get(String(row.id)) });
+  // Preserve report/export contracts: only dashboard projections change basis.
+  const pipelineIds = new Set(result.summary.pipeline.map(row => row.currency));
+  const pipelineByCurrency = netPipelineGroups(result.prepared.opportunities.filter(row =>
+    !row.archived_at && !row.stage?.is_won && !row.stage?.is_lost
+    && has(filters.owner || [], row.owner_id) && has(filters.organisation || [], row.organization_id)
+    && has(filters.stage || [], row.stage_id) && pipelineIds.has(row.currency)
+    && dateInRange(row.expected_close_date, filters)).map(netOpportunity));
   const wonByCurrency = result.summary.sales;
   const outstandingQuotes = result.prepared.quoteRows.filter((row) =>
     ['issued', 'sent', 'accepted'].includes(row.status)
-    && !result.prepared.sales.some((sale) => String(sale.quoteId) === String(row.quoteId))).map(clean);
+    && !result.prepared.sales.some((sale) => String(sale.quoteId) === String(row.quoteId))).map(row => ({
+      ...clean(row), opportunityName: row._opportunity?.name || null,
+      netMinor: netMinor(row._version?.net_minor),
+    }));
   const quoteByCurrency = moneyGroups(outstandingQuotes, (row) => row);
   const currencies = [...new Set([...pipelineByCurrency, ...wonByCurrency, ...quoteByCurrency]
     .map((row) => row.currency))].sort();
@@ -465,14 +477,17 @@ export function buildSalesDashboard(data, result, filters = {}) {
     const won = wonByCurrency.find((row) => row.currency === currency);
     const quotes = quoteByCurrency.find((row) => row.currency === currency);
     return {
-      currency, value: pipeline?.valueMinor || 0, pipelineValue: pipeline?.valueMinor || 0,
-      weightedPipeline: pipeline?.weightedValueMinor || 0, wonValue: won?.grossMinor || 0,
-      outstandingQuoteValue: quotes?.grossMinor || 0,
+      currency, value: pipeline ? pipeline.valueMinor : 0, pipelineValue: pipeline ? pipeline.valueMinor : 0,
+      weightedPipeline: pipeline ? pipeline.weightedValueMinor : 0,
+      wonValue: won ? (result.prepared.sales.some(row => row.currency === currency && netMinor(row._version?.net_minor) === null) ? null : won.netMinor) : 0,
+      outstandingQuoteValue: quotes ? (outstandingQuotes.some(row => row.currency === currency && row.netMinor === null) ? null : quotes.netMinor) : 0,
+      unavailableCount: pipeline?.unavailableCount || 0,
     };
   });
   const primary = byCurrency.length === 1 ? byCurrency[0] : null;
   const recentWins = stable(result.prepared.sales).sort((a, b) => dateValue(b.date) - dateValue(a.date)).slice(0, 8)
-    .map((row) => ({ ...row, title: row.quoteNumber || 'Commercial sale', value: row.grossMinor }));
+    .map((row) => ({ ...row, title: row.quoteNumber || 'Commercial sale',
+      value: netMinor(result.prepared.sales.find(sale => sale.id === row.id)?._version?.net_minor), moneyBasis: 'net' }));
   const recentActivity = data.recentActivity || buildSalesActivity(data).map(({ _actorKind, _actorId, ...row }) => row);
   const matchingCloses = result.details && result.summary.pipeline
     ? stable(result.prepared.opportunities.filter((row) => !row.archived_at && !row.stage?.is_won && !row.stage?.is_lost
@@ -480,7 +495,8 @@ export function buildSalesDashboard(data, result, filters = {}) {
       && (!closeFrom || String(row.expected_close_date).slice(0, 10) >= closeFrom)
       && (!closeTo || String(row.expected_close_date).slice(0, 10) <= closeTo)).map((row) => ({
       id: row.id, title: row.name, opportunityId: row.id, expectedCloseDate: row.expected_close_date,
-      date: row.expected_close_date, value: number(row.value_minor), currency: row.currency,
+      date: row.expected_close_date, value: projections.get(String(row.id))?.netValueMinor ?? null,
+      moneyBasis: 'net', netValueSource: projections.get(String(row.id))?.netValueSource, currency: row.currency,
       organizationName: row.organisation?.name,
     }))).sort((a, b) => (filters.expectedCloseSort === 'desc' ? -1 : 1)
       * (dateValue(a.date) - dateValue(b.date))) : [];
@@ -492,7 +508,7 @@ export function buildSalesDashboard(data, result, filters = {}) {
     summary: {
       currency: primary?.currency || null, pipelineValue: primary?.pipelineValue ?? null,
       weightedPipeline: primary?.weightedPipeline ?? null, wonValue: primary?.wonValue ?? null,
-      outstandingQuoteValue: primary?.outstandingQuoteValue ?? null,
+      outstandingQuoteValue: primary?.outstandingQuoteValue ?? null, moneyBasis: 'net',
       openOpportunities: pipelineByCurrency.reduce((sum, row) => sum + row.count, 0),
       wonCount: result.prepared.sales.length, outstandingQuotes: outstandingQuotes.length,
     },

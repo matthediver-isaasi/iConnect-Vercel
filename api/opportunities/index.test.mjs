@@ -67,6 +67,38 @@ test('ordinary opportunity lists retain closed stages; lookup errors are not emp
   assert.ok(failed.res.statusCode>=400);
 });
 
+test('pipeline net projection enriches only scoped rows without rewriting the ordinary list contract', async () => {
+  const db = salesPrincipalFixture();
+  db.rows.opportunity.push({ id: 'converted', tenant_id: 'tenant-a', organization_id: 'org',
+    stage_id: 'stage', owner_id: 'identity', owner_kind: 'tenant_user', archived_at: null,
+    value_minor: 12000, currency: 'GBP' });
+  db.rows.sales_quote = [{ id: 'q', tenant_id: 'tenant-a', opportunity_id: 'converted', current_version: 2 }];
+  db.rows.sales_quote_version = [
+    { id: 'v', tenant_id: 'tenant-a', quote_id: 'q', version_number: 1, net_minor: 10000, gross_minor: 12000, currency: 'GBP' },
+    { id: 'new', tenant_id: 'tenant-a', quote_id: 'q', version_number: 2, net_minor: 20000, currency: 'GBP' },
+    { id: 'foreign', tenant_id: 'tenant-b', quote_id: 'q', version_number: 1, net_minor: 999999, currency: 'GBP' },
+  ];
+  db.rows.sales_commercial_sale = [{ id: 'sale', tenant_id: 'tenant-a', opportunity_id: 'converted', quote_id: 'q', quote_version_id: 'v' }];
+  const handler = createOpportunitiesHandler({ db, getTenantContext: async () => unifiedContext,
+    requireCapability: async () => {}, hasAdminAccess: async () => true });
+  const res = salesResponse();
+  await handler({ method: 'GET', query: {} }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.items[0].value_minor, 12000);
+  assert.equal(res.body.items[0].netValueMinor, undefined);
+  await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.items[0].value_minor, 12000);
+  assert.equal(res.body.items[0].netValueMinor, 10000);
+  assert.equal(res.body.items[0].netValueSource, 'proposal');
+  db.rows.sales_commercial_sale[0].opportunity_id = null;
+  await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
+  assert.equal(res.body.items[0].netValueMinor, 10000, 'quote linkage retains the confirmed version even without sale.opportunity_id');
+  db.failures.set('sales_quote_version', Error('evidence unavailable'));
+  await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
+  assert.equal(res.statusCode, 500);
+});
+
 test('creation accepts every organisation status with an optional contact, but rejects another tenant', async () => {
   for (const status of ['Live', 'Pending', null]) {
     for (const contactId of [null, 'contact']) {
