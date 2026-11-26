@@ -46,6 +46,22 @@ function harness(overrides = {}, eventRow = { id: eventId, start_date: '2099-01-
   return { invoke, calls, db };
 }
 const save = () => ({ action: 'save', id, name: 'Admissions', expectedRevision: 0, graph: graph(), layout: { positions: {} } });
+test('individual step widths save as layout only, with bounded tenant-graph references', async () => {
+  const input = save();
+  input.layout.nodeWidths = { source: 320, checkout: 160 };
+  const before = structuredClone(input.graph), h = harness();
+  assert.equal((await h.invoke(input)).code, 200);
+  const args = h.calls.find(([name]) => name === 'event_funnel_save_definition')[1];
+  assert.deepEqual(args.p_layout.nodeWidths, { source: 320, checkout: 160 });
+  assert.deepEqual(args.p_graph, before);
+  assert.deepEqual(validateFunnelLayout({ positions: {}, nodeWidths: { source: 640 }, connectors: {} }, input.graph).nodeWidths, { source: 640 });
+  for (const width of [0, 159, 641, 300.5, '300', null, Infinity, NaN]) {
+    assert.throws(() => validateFunnelLayout({ positions: {}, nodeWidths: { source: width } }, input.graph), /Invalid step width/);
+  }
+  for (const nodeWidths of [null, [], { foreign: 300 }]) {
+    assert.throws(() => validateFunnelLayout({ positions: {}, nodeWidths }, input.graph), /Invalid step width/);
+  }
+});
 test('connector layout saves independently and rejects foreign or unbounded geometry', async () => {
   const input = save(), key = funnelConnectorKey({ source: 'source', sourceHandle: 'accept', target: 'checkout' });
   input.layout.connectors = { [key]: { bends: [{ x: 10, y: 20 }, { x: 120, y: 180 }], labelOffset: { x: 15, y: -20 } } };

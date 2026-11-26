@@ -69,6 +69,56 @@ async function dragBy(page, locator, dx, dy) {
   await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 8 });
   await page.mouse.up();
 }
+test('step widths resize independently, persist with layout and respect the editing lock', async () => {
+  const { page, errors } = await open();
+  try {
+    const widthOf = id => page.getByTestId(`funnel-node-${id}`).evaluate(node => node.offsetWidth);
+    await page.getByTestId('funnel-step-width').fill('320');
+    await page.waitForFunction(() => document.querySelector('[data-testid="funnel-node-source"]').offsetWidth === 320);
+    assert.equal(await widthOf('branch'), 215);
+    const heading = await page.getByTestId('funnel-node-source').locator('strong').evaluate(node => ({
+      size: getComputedStyle(node).fontSize, weight: getComputedStyle(node).fontWeight,
+    }));
+    assert.deepEqual(heading, { size: '12px', weight: '600' });
+    await page.getByTestId('funnel-node-branch').click();
+    await page.getByTestId('funnel-step-width').fill('260');
+    await page.getByTestId('funnel-node-parking').click();
+    await dragBy(page, page.getByTestId('funnel-resize-parking'), 55, 0);
+    assert.ok(await widthOf('parking') > 240);
+    assert.equal(await widthOf('source'), 320);
+    assert.equal(await widthOf('branch'), 260);
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    const saved = await page.evaluate(() => window.saved[0]);
+    assert.equal(saved.layout.nodeWidths.source, 320);
+    assert.equal(saved.layout.nodeWidths.branch, 260);
+    assert.ok(saved.layout.nodeWidths.parking > 240);
+    assert.equal(saved.graph.nodes.some(node => 'width' in node || 'nodeWidths' in node || 'style' in node), false);
+    await page.getByTestId('funnel-definition-choice').selectOption('fixture');
+    assert.equal(await widthOf('source'), 320);
+    assert.equal(await page.getByTestId('funnel-step-width').inputValue(), '320');
+    await page.getByTestId('funnel-auto-layout').click();
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 2);
+    assert.deepEqual(await page.evaluate(() => window.saved[1].layout.nodeWidths), saved.layout.nodeWidths);
+    assert.deepEqual(await page.evaluate(() => window.saved[1].graph), saved.graph);
+    await page.getByTestId('funnel-lock-editing').click();
+    await page.getByTestId('funnel-node-branch').click();
+    assert.equal(await page.getByTestId('funnel-step-width').isDisabled(), true);
+    assert.equal(await page.getByTestId('funnel-resize-branch').count(), 0);
+    assert.equal(await page.locator('.react-flow__minimap-node').count(), 5);
+    await page.getByTestId('funnel-lock-editing').click();
+    await page.getByTestId('funnel-node-source').click();
+    await page.getByRole('button', { name: 'Reset width', exact: true }).click();
+    assert.equal(await widthOf('source'), 215);
+    assert.equal(await widthOf('branch'), 260);
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 3);
+    assert.deepEqual(await page.evaluate(() => window.saved[2].graph), saved.graph);
+    assert.equal(await page.evaluate(() => 'source' in window.saved[2].layout.nodeWidths), false);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
 test('connector bends, segments and labels save and reload without changing routing', async () => {
   const { page, errors } = await open();
   try {

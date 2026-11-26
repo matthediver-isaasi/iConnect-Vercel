@@ -44,6 +44,7 @@ const built = await build({
                export const MarkerType = {ArrowClosed: 'arrowclosed'};
                export const Handle = () => null, Background = () => null, Controls = () => null, MiniMap = () => null;
                export const BaseEdge = () => null;
+               export const NodeResizeControl = () => null;
                export const EdgeLabelRenderer = ({children}) => <>{children}</>;
                export const useReactFlow = () => ({screenToFlowPosition: point => point});
                export function ReactFlow({children}) { return <div data-testid="flow-canvas">{children}</div>; }`

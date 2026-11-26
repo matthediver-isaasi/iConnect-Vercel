@@ -18,14 +18,20 @@
 .efb-event-search { margin-bottom: 6px; }
 .efb-check { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; margin: 8px 0; overflow-wrap: anywhere; }
 .efb-check input { margin-top: 3px; accent-color: #30759b; }
-.efb-node { width: 215px; border: 1px solid #b8cbd8; border-top: 3px solid #397ba1; border-radius: 7px; padding: 12px 13px 18px; background: #fbfcfd; box-shadow: 0 3px 8px #24364a0a; font-size: 12px; }
+.efb-node { width: 100%; border: 1px solid #b8cbd8; border-top: 3px solid #397ba1; border-radius: 7px; padding: 12px 13px 18px; background: #fbfcfd; box-shadow: 0 3px 8px #24364a0a; font-size: 12px; }
 .efb-node.is-selected { outline: 2px solid #397ba1; outline-offset: 3px; }
 .efb-node.is-route { background: #edf7f2; border-color: #43846a; }
 .efb-node.condition { border-top-color: #aa7d34; background: #fcf9f1; }
 .efb-node.addon { border-top-color: #72834e; }
 .efb-node.membership { border-top-color: #6a5a9c; background: #f8f6fc; }
 .efb-node.checkout { border-top-color: #63738b; }
-.efb-node strong { display: block; font-size: 13px; margin: 7px 0 4px; overflow-wrap: anywhere; }
+.efb-node strong { display: block; font-size: 12px; font-weight: 600; line-height: 1.4; margin: 7px 0 4px; overflow-wrap: anywhere; }
+.efb-width-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.efb-width-help { margin-top: 5px; gap: 5px; }
+.efb-width-help button { color: #397ba1; font-size: 11px; text-decoration: underline; background: transparent; border: 0; padding: 0; }
+.efb-width-help button:disabled { color: #617184; text-decoration: none; }
+.efb-node .efb-width-resize { width: 8px; height: 28px; border-radius: 4px; background: #397ba1; border: 2px solid #f7f9fb; cursor: ew-resize; }
+.efb-width-grip { display: block; width: 100%; height: 100%; }
 .efb-node-kind { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .07em; color: var(--funnel-muted); }
 .efb-node .react-flow__handle { width: 9px; height: 9px; background: #397ba1; border: 2px solid #f7f9fb; }
 .efb-connector-control { position: absolute; pointer-events: all; touch-action: none; cursor: move; z-index: 6; }

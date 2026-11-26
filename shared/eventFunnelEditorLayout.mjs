@@ -1,6 +1,11 @@
 // Layout identities include the destination: retargeting a choice must not
 // inherit a connector drawn for a different connection.
 export const funnelConnectorKey = edge => JSON.stringify([edge.source, edge.sourceHandle, edge.target]);
+export const DEFAULT_FUNNEL_STEP_WIDTH = 215;
+export const MIN_FUNNEL_STEP_WIDTH = 160;
+export const MAX_FUNNEL_STEP_WIDTH = 640;
+export const isFunnelStepWidth = width => Number.isInteger(width)
+  && width >= MIN_FUNNEL_STEP_WIDTH && width <= MAX_FUNNEL_STEP_WIDTH;
 
 export function funnelConnectorKeys(graph) {
   const keys = new Set();
@@ -29,6 +34,7 @@ export function pruneFunnelEditorLayout(layout, graph) {
   return {
     ...layout,
     positions: Object.fromEntries(Object.entries(layout?.positions || {}).filter(([id]) => ids.has(id))),
+    ...(layout?.nodeWidths ? { nodeWidths: Object.fromEntries(Object.entries(layout.nodeWidths).filter(([id]) => ids.has(id))) } : {}),
     ...(layout?.connectors ? { connectors: Object.fromEntries(Object.entries(layout.connectors).filter(([key]) => keys.has(key))) } : {}),
   };
 }

@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType, NodeResizeControl } from '@xyflow/react';
 import EventFunnelConnector from './EventFunnelConnector';
-import { funnelConnectorKey, isFunnelLayoutPoint, pruneFunnelEditorLayout } from '../../../../shared/eventFunnelEditorLayout.mjs';
+import EventFunnelStepWidth from './EventFunnelStepWidth';
+import { funnelConnectorKey, isFunnelLayoutPoint, pruneFunnelEditorLayout, DEFAULT_FUNNEL_STEP_WIDTH, MIN_FUNNEL_STEP_WIDTH, MAX_FUNNEL_STEP_WIDTH, isFunnelStepWidth } from '../../../../shared/eventFunnelEditorLayout.mjs';
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
@@ -66,6 +67,11 @@ function Destination({ label, value, nodes, catalog, onChange }) {
 function FunnelNode({ data, selected }) {
   const { node, title, detail, ports, inRoute } = data;
   return <div className={`efb-node ${node.type} ${selected ? 'is-selected' : ''} ${inRoute ? 'is-route' : ''}`} data-testid={`funnel-node-${node.id}`}>
+    {selected && !data.locked && <NodeResizeControl position="right" resizeDirection="horizontal"
+      minWidth={MIN_FUNNEL_STEP_WIDTH} maxWidth={MAX_FUNNEL_STEP_WIDTH} className="efb-width-resize nodrag nopan"
+      onResize={(_, size) => data.onWidthChange(Math.round(size.width))}>
+      <span className="efb-width-grip" data-testid={`funnel-resize-${node.id}`} title="Drag to resize step width" aria-hidden="true" />
+    </NodeResizeControl>}
     {node.type !== 'source' && <Handle type="target" position={Position.Top} aria-label="Incoming route" />}
      <span className="efb-node-kind">{typeNames[node.type] || 'Unsupported funnel step'}</span>
     <strong>{title}</strong>
@@ -319,6 +325,16 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     setDraft(current => ({ ...current, layout: { ...current.layout,
       connectors: { ...current.layout?.connectors, [key]: value } } }));
   }
+  function updateStepWidth(id, width) {
+    if (editGuard.current || !isFunnelStepWidth(width)) return;
+    setDraft(current => {
+      if (!current.graph.nodes.some(node => node.id === id)) return current;
+      const nodeWidths = { ...current.layout?.nodeWidths };
+      if (width === DEFAULT_FUNNEL_STEP_WIDTH) delete nodeWidths[id];
+      else nodeWidths[id] = width;
+      return { ...current, layout: { ...current.layout, nodeWidths } };
+    });
+  }
   function updateNode(patch) {
     changeDraft(current => ({ ...current, graph: { ...current.graph, nodes: current.graph.nodes.map(node => node.id === selectedId ? { ...node, ...patch } : node) } }));
   }
@@ -425,9 +441,10 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
   const connections = graphConnections(graph);
   const flowNodes = graphNodes.map((node, index) => ({
     id: node.id, type: 'funnel', selected: selectedId === node.id,
+    style: { width: draft?.layout?.nodeWidths?.[node.id] ?? DEFAULT_FUNNEL_STEP_WIDTH },
     ...(nodeMeasurements[node.id] ? { measured: nodeMeasurements[node.id] } : {}),
     position: draft?.layout?.positions?.[node.id] || { x: 80 + (index % 2) * 300, y: 60 + Math.floor(index / 2) * 180 },
-    data: { node, title: nodeLabel(node, graphNodes, catalog, tiers),
+    data: { node, locked, onWidthChange: width => updateStepWidth(node.id, width), title: nodeLabel(node, graphNodes, catalog, tiers),
        detail: isPurchase(node) ? `${(node.ticketIds || []).length} ticket classes`
          : node.type === 'membership' ? (node.membership?.scope === 'member' ? (node.membership.recipientMode === 'attendees' ? 'Individual · each named attendee' : 'Individual · purchaser') : 'Organisation · purchaser’s organisation')
          : node.type === 'condition' ? `${(node.rules || []).length} rules · first match wins` : 'All selected offers finish here',
@@ -533,6 +550,8 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
         <aside className="efb-inspector" aria-label="Selected node settings" data-testid="funnel-inspector">
           {!selected ? <div className="efb-empty"><h4>Select a node</h4><p className="efb-muted">Choose an offer, condition or checkout to inspect its configuration.</p></div> : <fieldset disabled={locked}>
              <h4>{nodeLabel(selected, graphNodes, catalog, tiers)}</h4>
+            <EventFunnelStepWidth key={selected.id} width={draft.layout?.nodeWidths?.[selected.id] ?? DEFAULT_FUNNEL_STEP_WIDTH}
+              locked={locked} onChange={width => updateStepWidth(selected.id, width)} />
             {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} graph={graph} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'membership' && <MembershipInspector node={selected} nodes={graphNodes} catalog={catalog} update={updateNode} />}
             {selected.type === 'condition' && <ConditionInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}

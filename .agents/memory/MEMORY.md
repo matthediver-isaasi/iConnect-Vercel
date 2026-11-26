@@ -185,5 +185,5 @@
 - [Event email delivery ledger](event-email-delivery-ledger.md) — tracked-send wrapper, dedicated Mailgun variable matched before campaigns, recipient-matched (CC-safe), opens-only.
 - [Signed agreement PDF supersession](signed-agreement-pdf-supersession.md) — retained signed PDFs change only via history-recording RPC; per-layout paths, originals never deleted.
 - [Unsaved editor authority](editor-unsaved-boundaries.md) — authored edits must reach navigation checks before rendering debounces; pending destinations and save-time redirects are separate.
-- [Xero optional credits](xero-optional-credited-amount.md) — zero AmountCredited may be omitted on invoice GETs; verify balances and allocations instead of requiring that optional property.
+- [Xero invoice semantics](xero-optional-credited-amount.md) — AmountCredited may be absent; verified VOIDED invoices can retain the original AmountDue. Preserve actual provider evidence.
 - [React Flow measurements](react-flow-controlled-measurements.md) — controlled display nodes need retained dimensions for the mini-map, even when the main graph renders normally.

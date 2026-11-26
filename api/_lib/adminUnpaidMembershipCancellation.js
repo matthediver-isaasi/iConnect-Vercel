@@ -38,7 +38,10 @@ export function verifyUnpaidInvoice(history, response, providerTenantId, { allow
     || vatMinor !== amendmentMinor(history.vat_amount, 'membership tax amount')
     || netMinor + vatMinor !== grossMinor
     || (invoice.Status === 'AUTHORISED' && dueMinor !== grossMinor)
-    || (invoice.Status === 'VOIDED' && dueMinor !== 0)) {
+    // Xero may retain the original unpaid AmountDue on a VOIDED invoice.
+    // Its void status, not a coerced zero balance, proves cancellation. Still
+    // reject partial/changed balances and retain the actual provider evidence.
+    || (invoice.Status === 'VOIDED' && dueMinor !== 0 && dueMinor !== grossMinor)) {
     fail('The invoice must be wholly unpaid, without payments or credits, and match the original membership. Finance must review any mismatch.');
   }
   return { id, providerTenantId, contactId: invoice.Contact.ContactID, currency: invoice.CurrencyCode,

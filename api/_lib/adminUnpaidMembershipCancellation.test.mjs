@@ -12,7 +12,7 @@ const document = () => ({ Invoices: [{ InvoiceID: 'invoice', Type: 'ACCREC', Sta
   Contact: { ContactID: 'payer' }, CurrencyCode: 'GBP', Total: 128, SubTotal: 128, TotalTax: 0,
   AmountPaid: 0, AmountCredited: 0, AmountDue: 128 }] });
 
-function fixture() {
+function fixture({ voidDue = 128 } = {}) {
   const history = purchase(), invoice = document();
   let operation, voids = 0, failAfterVoid = false, failFinish = false, failRead = false, beginError = false;
   let books = 'books';
@@ -43,6 +43,7 @@ function fixture() {
       assert.equal(name, 'finish_admin_unpaid_membership_cancellation');
       if (failFinish) return { error: { message: 'lost DB response' } };
       assert.equal(args.p_receipt.status, 'VOIDED');
+      operation.receipts = { invoice: structuredClone(args.p_receipt) };
       operation.state = 'released';
       history.status = 'expired_checkout'; history.payment_status = 'voided'; history.cancelled_for_switch_at = 'now';
       return { data: true };
@@ -56,7 +57,7 @@ function fixture() {
         voids++; assert.equal(options.method, 'POST');
         assert.equal(options.key, 'unpaid-membership-operation');
         assert.deepEqual(options.body, { Invoices: [{ InvoiceID: 'invoice', Status: 'VOIDED' }] });
-        invoice.Invoices[0].Status = 'VOIDED'; invoice.Invoices[0].AmountDue = 0;
+        invoice.Invoices[0].Status = 'VOIDED'; invoice.Invoices[0].AmountDue = voidDue;
         if (failAfterVoid) throw Error('lost Xero response');
       }
       if (failRead && !options) throw Error('Xero unavailable');
@@ -97,6 +98,44 @@ test('lost Xero response resumes by reading its void, without a duplicate write'
   assert.equal((await f.service.status(context)).pending, true);
   assert.equal((await f.service.resume(context, 'operation')).state, 'released');
   assert.equal(f.voids, 1);
+});
+test('confirmed voids accept either a zero or retained original balance without rewriting the receipt', async () => {
+  for (const voidDue of [0, 128]) {
+    const f = fixture({ voidDue });
+    delete f.invoice.Invoices[0].AmountCredited;
+    assert.equal((await confirm(f)).state, 'released');
+    assert.equal(f.operation.receipts.invoice.dueMinor, voidDue * 100);
+    assert.equal(f.operation.receipts.invoice.grossMinor, 12800);
+    assert.equal(f.operation.receipts.invoice.paidMinor, 0);
+    assert.equal(f.voids, 1);
+  }
+});
+test('an already voided invoice with its original balance safely resumes local release only', async () => {
+  const f = fixture(); delete f.invoice.Invoices[0].AmountCredited;
+  f.loseFinish();
+  await assert.rejects(confirm(f), /Cancellation could not be verified/);
+  assert.equal(f.invoice.Invoices[0].Status, 'VOIDED');
+  assert.equal(f.invoice.Invoices[0].AmountDue, 128);
+  assert.equal(f.operation.state, 'reconciling');
+  assert.equal(f.history.cancelled_for_switch_at, null);
+  f.restoreFinish();
+  assert.equal((await f.service.resume(context, 'operation')).state, 'released');
+  assert.equal(f.operation.receipts.invoice.dueMinor, 12800);
+  assert.equal(f.history.payment_status, 'voided');
+  assert.equal(f.voids, 1);
+});
+test('a voided invoice never authorises a new cancellation and still rejects contradictory payment evidence', () => {
+  const voided = document(); voided.Invoices[0].Status = 'VOIDED';
+  assert.throws(() => verifyUnpaidInvoice(purchase(), voided, 'books'));
+  for (const patch of [
+    ...[-1, 1, 64, 127, 129].map(AmountDue => ({ AmountDue })),
+    { AmountPaid: 1 }, { AmountCredited: 1 }, { Payments: [{ PaymentID: 'payment' }] },
+    { CreditNotes: [{ CreditNoteID: 'credit' }] }, { Prepayments: [{ PrepaymentID: 'prepaid' }] },
+    { Overpayments: [{ OverpaymentID: 'overpaid' }] }, { Total: 129, AmountDue: 129, SubTotal: 129 },
+  ]) {
+    const response = structuredClone(voided); Object.assign(response.Invoices[0], patch);
+    assert.throws(() => verifyUnpaidInvoice(purchase(), response, 'books', { allowVoided: true }), /wholly unpaid/);
+  }
 });
 test('an omitted Xero AmountCredited supports preview, confirmation and verified void recovery', async () => {
   const f = fixture();

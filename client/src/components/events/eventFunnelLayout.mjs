@@ -1,5 +1,6 @@
 import dagre from '@dagrejs/dagre';
 import { graphConnections } from './eventFunnelBuilderModel.mjs';
+import { DEFAULT_FUNNEL_STEP_WIDTH, MIN_FUNNEL_STEP_WIDTH } from '../../../../shared/eventFunnelEditorLayout.mjs';
 
 // A view-only projection: never attach layout metadata to the purchase graph.
 export function autoLayoutFunnel(graph, measuredNodes = []) {
@@ -11,7 +12,7 @@ export function autoLayoutFunnel(graph, measuredNodes = []) {
   for (const node of nodes) {
     const size = measured.get(node.id);
     layout.setNode(node.id, {
-      width: Math.max(215, Number(size?.width) || 0),
+      width: Math.max(MIN_FUNNEL_STEP_WIDTH, Number(size?.width) || DEFAULT_FUNNEL_STEP_WIDTH),
       height: Math.max(130, Number(size?.height) || 0),
     });
   }

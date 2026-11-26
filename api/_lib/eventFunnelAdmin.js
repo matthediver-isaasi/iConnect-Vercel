@@ -2,7 +2,7 @@ import { validateFunnelGraph, evaluateFunnelRoute, FunnelGraphError } from '../.
 import { funnelSimpleTickets } from '../../shared/eventFunnelCatalog.mjs';
 import { isFutureFunnelEvent } from '../../shared/eventFunnelAuthoring.mjs';
 import { buildFunnelPublicationSnapshot } from './eventFunnelPublication.js';
-import { funnelConnectorKeys, isFunnelLayoutPoint } from '../../shared/eventFunnelEditorLayout.mjs';
+import { funnelConnectorKeys, isFunnelLayoutPoint, isFunnelStepWidth } from '../../shared/eventFunnelEditorLayout.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -28,7 +28,15 @@ export function validateFunnelLayout(layout, graph) {
       || Math.abs(position.x) > 100000 || Math.abs(position.y) > 100000) fail('Invalid node position.');
     Object.defineProperty(positions, id, { value: { x: position.x, y: position.y }, enumerable: true });
   }
-  if (layout.connectors === undefined) return { positions };
+  const result = { positions };
+  if (layout.nodeWidths !== undefined) {
+    if (!layout.nodeWidths || typeof layout.nodeWidths !== 'object' || Array.isArray(layout.nodeWidths)) fail('Invalid step widths.');
+    for (const [id, width] of Object.entries(layout.nodeWidths)) {
+      if (!ids.has(id) || !isFunnelStepWidth(width)) fail('Invalid step width.');
+    }
+    result.nodeWidths = Object.fromEntries(Object.entries(layout.nodeWidths));
+  }
+  if (layout.connectors === undefined) return result;
   if (!layout.connectors || typeof layout.connectors !== 'object' || Array.isArray(layout.connectors)) fail('Invalid connector layout.');
   const keys = funnelConnectorKeys(graph);
   const connectors = {};
@@ -43,7 +51,7 @@ export function validateFunnelLayout(layout, graph) {
       ...(value.labelOffset !== undefined ? { labelOffset: { x: value.labelOffset.x, y: value.labelOffset.y } } : {}),
     } });
   }
-  return { positions, connectors };
+  return { ...result, connectors };
 }
 export async function validateFunnelReferences(db, tenantId, graph) {
   validateFunnelGraph(graph);

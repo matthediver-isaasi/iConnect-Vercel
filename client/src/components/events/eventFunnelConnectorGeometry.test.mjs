@@ -49,3 +49,12 @@ test('connector identities distinguish parallel outcomes and ignore display orde
     positions: { source: start }, connectors: { [accept]: { bends: [start, end] } },
   });
 });
+test('deleting a step prunes only its width, retaining other widths and connector geometry', () => {
+  const graph = { nodes: [{ id: 'source', type: 'source', accept: 'end' }, { id: 'end', type: 'checkout' }] };
+  const key = funnelConnectorKey({ source: 'source', sourceHandle: 'accept', target: 'end' });
+  const layout = { positions: {}, nodeWidths: { source: 320, removed: 400 }, connectors: { [key]: { labelOffset: start } } };
+  assert.deepEqual(pruneFunnelEditorLayout(layout, graph), {
+    positions: {}, nodeWidths: { source: 320 }, connectors: layout.connectors,
+  });
+  assert.equal(layout.nodeWidths.removed, 400);
+});
