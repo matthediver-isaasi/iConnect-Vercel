@@ -1,17 +1,23 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import { boardMembershipError } from '../../../_lib/projectBoardOwnership.js';
 
-async function getBoardMembership(boardId, identityId) {
-  const { data } = await supabase
+async function getBoardMembership(db, boardId, identityId) {
+  const { data, error } = await db
     .from('project_board_member')
     .select('role')
     .eq('board_id', boardId)
     .eq('identity_id', identityId)
     .single();
+  if (error) throw error;
   return data;
 }
 
-export default async function handler(req, res) {
+export function createBoardMembersHandler({ db = supabase, sessionFor = getSession } = {}) {
+  return (req, res) => handleBoardMembers(req, res, db, sessionFor);
+}
+
+async function handleBoardMembers(req, res, db, sessionFor) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -21,12 +27,12 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const sessionResult = await getSession(req);
-  if (!sessionResult?.data) {
+  const sessionResult = await sessionFor(req);
+  if (!sessionResult?.data?.tenantId || !sessionResult?.data?.identityId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
@@ -38,13 +44,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const membership = await getBoardMembership(boardId, session.identityId);
+    const { data: board, error: boardError } = await db.from('project_board')
+      .select('id').eq('id', boardId).eq('tenant_id', session.tenantId).maybeSingle();
+    if (boardError) throw boardError;
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+    const membership = await getBoardMembership(db, boardId, session.identityId);
     if (!membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
 
     if (req.method === 'GET') {
-      const { data: members, error } = await supabase
+      const { data: members, error } = await db
         .from('project_board_member')
         .select('*')
         .eq('board_id', boardId);
@@ -56,10 +66,11 @@ export default async function handler(req, res) {
       const identityIds = members?.map(m => m.identity_id) || [];
       let identities = [];
       if (identityIds.length > 0) {
-        const { data } = await supabase
+        const { data, error: identitiesError } = await db
           .from('tenant_identity')
           .select('id, email, first_name, last_name, avatar_url')
           .in('id', identityIds);
+        if (identitiesError) throw identitiesError;
         identities = data || [];
       }
 
@@ -77,124 +88,32 @@ export default async function handler(req, res) {
       return res.json({ members: enrichedMembers });
     }
 
-    if (req.method === 'POST') {
+    if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
       if (!['owner', 'admin'].includes(membership.role)) {
-        return res.status(403).json({ error: 'Only owners/admins can add members' });
+        return res.status(403).json({ error: 'Only owners/admins can manage members' });
       }
-
-      const { identity_id, role } = req.body;
-
-      if (!identity_id) {
+      const { identity_id, role } = req.body || {};
+      if (typeof identity_id !== 'string' || !identity_id) {
         return res.status(400).json({ error: 'Identity ID required' });
       }
-
-      const { data: memberRecord } = await supabase
-        .from('member')
-        .select('identity_id')
-        .eq('identity_id', identity_id)
-        .eq('tenant_id', session.tenantId)
-        .limit(1)
-        .maybeSingle();
-
-      if (!memberRecord) {
-        return res.status(404).json({ error: 'User not found in tenant' });
-      }
-
-      const existingMembership = await getBoardMembership(boardId, identity_id);
-      if (existingMembership) {
-        return res.status(400).json({ error: 'User is already a member' });
-      }
-
-      const { data: newMember, error } = await supabase
-        .from('project_board_member')
-        .insert({
-          board_id: boardId,
-          identity_id: identity_id,
-          role: role || 'member',
-          added_by: session.identityId
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('[Board Members] Error adding member:', error);
-        return res.status(500).json({ error: 'Failed to add member' });
-      }
-
-      return res.status(201).json({ member: newMember });
-    }
-
-    if (req.method === 'PATCH') {
-      if (!['owner', 'admin'].includes(membership.role)) {
-        return res.status(403).json({ error: 'Only owners/admins can update member roles' });
-      }
-
-      const { identity_id, role } = req.body;
-
-      if (!identity_id || !role) {
-        return res.status(400).json({ error: 'Identity ID and role required' });
-      }
-
-      if (!['owner', 'admin', 'member', 'viewer'].includes(role)) {
+      const nextRole = req.method === 'POST' ? role || 'member' : role;
+      if (req.method !== 'DELETE' && !['owner', 'admin', 'member', 'viewer'].includes(nextRole)) {
         return res.status(400).json({ error: 'Invalid role' });
       }
-
-      const targetMembership = await getBoardMembership(boardId, identity_id);
-      if (!targetMembership) {
-        return res.status(404).json({ error: 'Member not found' });
-      }
-
-      if (targetMembership.role === 'owner' && membership.role !== 'owner') {
-        return res.status(403).json({ error: 'Cannot change owner role' });
-      }
-
-      if (role === 'owner' && membership.role !== 'owner') {
+      if (nextRole === 'owner' && membership.role !== 'owner') {
         return res.status(403).json({ error: 'Only owners can assign owner role' });
       }
-
-      const { error } = await supabase
-        .from('project_board_member')
-        .update({ role })
-        .eq('board_id', boardId)
-        .eq('identity_id', identity_id);
-
+      const { data, error } = await db.rpc('change_project_board_member', {
+        p_tenant: session.tenantId, p_board: boardId, p_actor: session.identityId,
+        p_target: identity_id, p_action: { POST: 'add', PATCH: 'role', DELETE: 'remove' }[req.method],
+        p_role: req.method === 'DELETE' ? null : nextRole,
+      });
       if (error) {
-        return res.status(500).json({ error: 'Failed to update member role' });
+        const failure = boardMembershipError(error);
+        return res.status(failure.status).json({ error: failure.message });
       }
-
-      return res.json({ success: true });
-    }
-
-    if (req.method === 'DELETE') {
-      if (!['owner', 'admin'].includes(membership.role)) {
-        return res.status(403).json({ error: 'Only owners/admins can remove members' });
-      }
-
-      const { identity_id } = req.body;
-
-      if (!identity_id) {
-        return res.status(400).json({ error: 'Identity ID required' });
-      }
-
-      const targetMembership = await getBoardMembership(boardId, identity_id);
-      if (!targetMembership) {
-        return res.status(404).json({ error: 'Member not found' });
-      }
-
-      if (targetMembership.role === 'owner' && membership.role !== 'owner') {
-        return res.status(403).json({ error: 'Cannot remove board owner' });
-      }
-
-      const { error } = await supabase
-        .from('project_board_member')
-        .delete()
-        .eq('board_id', boardId)
-        .eq('identity_id', identity_id);
-
-      if (error) {
-        return res.status(500).json({ error: 'Failed to remove member' });
-      }
-
+      if (!data) return res.status(500).json({ error: 'Membership change could not be confirmed' });
+      if (req.method === 'POST') return res.status(201).json({ member: data });
       return res.json({ success: true });
     }
 
@@ -204,3 +123,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server error' });
   }
 }
+
+export default createBoardMembersHandler();

@@ -35,3 +35,13 @@ test failure.
 
 **How to apply:** Set the module's filename and resolver paths before compiling
 an esbuild fixture; do not diagnose this native assertion as application code.
+
+Node's test CLI interprets positional file paths as globs, including square
+brackets in dynamic route directories. Shell quoting does not make those
+brackets literal to Node.
+
+**Why:** A successful test command silently omitted the bracket-directory API
+tests; its reported count exposed that only the other files had run.
+
+**How to apply:** Use a bounded wildcard directory pattern or escape brackets
+for Node itself, and check that the reported test count includes every suite.

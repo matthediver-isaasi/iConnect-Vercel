@@ -9,7 +9,7 @@ import {
  * POST /api/member-group-projects/boards
  * Body: { memberGroupId, name, color? }
  * Creates a new project_board linked to memberGroupId, adds the caller as
- * 'admin', seeds default labels, then runs the sync helper so all qualifying
+ * 'owner', seeds default labels, then runs the sync helper so all qualifying
  * members are added as 'member'.
  */
 export default async function handler(req, res) {
@@ -60,18 +60,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Failed to create board' });
   }
 
-  const { error: addAdminErr } = await supabase
+  const { error: addOwnerErr } = await supabase
     .from('project_board_member')
     .insert({
       board_id: board.id,
       identity_id: access.identityId,
-      role: 'admin',
+      role: 'owner',
       added_by: access.identityId,
     });
-  if (addAdminErr) {
-    console.error('[member-group-projects/boards] add admin failed:', addAdminErr.message);
+  if (addOwnerErr) {
+    console.error('[member-group-projects/boards] add owner failed:', addOwnerErr.message);
     await supabase.from('project_board').delete().eq('id', board.id);
-    return res.status(500).json({ error: 'Failed to add board admin' });
+    return res.status(500).json({ error: 'Failed to add board owner' });
   }
 
   const defaultLabels = [
@@ -88,5 +88,5 @@ export default async function handler(req, res) {
 
   await syncProjectBoardMembersForGroup(memberGroupId);
 
-  return res.status(201).json({ board: { ...board, user_role: 'admin' } });
+  return res.status(201).json({ board: { ...board, user_role: 'owner' } });
 }

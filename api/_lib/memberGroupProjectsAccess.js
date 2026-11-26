@@ -283,14 +283,17 @@ export async function handleMemberGroupEntityChange({ entityNorm, action, data, 
               console.error('[handleMemberGroupEntityChange] auto-provision board failed:', boardErr.message);
             } else if (board) {
               if (actorIdentityId) {
-                await supabase.from('project_board_member').insert({
+                const { error: ownerError } = await supabase.from('project_board_member').insert({
                   board_id: board.id,
                   identity_id: actorIdentityId,
-                  role: 'admin',
+                  role: 'owner',
                   added_by: actorIdentityId,
-                }).then(({ error }) => {
-                  if (error) console.error('[handleMemberGroupEntityChange] add creator failed:', error.message);
                 });
+                if (ownerError) {
+                  const { error: cleanupError } = await supabase.from('project_board').delete().eq('id', board.id);
+                  if (cleanupError) console.error('[handleMemberGroupEntityChange] board cleanup failed:', cleanupError.message);
+                  throw new Error('Could not assign the project board owner');
+                }
               }
               const defaultLabels = [
                 { name: 'High Priority', color: '#ef4444' },

@@ -6,6 +6,7 @@ description: Task modes, collaborator scope, board responsiveness and dashboard 
 - [Sales collaborator scope](sales-collaborator-scope.md) — collaborators belong to the tenant's primary organisation; customer contacts are separate.
 - [Project board responsiveness](project-board-responsiveness.md) — saved changes must be visible when completion feedback appears.
 - [Project discussion policy](project-discussion-policy.md) — preserve surviving replies; explicit mentions only, with no administrator author override.
+- [Project board ownership](project-board-ownership-policy.md) — new boards require an Owner; preserve the final Owner and obtain separate approval for legacy repairs.
 - [Sales dashboard dates](sales-dashboard-dates.md) — day-first dates and expected-close filter scope.
 - [Sales value reporting](sales-net-reporting-policy.md) — net dashboard/pipeline and converted totals; opportunity forecasts stay independent of conversion.
 - [Sales activity evidence](sales-activity-evidence-policy.md) — commercial milestones require historical evidence; delivery, decisions and confirmation have distinct meanings.

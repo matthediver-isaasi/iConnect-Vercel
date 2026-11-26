@@ -811,6 +811,7 @@ export function BoardSettingsModal({ boardId, boardName, open, onOpenChange, mem
   const [selectedRole, setSelectedRole] = useState('member');
   const [editName, setEditName] = useState('');
   const queryClient = useQueryClient();
+  const ownerCount = members.filter(member => member.role === 'owner').length;
 
   useEffect(() => {
     if (open) {
@@ -1052,7 +1053,7 @@ export function BoardSettingsModal({ boardId, boardName, open, onOpenChange, mem
                   <Select 
                     value={member.role} 
                     onValueChange={(role) => updateRoleMutation.mutate({ identity_id: member.identity_id, role })}
-                    disabled={member.role === 'owner' && userRole !== 'owner'}
+                    disabled={member.role === 'owner' && (userRole !== 'owner' || ownerCount === 1)}
                   >
                     <SelectTrigger className="w-24 h-8">
                       <Badge className={`text-xs ${getRoleBadgeColor(member.role)}`}>
@@ -1080,6 +1081,11 @@ export function BoardSettingsModal({ boardId, boardName, open, onOpenChange, mem
                 </div>
               ))}
             </div>
+            {ownerCount === 1 && userRole === 'owner' && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Assign another owner before changing or removing the last board owner.
+              </p>
+            )}
           </div>
 
           <div className="text-xs text-muted-foreground space-y-1">
