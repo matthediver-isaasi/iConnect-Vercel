@@ -18,20 +18,31 @@ export function verifyUnpaidInvoice(history, response, providerTenantId, { allow
   const invoice = response?.Invoices?.[0], id = unpaidInvoiceId(history);
   if (response?.Invoices?.length !== 1 || invoice?.InvoiceID !== id || invoice.Type !== 'ACCREC'
     || !providerTenantId || !invoice.Contact?.ContactID || invoice.CurrencyCode !== history.currency
-    || !['AUTHORISED', ...(allowVoided ? ['VOIDED'] : [])].includes(invoice.Status)
-    || amendmentMinor(invoice.AmountPaid) !== 0 || amendmentMinor(invoice.AmountCredited) !== 0
+    || !['AUTHORISED', ...(allowVoided ? ['VOIDED'] : [])].includes(invoice.Status)) {
+    fail('The invoice identity, currency or accounting status does not match this unpaid membership. Finance must review the invoice.');
+  }
+  // Xero can omit AmountCredited entirely on an invoice with no credits.
+  // Only that absent property is optional: null/malformed supplied values and
+  // every required amount still fail. The balance and allocation checks below
+  // independently require a wholly unpaid invoice (or its confirmed void).
+  const paidMinor = amendmentMinor(invoice.AmountPaid, 'invoice paid amount');
+  const creditedMinor = Object.hasOwn(invoice, 'AmountCredited')
+    ? amendmentMinor(invoice.AmountCredited, 'invoice credited amount') : 0;
+  const dueMinor = amendmentMinor(invoice.AmountDue, 'invoice outstanding amount');
+  const grossMinor = amendmentMinor(invoice.Total, 'invoice total');
+  const netMinor = amendmentMinor(invoice.SubTotal, 'invoice subtotal');
+  const vatMinor = amendmentMinor(invoice.TotalTax, 'invoice tax amount');
+  if (paidMinor !== 0 || creditedMinor !== 0
     || invoice.Payments?.length || invoice.CreditNotes?.length || invoice.Prepayments?.length || invoice.Overpayments?.length
-    || amendmentMinor(invoice.Total) <= 0 || amendmentMinor(invoice.Total) !== amendmentMinor(history.total_with_vat)
-    || amendmentMinor(invoice.TotalTax) !== amendmentMinor(history.vat_amount)
-    || amendmentMinor(invoice.SubTotal) + amendmentMinor(invoice.TotalTax) !== amendmentMinor(invoice.Total)
-    || (invoice.Status === 'AUTHORISED' && amendmentMinor(invoice.AmountDue) !== amendmentMinor(invoice.Total))
-    || (invoice.Status === 'VOIDED' && amendmentMinor(invoice.AmountDue) !== 0)) {
+    || grossMinor <= 0 || grossMinor !== amendmentMinor(history.total_with_vat, 'membership total')
+    || vatMinor !== amendmentMinor(history.vat_amount, 'membership tax amount')
+    || netMinor + vatMinor !== grossMinor
+    || (invoice.Status === 'AUTHORISED' && dueMinor !== grossMinor)
+    || (invoice.Status === 'VOIDED' && dueMinor !== 0)) {
     fail('The invoice must be wholly unpaid, without payments or credits, and match the original membership. Finance must review any mismatch.');
   }
   return { id, providerTenantId, contactId: invoice.Contact.ContactID, currency: invoice.CurrencyCode,
-    grossMinor: amendmentMinor(invoice.Total), netMinor: amendmentMinor(invoice.SubTotal),
-    vatMinor: amendmentMinor(invoice.TotalTax), paidMinor: 0, creditedMinor: 0,
-    dueMinor: amendmentMinor(invoice.AmountDue), status: invoice.Status };
+    grossMinor, netMinor, vatMinor, paidMinor, creditedMinor, dueMinor, status: invoice.Status };
 }
 function sameInvoice(current, approved) {
   return ['id', 'providerTenantId', 'contactId', 'currency', 'grossMinor', 'netMinor', 'vatMinor']

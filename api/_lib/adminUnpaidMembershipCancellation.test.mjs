@@ -98,6 +98,44 @@ test('lost Xero response resumes by reading its void, without a duplicate write'
   assert.equal((await f.service.resume(context, 'operation')).state, 'released');
   assert.equal(f.voids, 1);
 });
+test('an omitted Xero AmountCredited supports preview, confirmation and verified void recovery', async () => {
+  const f = fixture();
+  delete f.invoice.Invoices[0].AmountCredited;
+  const preview = await f.service.preview(context);
+  assert.equal(preview.grossMinor, 12800);
+  f.loseVoidResponse();
+  await assert.rejects(confirm(f, preview.fingerprint), /lost Xero/);
+  assert.equal(f.history.cancelled_for_switch_at, null);
+  assert.equal((await f.service.resume(context, 'operation')).state, 'released');
+  assert.equal(f.history.payment_status, 'voided');
+  assert.equal(f.voids, 1);
+});
+test('omitted credited amount cannot conceal payments, allocations or a reduced outstanding balance', async () => {
+  for (const patch of [
+    { AmountPaid: 1, AmountDue: 127 }, { AmountDue: 127 },
+    { CreditNotes: [{ CreditNoteID: 'credit' }] }, { Payments: [{ PaymentID: 'payment' }] },
+    { Prepayments: [{ PrepaymentID: 'prepaid' }] }, { Overpayments: [{ OverpaymentID: 'overpaid' }] },
+  ]) {
+    const f = fixture();
+    delete f.invoice.Invoices[0].AmountCredited;
+    Object.assign(f.invoice.Invoices[0], patch);
+    await assert.rejects(confirm(f), /wholly unpaid/);
+    assert.equal(f.voids, 0);
+    assert.equal(f.operation, undefined);
+  }
+});
+test('missing required amounts and malformed supplied credits fail with specific amount labels', () => {
+  const labels = {
+    AmountPaid: 'invoice paid amount', AmountDue: 'invoice outstanding amount', Total: 'invoice total',
+    SubTotal: 'invoice subtotal', TotalTax: 'invoice tax amount', AmountCredited: 'invoice credited amount',
+  };
+  for (const [field, label] of Object.entries(labels)) {
+    for (const value of [undefined, null, '', 'not an amount', 0.001]) {
+      const response = document(); response.Invoices[0][field] = value;
+      assert.throws(() => verifyUnpaidInvoice(purchase(), response, 'books'), new RegExp(`Exact ${label}`));
+    }
+  }
+});
 test('lost database finalization preserves the hold and safely resumes', async () => {
   const f = fixture(); f.loseFinish();
   await assert.rejects(confirm(f), /Cancellation could not be verified/);
