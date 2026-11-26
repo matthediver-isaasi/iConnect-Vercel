@@ -3,6 +3,20 @@ name: Mid-term membership amendment policy
 description: Approved scope and financial treatment for changes during an existing membership.
 ---
 
+Admins must be able to cancel an unpaid membership from the Membership tab so
+the member can start again through `/portal` after choosing invoice by mistake.
+Do not substitute an administrator-driven payment-method switch for this flow.
+
+**Why:** The owner explicitly rejected the proposed switch workflow and chose
+cancellation that frees the old membership record for a fresh self-service
+purchase. The requirement is reusable, not a one-off member correction.
+
+**How to apply:** Separate abandoned unpaid purchases from ordinary cancellation
+of active membership. Retain financial history rather than assuming hard deletion
+is safe, and verify portal re-entry and same-term purchase constraints end to end.
+This preference does not independently authorise live invoice cancellation or
+waiving debt.
+
 Self-service changes and cancellation must be explicit opt-ins on existing
 membership payment forms, sharing the administrative amendment engine rather
 than creating a competing payment flow. Support both remaining-term and
