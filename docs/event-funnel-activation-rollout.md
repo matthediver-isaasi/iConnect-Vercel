@@ -6,10 +6,11 @@ The original 45-file base release is already installed on DEST. **Never replay
 it.** The owner-approved membership follow-up and controlled-activation migration
 were installed atomically on verified DEST on 26 November 2026, after a successful
 rollback-only rehearsal against its actual schema. **Never replay these either.**
-Purchasing and workers remain disabled.
-Matching application deployment and an authenticated checkout rehearsal remain
-separate release requirements. No real booking, payment, email, accounting or
-Zoom operation was performed during implementation.
+Purchasing and both workers were enabled on 26 November 2026 after production
+release/worker verification and the owner's explicit checkout-rehearsal waiver.
+The authenticated sandbox checkout rehearsal was **not performed** and must not
+be represented as a passed test. No real booking, payment, email, accounting or
+Zoom operation was initiated by the operator during implementation/activation.
 
 ### Activation progress — 26 November 2026
 
@@ -18,9 +19,9 @@ workspace release `1e06d6b14c72e6a7f85e1e4c6cc02759e04b4d65` and includes both
 minute-by-minute funnel schedules. Both endpoints reject unauthenticated calls.
 Production `CRON_SECRET` configuration was confirmed without exposing its value.
 
-The rollout now pins that deployed release with reader/worker versions `1`.
-Both switches remain false and `verification_evidence` remains empty: no
-authenticated checkout result has been invented. The actual production schedules
+The rollout pins that deployed release with reader/worker versions `1`.
+Initially both switches stayed false and `verification_evidence` stayed empty:
+no authenticated checkout result was invented. The actual production schedules
 reported matching heartbeats at `2026-11-26T21:04:38Z` (recovery) and
 `2026-11-26T21:04:49Z` (reversals), while provider work remained disabled.
 These timestamps are historical evidence, not a claim of continued health.
@@ -32,6 +33,33 @@ Do not switch BNMS to test mode, treat that temporary tenant as an approved
 sandbox, or claim the remaining rehearsal passed. The production membership
 entitlement feature flag was not present in the environment configuration check;
 membership-stage publication needs that separate setting as documented below.
+
+### Live activation with recorded waiver
+
+The owner selected **"Activate with recorded waiver"** after the missing rehearsal
+and the risk to real purchases had been explained. The rollout evidence records
+`checkoutRehearsalWaiver.status = "waived_not_tested"` with that exact approval,
+its time and scope. The required legacy `authenticatedCheckout` evidence string
+explicitly says **NOT PERFORMED** and points to the waiver; it does not claim
+successful authentication, payment or cancellation testing.
+
+- Recovery workers enabled at `2026-11-26T21:09:06.768Z`, purchasing still off.
+- Both real production schedules reported again after enablement, at
+  `21:09:38Z` and `21:09:49Z`.
+- The READY production release was checked again before purchasing activation.
+- Purchasing enabled at `2026-11-26T21:10:23.623Z`.
+- An independent read-only SQL check confirmed `schemaReady=true`,
+  `workersEnabled=true`, `workersHealthy=true`, `purchasing=true`, and no
+  blocking reason. It confirmed zero funnel orders and zero published entries.
+- No draft funnel was published, event payment mode changed, or synthetic
+  purchase/provider test initiated. The separate membership-offer runtime flag
+  was not enabled by this operation.
+
+These are time-specific activation results, not a guarantee of future worker
+health. Keep the purchasing-only backout below. Future production releases must
+be checked and registered against the release-matching worker gate; otherwise
+new schedules cannot refresh the old release's health and checkout pauses when
+its heartbeats expire.
 
 ## Changes
 
@@ -111,6 +139,10 @@ step or generic source-directory push is permitted.
   or performed, and none is claimed.
 
 ## Remaining deployment and activation sequence
+
+The initial activation above is complete. This sequence remains the reference
+for later releases; the recorded owner waiver applies to the initial rehearsal
+and must not be silently reinterpreted as passing evidence for later changes.
 
 1. The additions are installed and verified; keep both rollout switches false
    while completing the remaining deployment checks.

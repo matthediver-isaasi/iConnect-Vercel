@@ -48,11 +48,19 @@ not merely another readiness inspection.
 **Why:** On 2026-11-26, after the disabled rollout was explained, the owner said
 "we need to get this live".
 
-**How to apply:** Complete the release checks and enable workers/purchasing in
-order once their requirements are satisfied; do not ask again for general
-activation permission. This is not a waiver of an unperformed checkout
-rehearsal, permission to fabricate evidence, or permission to publish their
-draft funnels or run test purchases against live member payment arrangements.
+The owner explicitly waived the outstanding authenticated sandbox checkout
+rehearsal for this activation.
+
+**Why:** On 2026-11-26, after being told the rehearsal had not run and that
+checkout/recovery problems could affect real purchases, the owner selected
+"Activate with recorded waiver".
+
+**How to apply:** Record this as an owner-approved waiver, never as a passed
+test. Do not reimpose that rehearsal or ask again for the same activation
+permission. Complete the other release checks and enable workers/purchasing in
+order. The waiver does not authorise publishing draft funnels, fabricating
+provider evidence or running test purchases against live member arrangements;
+worker authentication, schema, release matching and health gates still apply.
 
 The owner reports Supabase point-in-time recovery with changes logged every two
 minutes and up to seven days of retention.
