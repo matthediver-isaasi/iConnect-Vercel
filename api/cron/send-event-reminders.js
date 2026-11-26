@@ -8,6 +8,7 @@ import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '.
 import { trainingReminderEvent, validateTrainingReminder } from '../_lib/trainingReminderTargets.js';
 import { validateFollowUpDelivery } from '../_lib/eventFollowUps.js';
 import { renderFollowUp } from '../_lib/eventFollowUpRendering.js';
+import { loadAttendeeMemberFieldValues, applyMemberFieldPlaceholders } from '../_lib/eventEmailMemberFields.js';
 import {loadScheduledReminderBooking,reminderRecipientStillEligible} from '../_lib/scheduledReminderBooking.js';
 
 export default async function handler(req, res) {
@@ -119,7 +120,19 @@ export default async function handler(req, res) {
           continue;
         }
 
-        const booking = await loadScheduledReminderBooking(supabase,eventEmail,scheduledEmail.booking_id);
+        // event_email has no tenant column: the owning event row is the tenant
+        // authority for the booking, event and inbox lookups below.
+        const { data: owningEvent, error: ownerError } = await supabase
+          .from(eventEmail.is_complex_event ? 'complex_event' : 'event')
+          .select('id, tenant_id').eq('id', eventEmail.event_id).maybeSingle();
+        if (ownerError) throw ownerError;
+        if (!owningEvent?.tenant_id || (eventEmail.tenant_id && eventEmail.tenant_id !== owningEvent.tenant_id)) {
+          await markAsFailed(scheduledEmail.id, 'Event not found');
+          failedCount++;
+          continue;
+        }
+        const reminderScope = { ...eventEmail, tenant_id: owningEvent.tenant_id };
+        const booking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
 
         if (!booking) {
           console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in booking or complex_event_booking`);
@@ -142,7 +155,7 @@ export default async function handler(req, res) {
           const { data: complexEvent, error: complexError } = await supabase
             .from('complex_event')
             .select('id, title, start_date, location, status, timezone, tenant_id')
-            .eq('tenant_id', eventEmail.tenant_id)
+            .eq('tenant_id', reminderScope.tenant_id)
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -164,7 +177,7 @@ export default async function handler(req, res) {
           const { data: regularEvent, error: eventError } = await supabase
             .from('event')
             .select('id, title, start_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
-            .eq('tenant_id', eventEmail.tenant_id)
+            .eq('tenant_id', reminderScope.tenant_id)
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -267,6 +280,12 @@ export default async function handler(req, res) {
           body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData, line: trainingAgendaLine });
         }
 
+        // Member custom fields ({{field_name}}) come from the attendee's own record.
+        const memberFieldValues = await loadAttendeeMemberFieldValues(supabase, {
+          tenantId: event.tenant_id, attendeeEmail: scheduledEmail.attendee_email, texts: [subject, body] });
+        subject = applyMemberFieldPlaceholders(subject, memberFieldValues, { html: false });
+        body = applyMemberFieldPlaceholders(body, memberFieldValues);
+
         const ccList = parseCcField(eventEmail.cc);
 
         const inboxDelivery = await buildInboxDelivery({
@@ -276,7 +295,7 @@ export default async function handler(req, res) {
           labelKey: 'events',
         });
 
-        const latestBooking = await loadScheduledReminderBooking(supabase,eventEmail,scheduledEmail.booking_id);
+        const latestBooking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
         if (!reminderRecipientStillEligible(booking,latestBooking,scheduledEmail.attendee_email)) {
           await markAsCancelled(scheduledEmail.id,'Booking or recipient changed during reminder preparation');
           skipped.push({id:scheduledEmail.id,reason:'Booking or recipient changed during reminder preparation'});
