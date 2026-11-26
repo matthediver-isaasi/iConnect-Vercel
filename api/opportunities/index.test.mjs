@@ -86,6 +86,16 @@ test('pipeline net projection enriches only scoped rows without rewriting the or
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.items[0].value_minor, 12000);
   assert.equal(res.body.items[0].netValueMinor, undefined);
+  await handler({ method: 'GET', query: { includeConverted: 'true' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.items[0].convertedValueMinor, 10000);
+  assert.equal(res.body.items[0].value_minor, 12000, 'forecast remains the stored opportunity amount');
+  db.rows.sales_quote_version.push({ id: 'v2', tenant_id: 'tenant-a', quote_id: 'q2', net_minor: 5000, currency: 'GBP' });
+  db.rows.sales_commercial_sale.push({ id: 'sale2', tenant_id: 'tenant-a', opportunity_id: 'converted', quote_id: 'q2', quote_version_id: 'v2' });
+  db.rows.sales_commercial_sale.push({ id: 'foreign-sale', tenant_id: 'tenant-b', opportunity_id: 'converted', quote_id: 'q', quote_version_id: 'foreign' });
+  await handler({ method: 'GET', query: { includeConverted: 'true' } }, res);
+  assert.equal(res.body.items[0].convertedValueMinor, 15000);
+  db.rows.sales_commercial_sale = db.rows.sales_commercial_sale.filter(row => row.id === 'sale');
   await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.items[0].value_minor, 12000);
@@ -95,6 +105,8 @@ test('pipeline net projection enriches only scoped rows without rewriting the or
   await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
   assert.equal(res.body.items[0].netValueMinor, 10000, 'quote linkage retains the confirmed version even without sale.opportunity_id');
   db.failures.set('sales_quote_version', Error('evidence unavailable'));
+  await handler({ method: 'GET', query: { includeConverted: 'true' } }, res);
+  assert.equal(res.statusCode, 500, 'failed converted evidence is never displayed as zero');
   await handler({ method: 'GET', query: { moneyBasis: 'net' } }, res);
   assert.equal(res.statusCode, 500);
 });

@@ -580,6 +580,64 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT count(*)||':'||max(allocated_places) FROM sales_commercial_allocation
       WHERE quote_line_id='72000000-0000-4000-8000-000000000014'`),'1:4');
     assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${directEvent}')->>'used'`),'8');
+    // Apply the reviewed successor only after all of its real prerequisites.
+    // It must be idempotent and must not rewrite any existing opportunity.
+    const forecastMigration = fileURLToPath(new URL(
+      '../../supabase/migrations/202702050001_opportunity_forecast_values.sql', import.meta.url,
+    ));
+    const opportunityId = '50000000-0000-4000-8000-000000000001';
+    const storedForecast = psql(psqlBin, [...args, '-t', '-A'],
+      `SELECT row_to_json(o)::text FROM opportunity o WHERE id='${opportunityId}'`);
+    // This deliberately partial synthetic schema/history is not the deployed
+    // predecessor contract. Bind the same guarded transformation to these local
+    // fixture definitions only; the unmodified production migration is checked
+    // separately against the real destination in a rollback rehearsal.
+    let fixtureForecastSql = await readFile(forecastMigration, 'utf8');
+    for (const [name, approvedBefore, approvedAfter] of [
+      ['confirm_sales_quote_ticket_sale', 'db1d00c0a9b6c434a2741308044e85e3', '69c1648ada44853fbbc051012a0469cf'],
+      ['confirm_sales_quote_sale', '2f6705d6cdd598c659a7dc7673a2d170', '8245bf1098aca1a9eb8c07b02d37a2de'],
+    ]) {
+      const fingerprints = psql(psqlBin, [...args, '-t', '-A'], `
+        SELECT md5(pg_get_functiondef(oid))||':'||md5(regexp_replace(pg_get_functiondef(oid),
+          'value_minor[[:space:]]*=[[:space:]]*v[.]gross_minor,[[:space:]]*currency[[:space:]]*=[[:space:]]*v[.]currency,','','g'))
+        FROM pg_proc WHERE oid='public.${name}(uuid,uuid,integer,text,text,uuid)'::regprocedure
+      `).split(':');
+      assert.notEqual(fingerprints[0], fingerprints[1], 'fixture contains the legacy forecast assignments');
+      fixtureForecastSql = fixtureForecastSql.replace(approvedBefore, fingerprints[0]).replace(approvedAfter, fingerprints[1]);
+    }
+    psql(psqlBin, args, fixtureForecastSql);
+    psql(psqlBin, args, fixtureForecastSql);
+    assert.equal(psql(psqlBin, [...args, '-t', '-A'],
+      `SELECT row_to_json(o)::text FROM opportunity o WHERE id='${opportunityId}'`), storedForecast);
+    const forecastEvent = '20000000-0000-4000-8000-000000000018';
+    psql(psqlBin, args, `
+      UPDATE opportunity SET value_minor=54321,currency='EUR' WHERE id='${opportunityId}';
+      INSERT INTO event(id,tenant_id,title,start_date,available_seats,is_unlimited_registration,pricing_config)
+        VALUES('${forecastEvent}','${tenant}','Forecast fixture',now()+interval '90 days',10,false,
+          '{"ticket_classes":[{"id":"T","available_count":10}]}');
+    `);
+    for (const [suffix, ticket] of [['015', false], ['016', true]]) {
+      const quoteId = `70000000-0000-4000-8000-000000000${suffix}`;
+      const versionId = `71000000-0000-4000-8000-000000000${suffix}`;
+      if (ticket) psql(psqlBin, args, `UPDATE opportunity SET value_minor=NULL WHERE id='${opportunityId}'`);
+      psql(psqlBin, args, `
+        INSERT INTO sales_quote(id,tenant_id,current_version,row_version,opportunity_id)
+          VALUES('${quoteId}','${tenant}',1,1,'${opportunityId}');
+        INSERT INTO sales_quote_version(id,tenant_id,quote_id,version_number,status,gross_minor,currency)
+          VALUES('${versionId}','${tenant}','${quoteId}',1,'accepted',12000,'GBP');
+        INSERT INTO sales_quote_line(id,tenant_id,quote_version_id,catalogue_kind,quantity,catalogue_snapshot)
+          VALUES('${versionId}','${tenant}','${versionId}','${ticket ? 'ticket' : 'free_text'}',1,
+            '${ticket ? JSON.stringify({ event_reference_kind: 'simple', event_id: forecastEvent,
+              ticket_type_id: 'T', capacity_metadata: { delegate_capacity: 1 } }) : '{}'}');
+        SELECT confirm_sales_quote_sale('${tenant}','${quoteId}',1,'forecast-${suffix}','member','${actor}');
+        SELECT confirm_sales_quote_sale('${tenant}','${quoteId}',1,'forecast-${suffix}','member','${actor}');
+      `);
+      assert.equal(psql(psqlBin, [...args, '-t', '-A'],
+        `SELECT coalesce(value_minor::text,'unset')||':'||currency FROM opportunity WHERE id='${opportunityId}'`),
+      `${ticket ? 'unset' : '54321'}:EUR`, 'ordinary and ticket conversions preserve forecast amount and currency');
+      assert.equal(psql(psqlBin, [...args, '-t', '-A'],
+        `SELECT count(*) FROM sales_commercial_sale WHERE quote_id='${quoteId}'`), '1');
+    }
   } finally {
     if (started) psql(pgCtl, ['-D', data, '-m', 'fast', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

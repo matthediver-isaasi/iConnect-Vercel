@@ -50,8 +50,8 @@ export function opportunityNetProjections(opportunities, quotes = [], versions =
 }
 
 // Page every source and batch IDs: PostgREST's row cap must not turn missing
-// evidence into a manual estimate. Called only for explicitly net list reads.
-export async function loadOpportunityNetProjections(db, tenantId, opportunities) {
+// evidence into a manual estimate. Used only for explicitly requested values.
+export async function loadOpportunityValueEvidence(db, tenantId, opportunities, { convertedOnly = false } = {}) {
   const read = async (table, key, ids, columns) => {
     const rows = [];
     for (let start = 0; start < ids.length; start += 100) {
@@ -74,9 +74,15 @@ export async function loadOpportunityNetProjections(db, tenantId, opportunities)
   const linkedSales = await read('sales_commercial_sale', 'quote_id', quotes.map(row => row.id),
     'id,opportunity_id,quote_id,quote_version_id');
   const sales = [...new Map([...directSales, ...linkedSales].map(row => [String(row.id), row])).values()];
-  const versions = await read('sales_quote_version', 'quote_id',
-    [...new Set([...quotes.map(row => row.id), ...sales.map(row => row.quote_id)])],
+  const versions = await read('sales_quote_version', convertedOnly ? 'id' : 'quote_id',
+    [...new Set(convertedOnly ? sales.map(row => row.quote_version_id)
+      : [...quotes.map(row => row.id), ...sales.map(row => row.quote_id)])].filter(Boolean),
     'id,quote_id,version_number,net_minor,currency');
+  return { quotes, versions, sales };
+}
+
+export async function loadOpportunityNetProjections(db, tenantId, opportunities) {
+  const { quotes, versions, sales } = await loadOpportunityValueEvidence(db, tenantId, opportunities);
   return opportunityNetProjections(opportunities, quotes, versions, sales);
 }
 

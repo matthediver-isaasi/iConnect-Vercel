@@ -172,7 +172,7 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       <div><Label>Contact role</Label><Input value={form.contactRole} onChange={(e) => setForm({ ...form, contactRole: e.target.value })} disabled={!form.contactId} /></div>
       <div><Label>Stage</Label><Select value={form.stageId} onValueChange={(stageId) => setForm({ ...form, stageId })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Priority</Label><Select value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>)}</SelectContent></Select></div>
-      <div><Label>Net estimate (excluding tax)</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
+      <div><Label>Forecasted value</Label><Input aria-label="Forecasted value" type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /><p className="mt-1 text-xs text-slate-500">Manual forecast, excluding VAT.</p></div>
       <div><Label>Expected close</Label><Input type="date" value={form.expectedCloseDate} onChange={(e) => setForm({ ...form, expectedCloseDate: e.target.value })} /></div>
       <div className="sm:col-span-2"><OpportunityTaskChoice open={open} choice={taskChoice} onChoice={setTaskChoice} board={taskBoard} onBoard={setTaskBoard} options={taskOptions} /></div>
     </div>
@@ -211,11 +211,12 @@ export function OpportunitiesList({ destination }) {
   useEffect(() => setView(destination === "pipeline" ? "kanban" : "table"), [destination]);
   useEffect(() => setPage(1), [debouncedSearch, stageId, mine, view, archived]);
   const query = useQuery({
-    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view, archived, destination],
+    queryKey: ["opportunities", page, debouncedSearch, stageId, mine, view, archived, destination, "converted-forecast"],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: view === "kanban" ? "100" : "20", search: debouncedSearch, view });
       params.set("archived", String(archived));
       if (destination === "pipeline") params.set("moneyBasis", "net");
+      else params.set("includeConverted", "true");
       if (stageId !== "all") params.set("stageId", stageId);
       if (mine) { params.set("my", "true"); params.set("mine", "true"); }
       return request(`/api/opportunities?${params}`);
@@ -278,14 +279,16 @@ export function OpportunitiesList({ destination }) {
              : <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm">
                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
                  <th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Organisation</th><th className="px-4 py-3">Stage</th><th className="px-4 py-3">Owner</th>
-                 <th className="px-4 py-3 text-right">{destination === "pipeline" ? "Net value (excluding tax)" : "Value"}</th>
+                 <th className="px-4 py-3 text-right" title={destination === "pipeline" ? undefined : "Sum of confirmed converted proposals, excluding VAT"}>{destination === "pipeline" ? "Net value (excluding tax)" : "Converted"}</th>
+                 {destination !== "pipeline" && <th className="px-4 py-3 text-right">Forecasted value</th>}
                  <th className="px-4 py-3">{archived ? "Archived" : "Close date"}</th>
                </tr></thead>
                <tbody>{opportunities.map((item) => <tr key={idOf(item)} tabIndex={0} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => navigate(`/sales/opportunities/${idOf(item)}`)} onKeyDown={(e) => { if (e.key === "Enter") navigate(`/sales/opportunities/${idOf(item)}`); }}>
                  <td className="px-4 py-3 font-medium">{nameOf(item)}</td><td className="px-4 py-3">{nameOf(item.organization || { name: item.organization_name })}</td>
                  <td className="px-4 py-3"><Badge variant="outline">{nameOf(item.stage || stages.find((s) => idOf(s) === (item.stage_id || item.stageId)))}</Badge></td>
                  <td className="px-4 py-3">{nameOf(item.owner || { name: item.owner_name })}</td>
-                 <td className="px-4 py-3 text-right font-medium">{destination === "pipeline" ? netMoney(item.netValueMinor, item.currency, item.netValueSource) : money(opportunityValue(item), item.currency)}</td>
+                 <td className="px-4 py-3 text-right font-medium">{destination === "pipeline" ? netMoney(item.netValueMinor, item.currency, item.netValueSource) : netMoney(item.convertedValueMinor, item.currency, item.convertedValueSource)}</td>
+                 {destination !== "pipeline" && <td className="px-4 py-3 text-right">{item.value_minor == null && item.value == null ? "—" : money(opportunityValue(item), item.currency)}</td>}
                  <td className="px-4 py-3">{date(archived ? item.archived_at : item.expected_close_date || item.expectedCloseDate)}</td>
                </tr>)}</tbody>
              </table></div></Card>}
@@ -607,7 +610,7 @@ function OpportunityDetail() {
           <div className="sm:col-span-2"><Label>Name</Label><Input disabled={!canEditActiveOpportunity} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div><Label>Stage</Label><Select disabled={!canEditActiveOpportunity || !stages.length} value={form.stage_id} onValueChange={(stage_id) => setForm({ ...form, stage_id })}><SelectTrigger><SelectValue placeholder={nameOf(opportunity.stage)} /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)} ({stage.probability ?? 0}%)</SelectItem>)}</SelectContent></Select></div>
           <div><Label>Priority</Label><Select disabled={!canEditActiveOpportunity} value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Value</Label><Input disabled={!canEditActiveOpportunity} type="number" min="0" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
+          <div><Label>Forecasted value</Label><Input aria-label="Forecasted value" disabled={!canEditActiveOpportunity} type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
           <div><Label>Expected close</Label><Input disabled={!canEditActiveOpportunity} type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={!canEditActiveOpportunity} rows={5} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           {canEditActiveOpportunity && <div className="sm:col-span-2 flex justify-end"><Button disabled={!form.name.trim() || update.isPending} onClick={() => { const target = stages.find((stage) => idOf(stage) === form.stage_id); if ((target?.is_lost || target?.isLost) && form.stage_id !== (opportunity.stage_id || opportunity.stageId)) setLossDialogOpen(true); else update.mutate(); }}>{update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save changes</Button></div>}

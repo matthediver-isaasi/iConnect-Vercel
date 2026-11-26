@@ -7,7 +7,7 @@ description: Task modes, collaborator scope, board responsiveness and dashboard 
 - [Project board responsiveness](project-board-responsiveness.md) — saved changes must be visible when completion feedback appears.
 - [Project discussion policy](project-discussion-policy.md) — preserve surviving replies; explicit mentions only, with no administrator author override.
 - [Sales dashboard dates](sales-dashboard-dates.md) — day-first dates and expected-close filter scope.
-- [Sales net reporting scope](sales-net-reporting-policy.md) — dashboard/pipeline net basis does not authorise rewriting history or changing other reports.
+- [Sales value reporting](sales-net-reporting-policy.md) — net dashboard/pipeline and converted totals; opportunity forecasts stay independent of conversion.
 - [Sales activity evidence](sales-activity-evidence-policy.md) — commercial milestones require historical evidence; delivery, decisions and confirmation have distinct meanings.
 - [Grouped billing](sales-grouped-billing-policy.md) — issue timing and time to pay are separate; deposits allocate existing bundle price, with no retroactive or unapproved live invoicing.
 - [Unified Sales agreement](sales-unified-agreement.md) — requested quote + rich legal content + two-party signatures; investigation is not implementation approval.
