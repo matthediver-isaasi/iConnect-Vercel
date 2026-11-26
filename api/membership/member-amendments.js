@@ -13,12 +13,13 @@ import {createMemberChangeFormSettings} from '../_lib/memberChangeFormSettings.j
 import {createMemberCancellationFinance} from '../_lib/memberCancellationFinance.js';
 import {createMemberChangeRequests} from '../_lib/memberChangeRequests.js';
 import {createMemberCancellationRequests} from '../_lib/memberCancellationRequests.js';
+import {createAdminUnpaidMembershipCancellation} from '../_lib/adminUnpaidMembershipCancellation.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
   monthlyExecutionService = null,replacementExecutionService=null,cancellationFinanceService=null,memberRequestsService=null,
-  cancellationRequestsService=null,
+  cancellationRequestsService=null,unpaidCancellationService=null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -58,6 +59,18 @@ export function createMemberAmendmentsHandler({
         return res.json(await reviewMemberCreditExpiry(db,context.tenantId,actorId,req.body));
       }
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
+      if(['unpaid_cancellation_status','preview_unpaid_cancellation','confirm_unpaid_cancellation','recover_unpaid_cancellation'].includes(action)){
+        if((action==='unpaid_cancellation_status')!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
+        const input=req.method==='GET'?req.query:req.body;
+        if(!AMENDMENT_UUID.test(input.memberId||''))return res.status(400).json({error:'A valid member is required'});
+        const actor={tenantId:context.tenantId,memberId:input.memberId,actorId,actorKind:'admin'};
+        const cancellations=unpaidCancellationService||createAdminUnpaidMembershipCancellation({db});
+        if(action==='unpaid_cancellation_status')return res.json(await cancellations.status(actor));
+        if(action==='preview_unpaid_cancellation')return res.json(await cancellations.preview(actor));
+        if(action==='confirm_unpaid_cancellation')return res.json(await cancellations.confirm(actor,input));
+        if(!AMENDMENT_UUID.test(input.operationId||''))return res.status(400).json({error:'A valid cancellation is required'});
+        return res.json(await cancellations.resume(actor,input.operationId));
+      }
       if(['cancellation_requests','cancellation_status','preview_cancellation','confirm_cancellation','recover_cancellation','withdraw_cancellation'].includes(action)){
         if((['cancellation_requests','cancellation_status'].includes(action))!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
         const input=req.method==='GET'?req.query:req.body;

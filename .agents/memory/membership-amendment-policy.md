@@ -14,8 +14,10 @@ purchase. The requirement is reusable, not a one-off member correction.
 **How to apply:** Separate abandoned unpaid purchases from ordinary cancellation
 of active membership. Retain financial history rather than assuming hard deletion
 is safe, and verify portal re-entry and same-term purchase constraints end to end.
-This preference does not independently authorise live invoice cancellation or
-waiving debt.
+The owner approved cancelling the linked wholly unpaid invoice in the same
+administrator-confirmed action. Paid, partially paid, credited or unverifiable
+invoices require finance review instead. This is not approval to run the action
+on a live member during implementation or to waive existing debt.
 
 Self-service changes and cancellation must be explicit opt-ins on existing
 membership payment forms, sharing the administrative amendment engine rather

@@ -22,6 +22,7 @@ const bundle = await build({
     setup(builder) {
       builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^@\/lib\/memberChangeRequests$/ }, () => ({ path: `${process.cwd()}/client/src/lib/memberChangeRequests.js` }));
+      builder.onResolve({ filter: /^@\/components\/MemberCancelUnpaidMembership$/ }, () => ({ path: `${process.cwd()}/client/src/components/MemberCancelUnpaidMembership.jsx` }));
       builder.onResolve({ filter: /^@\// }, args => ({ path: args.path, namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
         loader: "js",
@@ -81,7 +82,7 @@ async function type(id, value) {
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
 }
-async function mount({ status = eligible(), post = () => json(preview()), scope = {} } = {}) {
+async function mount({ status = eligible(), unpaidStatus = { eligible: false }, post = () => json(preview()), scope = {} } = {}) {
   const calls = [], invalidations = [];
   globalThis.cancellationScope = { status: "ready", tenantId: "tenant-safe", scopeKey: "scope", assertCurrent() {}, ...scope };
   let currentStatus = status;
@@ -89,6 +90,7 @@ async function mount({ status = eligible(), post = () => json(preview()), scope 
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push({ url, payload, tenantId: options.headers?.["X-Tenant-Id"] });
     if (payload) return post(payload);
+    if (url.includes("action=unpaid_cancellation_status")) return json(typeof unpaidStatus === "function" ? unpaidStatus() : unpaidStatus);
     assert.match(url, /action=cancellation_status/);
     return typeof currentStatus === "function" ? currentStatus() : json(currentStatus);
   };
@@ -231,4 +233,81 @@ test("applied cancellation with an unconfirmed payment stop offers a recovery ch
   } finally { await mounted.cleanup(); }
   assert.match(compiled.exports.paymentStopText("gocardless", "stopped"), /stopped with GoCardless/);
   assert.match(compiled.exports.paymentStopText(null, "not_required"), /No recurring payments/);
+});
+
+test("an unpaid invoice purchase can be reviewed and cancelled from the existing membership card", async () => {
+  let released = false;
+  const mounted = await mount({
+    status: { eligible: false, blocker: "no_current_membership" },
+    unpaidStatus: () => released ? { completed: true } : { eligible: true, invoiceNumber: "INV-9748" },
+    post: payload => {
+      if (payload.action === "preview_unpaid_cancellation") return json({
+        fingerprint: "b".repeat(64), invoiceNumber: "INV-9748", grossMinor: 12800, currency: "GBP",
+      });
+      assert.equal(payload.action, "confirm_unpaid_cancellation");
+      assert.equal(payload.approve, true);
+      assert.equal(payload.fingerprint, "b".repeat(64));
+      assert.equal(payload.reason, "Member selected invoice by mistake");
+      released = true; return json({ state: "released" });
+    },
+  });
+  try {
+    await waitFor(() => testId("button-cancel-unpaid-membership"));
+    assert.equal(testId("text-cancel-membership-blocked"), null);
+    await click(testId("button-cancel-unpaid-membership"));
+    assert.equal(testId("button-submit-unpaid-cancellation").disabled, true);
+    await type("input-unpaid-cancellation-reason", "Member selected invoice by mistake");
+    await click(testId("button-submit-unpaid-cancellation"));
+    await waitFor(() => /£128/.test(mounted.container.textContent));
+    assert.match(mounted.container.textContent, /no payments or credits/);
+    await click(testId("button-submit-unpaid-cancellation"));
+    await waitFor(() => /History is retained/.test(mounted.container.textContent));
+    assert.match(mounted.container.textContent, /\/portal/);
+    assert.ok(mounted.invalidations.some(key => key[0] === "member-membership"));
+    assert.equal(mounted.calls.filter(call => call.payload?.action === "confirm_unpaid_cancellation").length, 1);
+  } finally { await mounted.cleanup(); }
+});
+
+test("an uncertain unpaid invoice cancellation exposes recovery rather than a second cancellation", async () => {
+  const mounted = await mount({
+    status: { eligible: false, blocker: "no_current_membership" },
+    unpaidStatus: { pending: true, operationId: "saved-operation" },
+    post: payload => {
+      assert.equal(payload.action, "recover_unpaid_cancellation");
+      assert.equal(payload.operationId, "saved-operation");
+      return json({ state: "released" });
+    },
+  });
+  try {
+    await waitFor(() => testId("button-recover-unpaid-cancellation"));
+    assert.equal(testId("button-cancel-unpaid-membership"), null);
+    await click(testId("button-recover-unpaid-cancellation"));
+    await waitFor(() => /History is retained/.test(mounted.container.textContent));
+  } finally { await mounted.cleanup(); }
+});
+
+test("a lost unpaid cancellation confirmation closes approval and offers the saved recovery", async () => {
+  let pending = false;
+  const mounted = await mount({
+    status: { eligible: false, blocker: "no_current_membership" },
+    unpaidStatus: () => pending ? { pending: true, operationId: "saved-operation" } : { eligible: true },
+    post: payload => {
+      if (payload.action === "preview_unpaid_cancellation") return json({
+        fingerprint: "c".repeat(64), grossMinor: 12800, currency: "GBP",
+      });
+      pending = true; return json({ error: "Invoice cancellation needs checking" }, 503);
+    },
+  });
+  try {
+    await waitFor(() => testId("button-cancel-unpaid-membership"));
+    await click(testId("button-cancel-unpaid-membership"));
+    await type("input-unpaid-cancellation-reason", "Incorrect payment choice");
+    await click(testId("button-submit-unpaid-cancellation"));
+    await waitFor(() => /£128/.test(mounted.container.textContent));
+    await click(testId("button-submit-unpaid-cancellation"));
+    await waitFor(() => testId("button-recover-unpaid-cancellation"));
+    assert.equal(testId("button-submit-unpaid-cancellation"), null);
+    assert.equal(testId("button-cancel-unpaid-membership"), null);
+    assert.match(mounted.container.textContent, /Invoice cancellation needs checking/);
+  } finally { await mounted.cleanup(); }
 });

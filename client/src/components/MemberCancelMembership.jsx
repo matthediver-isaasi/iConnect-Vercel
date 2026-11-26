@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import { adminFetch } from "@/lib/adminFetch";
 import { memberChangeEndpoint, readMemberChangeResponse, requestDate, requestMoney } from "@/lib/memberChangeRequests";
+import MemberCancelUnpaidMembership from "@/components/MemberCancelUnpaidMembership";
 
 // CRM entry point for the existing administrator cancellation workflow.
 // The server re-verifies membership, policy and billing evidence on every
@@ -135,7 +136,9 @@ function CancelMembershipCard({ memberId, tenantId }) {
             {" "}{data.timing === "immediate" ? "Under your cancellation policy, access ends on the day you cancel." : data.timing === "end_of_term" ? "Under your cancellation policy, access continues until the end of the current membership year." : ""}
           </p>
           <Button variant="destructive" size="sm" onClick={() => setDialog({ kind: "cancel" })} data-testid="button-cancel-membership">Cancel membership</Button>
-        </div> : !scheduled && BLOCKER_TEXT[data.blocker] && <p className="text-muted-foreground" data-testid="text-cancel-membership-blocked">{BLOCKER_TEXT[data.blocker]}</p>}
+        </div> : !scheduled && (data.blocker === "no_current_membership"
+          ? <MemberCancelUnpaidMembership memberId={memberId} tenantId={tenantId} onChanged={refreshAll} />
+          : BLOCKER_TEXT[data.blocker] && <p className="text-muted-foreground" data-testid="text-cancel-membership-blocked">{BLOCKER_TEXT[data.blocker]}</p>)}
       </>}
     </CardContent>
     {dialog?.kind === "cancel" && <CancelDialog memberId={memberId} tenantId={tenantId} onClose={() => setDialog(null)} onChanged={refreshAll} />}
