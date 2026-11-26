@@ -43,3 +43,9 @@ The task choice (standard / create a board now / link an existing board) is made
 **Why:** Owner direction: boards must exist from creation so manual tasks can be added before any quote is accepted, and acceptance tasks always have a destination.
 
 **How to apply:** Do not reintroduce mode switching or deferred board creation without new approval. The only post-creation exception is a legacy project-mode opportunity with no linked board, which may create/link once. Opportunity + board/link must be one transaction.
+
+**One-off GFI exception approved on 2026-11-26:** Create and link private boards for the existing active won opportunities without boards, owned by their opportunity owners. Switching those opportunities from standard tasks to project tasks was approved; archived opportunities were explicitly excluded.
+
+**Why:** The owner requested this specific live-data correction and accepted preserving existing standard tasks without generating historical quote tasks.
+
+**How to apply:** This is not standing permission to switch other opportunities, automatically create boards on future wins, replay quote acceptance, or widen board membership. Preserve existing links and archived records on any verification or replay.
