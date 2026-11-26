@@ -28,6 +28,20 @@ export async function fetchMailgunEvents(domain, params) {
   return response.json();
 }
 
+// Follow a Mailgun Events paging URL with the same read credential/timeout.
+export async function fetchMailgunEventPage(nextUrl) {
+  if (!MAILGUN_API_KEY) throw new Error('MAILGUN_API_KEY not configured');
+  const url = new URL(nextUrl);
+  if (!/^api(\.eu)?\.mailgun\.net$/.test(url.hostname) || url.protocol !== 'https:') throw new Error('Unexpected Mailgun paging URL');
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    signal: AbortSignal.timeout(5000),
+    headers: { 'Authorization': 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64') }
+  });
+  if (!response.ok) throw new Error(`Mailgun Events API error: ${response.status}`);
+  return response.json();
+}
+
 export function extractEventIdentifiers(eventData) {
   const headerMessageId = eventData.message?.headers?.['message-id'];
   const topLevelMessageId = eventData['message-id'];
@@ -371,6 +385,8 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
       for (const event of items) {
         const { messageId, recipientEmail, timestamp } = extractEventIdentifiers(event);
         if (!messageId && !recipientEmail) continue;
+        // Event emails have their own ledger; never attribute them to a campaign.
+        if (event['user-variables']?.iconn_event_email_delivery) { skipped++; continue; }
 
         const matchesByMessageId = messageId && messageIds.has(messageId);
         const matchesByEmail = recipientEmail && recipientEmails.has(recipientEmail);

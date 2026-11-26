@@ -36,8 +36,17 @@ export async function deliverFunnelConfirmations({db,job,deadlineAt=Date.now()+1
           if(deadlineAt-now()<8000) result={success:false,notSubmitted:true};
           else {
             const sender=send||(await import('./emailService.js')).sendEmail;
-            result=await sender({...restorePayload(claimed.payload),deadlineAt,
-              funnelReceipt:item.receipt_token?{id:item.id,token:item.receipt_token}:null});
+            const envelope={...restorePayload(claimed.payload),deadlineAt,
+              funnelReceipt:item.receipt_token?{id:item.id,token:item.receipt_token}:null};
+            // Per-send delivery stats sit beside (never replace) the receipt
+            // journal: the sender is still called exactly once per claim and a
+            // stats ledger failure never blocks or repeats the send.
+            const {sendTrackedEventEmail}=await import('./eventEmailDelivery.js');
+            result=await sendTrackedEventEmail(db,{tenantId:job.tenant_id,eventId:item.event_id,
+              eventEmailId:item.template_id??item.template?.id??null,
+              emailType:item.template?.email_type||'booking_confirmation',
+              bookingId:item.booking_id??item.booking?.id??null,recipientEmail:envelope.to,
+              source:'event_funnel'},envelope,sender);
           }
         } catch {result={success:false};}
         await operation('finish',item.id,{outcome:result?.success===true?'delivered':

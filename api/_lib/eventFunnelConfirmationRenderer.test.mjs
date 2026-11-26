@@ -19,7 +19,8 @@ test('shared confirmation renderer preserves the ordinary mailer contract and su
     createEventEmailZoomResolver:()=>({}),buildSessionScheduleHtml:()=>'',buildIcsAttachment:()=>null,
     buildInboxDelivery:async()=>({}),resolveEventEmailSurvey:async(_db,c)=>c,
     replacePlaceholders:s=>s,applyAgendaPlaceholders:s=>s,parseCcField:()=>[],formatBodyAsHtml:s=>s,
-    buildConfirmationQrHtml:async()=>{throw new Error('QR preparation unavailable');}};
+    buildConfirmationQrHtml:async()=>{throw new Error('QR preparation unavailable');},
+    sendTrackedEventEmail:async(_db,_context,payload,send)=>send(payload)};
   const render=new Function(...Object.keys(dependencies),
     `${source.slice(start,end).replace('export ','')};return sendConfirmationEmailsFromTemplate;`)(...Object.values(dependencies));
   const booking={id:'booking',attendee_email:'recipient@example.test'};

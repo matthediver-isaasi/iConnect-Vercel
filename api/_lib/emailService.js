@@ -330,7 +330,7 @@ export function mailgunSuccessMetadata(
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, campaignDeadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false, confidentialDiagnostics = false, funnelReceipt = null }, dependencies = {}) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, campaignDeadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false, confidentialDiagnostics = false, funnelReceipt = null, eventEmailDelivery = null }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
@@ -511,6 +511,19 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       if(!valid(funnelReceipt.id)||!valid(funnelReceipt.token))return {success:false,notSubmitted:true,error:'Invalid confirmation receipt identity'};
       messageData['v:iconn_funnel_confirmation']=funnelReceipt.id;
       messageData['v:iconn_funnel_receipt']=funnelReceipt.token;
+    }
+
+    // Event email delivery ledger row (confirmation/reminder/follow-up). Kept
+    // separate from campaign and funnel variables; an invalid id is ignored.
+    if (typeof eventEmailDelivery === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventEmailDelivery)) {
+      messageData['v:iconn_event_email_delivery'] = eventEmailDelivery;
+      // Opens only, enforced per message: click tracking would rewrite joining
+      // links in event emails even when the sending domain enables it.
+      if (!disableTracking) {
+        messageData['o:tracking-opens'] = 'yes';
+        messageData['o:tracking-clicks'] = 'no';
+      }
     }
 
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {

@@ -182,3 +182,4 @@
 - [Org membership year replacement](org-membership-year-replacement.md) — exact gross credits, QBO single-tax limit, re-price without the replaced row; replaced rows excluded everywhere.
 - [Private (unlisted) events](private-event-listing.md) — hidden from /Events, group lists, search and sitemap; Canvas event widgets must still show them.
 - [Campaign preparation journal errors](campaign-preparation-journal-errors.md) — the audience journal throws provider errors; optional-RPC tolerance needs try/catch, not { error } checks.
+- [Event email delivery ledger](event-email-delivery-ledger.md) — tracked-send wrapper, dedicated Mailgun variable matched before campaigns, recipient-matched (CC-safe), opens-only.

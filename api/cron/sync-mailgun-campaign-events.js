@@ -1,7 +1,8 @@
 import { supabase } from '../_lib/database.js';
-import { syncCampaignEvents, fetchMailgunEvents } from '../_lib/mailgunEventSync.js';
+import { syncCampaignEvents, fetchMailgunEvents, fetchMailgunEventPage } from '../_lib/mailgunEventSync.js';
 import { recoverCampaignAcceptance } from '../_lib/campaignAcceptanceRecovery.js';
 import { finalizeCampaignDelivery } from '../_lib/campaignClaimJournal.js';
+import { syncEventEmailDeliveries } from '../_lib/eventEmailDelivery.js';
 
 const OVERALL_BUDGET_MS = 55_000;
 const MIN_USEFUL_BUDGET_MS = 12_000;
@@ -38,42 +39,40 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch campaigns' });
     }
 
-    if (!campaigns || campaigns.length === 0) {
-      console.log('[cron/sync-mailgun-events] No recent campaigns to sync');
-      return res.json({ success: true, message: 'No recent campaigns', campaigns_synced: 0 });
-    }
-
-    console.log(`[cron/sync-mailgun-events] Found ${campaigns.length} campaigns sent in the last 30 days`);
-
-    const tenantIds = [...new Set(campaigns.map(c => c.tenant_id))];
-    const { data: tenants, error: tenantsError } = await supabase
-      .from('tenant')
-      .select('id, settings')
-      .in('id', tenantIds);
-
-    if (tenantsError) {
-      console.error('[cron/sync-mailgun-events] Failed to fetch tenants:', tenantsError.message);
-      return res.status(500).json({ error: 'Failed to fetch tenant settings' });
-    }
+    const campaignList = campaigns || [];
+    console.log(`[cron/sync-mailgun-events] Found ${campaignList.length} campaigns sent in the last 30 days`);
 
     const tenantDomains = new Map();
-    for (const t of (tenants || [])) {
-      const domain = t.settings?.email_domain?.domain;
-      if (domain) tenantDomains.set(t.id, domain);
+    const tenantIds = [...new Set(campaignList.map(c => c.tenant_id))];
+    if (tenantIds.length) {
+      const { data: tenants, error: tenantsError } = await supabase
+        .from('tenant')
+        .select('id, settings')
+        .in('id', tenantIds);
+
+      if (tenantsError) {
+        console.error('[cron/sync-mailgun-events] Failed to fetch tenants:', tenantsError.message);
+        return res.status(500).json({ error: 'Failed to fetch tenant settings' });
+      }
+
+      for (const t of (tenants || [])) {
+        const domain = t.settings?.email_domain?.domain;
+        if (domain) tenantDomains.set(t.id, domain);
+      }
     }
 
     // Reconcile unresolved transport outcomes before spending the budget on
     // engagement history for already-completed campaigns.
-    campaigns.sort((a,b) => Number(b.status==='sending')-Number(a.status==='sending'));
+    campaignList.sort((a,b) => Number(b.status==='sending')-Number(a.status==='sending'));
     const results = [];
     let campaignsSynced = 0;
     let totalProcessed = 0;
     let totalSkipped = 0;
     let totalErrors = 0;
 
-    for (let idx = 0; idx < campaigns.length; idx++) {
+    for (let idx = 0; idx < campaignList.length; idx++) {
       if (Date.now()+6000>=startTime+OVERALL_BUDGET_MS) break;
-      const campaign = campaigns[idx];
+      const campaign = campaignList[idx];
       if (['sending','paused'].includes(campaign.status)) {
         const domain=tenantDomains.get(campaign.tenant_id);
         if (domain) {
@@ -97,7 +96,7 @@ export default async function handler(req, res) {
       const remaining = OVERALL_BUDGET_MS - elapsed;
 
       if (remaining < 5_000) {
-        console.log(`[cron/sync-mailgun-events] Time budget exhausted after ${campaignsSynced} campaigns, ${campaigns.length - idx} remaining`);
+        console.log(`[cron/sync-mailgun-events] Time budget exhausted after ${campaignsSynced} campaigns, ${campaignList.length - idx} remaining`);
         break;
       }
 
@@ -110,7 +109,7 @@ export default async function handler(req, res) {
       const perCampaignBudget = Math.min(remaining - BUDGET_RESERVE_MS, PER_CAMPAIGN_CAP_MS);
 
       if (perCampaignBudget < MIN_USEFUL_BUDGET_MS) {
-        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for another campaign, stopping after ${campaignsSynced} synced, ${campaigns.length - idx} remaining`);
+        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for another campaign, stopping after ${campaignsSynced} synced, ${campaignList.length - idx} remaining`);
         break;
       }
 
@@ -145,12 +144,31 @@ export default async function handler(req, res) {
       }
     }
 
+    // Event email (confirmation/reminder/follow-up) recovery uses whatever
+    // budget the campaigns left. Rows record the domain they were sent from.
+    let eventEmailSync = null;
+    if (Date.now() + 8000 < startTime + OVERALL_BUDGET_MS) {
+      try {
+        eventEmailSync = await syncEventEmailDeliveries(supabase, fetchMailgunEvents, {
+          defaultDomain: process.env.MAILGUN_DOMAIN || null,
+          deadline: startTime + OVERALL_BUDGET_MS - BUDGET_RESERVE_MS,
+          fetchNext: fetchMailgunEventPage,
+        });
+        totalErrors += eventEmailSync.errors;
+      } catch (err) {
+        totalErrors++;
+        console.error('[cron/sync-mailgun-events] Event email recovery failed:', err.message);
+        eventEmailSync = { error: err.message };
+      }
+    }
+
     const totalElapsed = Math.round((Date.now() - startTime) / 1000);
-    console.log(`[cron/sync-mailgun-events] Complete: ${campaignsSynced}/${campaigns.length} campaigns synced, ${totalProcessed} events processed, ${totalSkipped} skipped, ${totalErrors} errors, ${totalElapsed}s`);
+    console.log(`[cron/sync-mailgun-events] Complete: ${campaignsSynced}/${campaignList.length} campaigns synced, ${totalProcessed} events processed, ${totalSkipped} skipped, ${totalErrors} errors, ${totalElapsed}s`);
 
     return res.json({
       success: true,
-      campaigns_found: campaigns.length,
+      campaigns_found: campaignList.length,
+      event_email_sync: eventEmailSync,
       campaigns_synced: campaignsSynced,
       total_processed: totalProcessed,
       total_skipped: totalSkipped,

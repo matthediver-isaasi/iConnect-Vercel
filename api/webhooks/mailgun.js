@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
 import { classifyEmailDelivery } from '../_lib/emailDeliveryClassification.js';
 import { receiveFunnelMailgunReceipt } from '../_lib/eventFunnelMailgunReceipt.js';
+import { applyEventEmailProviderEvent, eventEmailDeliveryIdFrom } from '../_lib/eventEmailDelivery.js';
 
 const MAILGUN_WEBHOOK_SIGNING_KEY = process.env.MAILGUN_WEBHOOK_SIGNING_KEY;
 
@@ -52,7 +53,21 @@ export default async function handler(req, res) {
   // permits an unconfigured signing key. Never inherit that compatibility path.
   try {
     const receipt=await receiveFunnelMailgunReceipt({body:req.body,db:supabase,signingKey:MAILGUN_WEBHOOK_SIGNING_KEY});
-    if(receipt)return res.status(receipt.status).json(receipt.body);
+    if(receipt) {
+      // Funnel confirmations also carry the event email stats variable. Update
+      // that ledger only after the receipt verified the signature and
+      // succeeded; a ledger failure asks Mailgun to retry, which is safe
+      // because the receipt function is idempotent for a replayed event.
+      const funnelEvent=req.body?.['event-data']||req.body;
+      if(receipt.status===200&&eventEmailDeliveryIdFrom(funnelEvent)) {
+        try { await applyEventEmailProviderEvent(supabase,funnelEvent); }
+        catch(error) {
+          console.error('[Mailgun Webhook] Event email ledger update failed:',error?.message||error);
+          return res.status(500).json({error:'Event email tracking requires retry'});
+        }
+      }
+      return res.status(receipt.status).json(receipt.body);
+    }
   } catch {return res.status(503).json({error:'Receipt processing requires retry'});}
 
   if (signature && MAILGUN_WEBHOOK_SIGNING_KEY) {
@@ -83,6 +98,28 @@ export default async function handler(req, res) {
     const timestamp = eventData.timestamp ? new Date(eventData.timestamp * 1000).toISOString() : new Date().toISOString();
 
     console.log(`[Mailgun Webhook] Received ${eventType} event for ${recipientEmail}, messageId: ${messageId || 'none'} (header: ${headerMessageId || 'none'}, top-level: ${topLevelMessageId || 'none'})`);
+
+    // Event emails (confirmations, reminders, follow-ups) carry their own
+    // ledger id. Match them first so the email-only campaign fallback below can
+    // never attribute them to a campaign.
+    if (eventEmailDeliveryIdFrom(eventData)) {
+      const outcome = await applyEventEmailProviderEvent(supabase, eventData);
+      const { error: evidenceError } = await supabase.from('email_event').insert({
+        tenant_id: outcome?.tenant_id || null,
+        event_type: eventType,
+        email: recipientEmail,
+        mailgun_message_id: messageId,
+        mailgun_event_id: eventData.id,
+        severity: eventData.severity,
+        reason: eventData.reason,
+        delivery_status_code: eventData['delivery-status']?.code,
+        delivery_status_message: eventData['delivery-status']?.message,
+        raw_event: { ...eventData, _iconnect_verified_provider: Boolean(signature && MAILGUN_WEBHOOK_SIGNING_KEY) },
+        event_timestamp: timestamp
+      });
+      if (evidenceError) throw new Error('Could not persist email delivery event');
+      return res.status(200).json({ success: true, eventEmail: Boolean(outcome?.matched) });
+    }
 
     let recipient = null;
     let campaign = null;

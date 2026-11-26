@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
+import { sendTrackedEventEmail } from './eventEmailDelivery.js';
 import { buildInboxDelivery } from './transactionalInbox.js';
 import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
@@ -145,7 +146,13 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
         const ccList = parseCcField(emailConfig.cc);
 
-        const deliver = deliveryOptions.send || (payload => sendEmail(payload));
+        // The funnel's send override tracks its own sends (see eventFunnelConfirmations.js)
+        // at the point the journal admits the actual provider call.
+        const deliver = deliveryOptions.send || (payload => sendTrackedEventEmail(supabase, {
+          tenantId: event.tenant_id, eventId: event.id || eventId, eventEmailId: emailConfig.id,
+          emailType: emailConfig.email_type || 'booking_confirmation', bookingId: booking?.id || null,
+          recipientEmail: payload.to, source: deliveryOptions.source || 'confirmation',
+        }, payload, sendEmail));
         const emailResult = await deliver({
           to: bookingData.attendee_email,
           subject: subject,

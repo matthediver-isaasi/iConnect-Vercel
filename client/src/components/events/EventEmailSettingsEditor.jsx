@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import EmailPreviewAttendees from "./EmailPreviewAttendees";
 import EventEmailTemplatePicker from "./EventEmailTemplatePicker";
+import { useEventEmailDeliveryStats, EventEmailDeliveryStatsRow, EventEmailRecipientsDialog } from "./EventEmailDeliveryStats";
 import { readEventEmailSaveResponse } from "./eventEmailSaveResponse.js";
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
@@ -215,12 +216,15 @@ export default function EventEmailSettingsEditor({
   // Preview modal state: null | { emailId, loading, error, subject, html }
   const [preview, setPreview] = useState(null);
   const previewRequest = useRef(0);
+  const deliveryStats = useEventEmailDeliveryStats(eventId);
+  const [recipientsEmail, setRecipientsEmail] = useState(null);
   const currentEventId = useRef(eventId);
   currentEventId.current = eventId;
 
   useEffect(() => {
     previewRequest.current++;
     setPreview(null);
+    setRecipientsEmail(null);
     return () => { previewRequest.current++; };
   }, [eventId]);
 
@@ -359,6 +363,8 @@ export default function EventEmailSettingsEditor({
             </Button>
             </div>
           </div>
+
+          <EventEmailDeliveryStatsRow email={email} eventId={eventId} statsState={deliveryStats} onShowRecipients={setRecipientsEmail} />
 
           {saveErrors[email.id] && (
             <div
@@ -621,6 +627,7 @@ export default function EventEmailSettingsEditor({
         </div>
       ))}
 
+      <EventEmailRecipientsDialog eventId={eventId} email={recipientsEmail} onClose={() => setRecipientsEmail(null)} />
       <Dialog open={!!preview && preview.eventId === eventId} onOpenChange={(open) => { if (!open) { previewRequest.current++; setPreview(null); } }}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-y-auto">
           <DialogHeader>

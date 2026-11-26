@@ -1,4 +1,5 @@
 import { sendEmail } from '../_lib/emailService.js';
+import { sendTrackedEventEmail } from '../_lib/eventEmailDelivery.js';
 import { createEventEmailZoomResolver, personaliseEmailZoomTargets } from '../_lib/eventEmailZoomLinks.js';
 import { supabase } from '../_lib/database.js';
 import { resolveEventEmailSurvey } from '../_lib/campaignEventSurvey.js';
@@ -105,8 +106,12 @@ export default async function handler(req, res) {
             continue;
           }
           const cc = parseCcField(eventEmail.cc);
-          const delivery = await sendEmail({ to: validation.booking.attendee_email, ...rendered,
-            cc: cc.length ? cc : undefined, tenantId: validation.event.tenant_id, inboxDelivery });
+          const delivery = await sendTrackedEventEmail(supabase, {
+            tenantId: validation.event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
+            emailType: 'follow_up', bookingId: validation.booking.id || row.booking_id,
+            recipientEmail: validation.booking.attendee_email, scheduledEmailId: row.id, source: 'follow_up_cron',
+          }, { to: validation.booking.attendee_email, ...rendered,
+            cc: cc.length ? cc : undefined, tenantId: validation.event.tenant_id, inboxDelivery }, sendEmail);
           if (!delivery.success) throw new Error(delivery.error || 'Follow-up delivery outcome unknown');
           const { error: sentError } = await supabase.from('scheduled_email')
             .update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', row.id).eq('status', 'failed');
@@ -301,14 +306,18 @@ export default async function handler(req, res) {
           skipped.push({id:scheduledEmail.id,reason:'Booking or recipient changed during reminder preparation'});
           continue;
         }
-        const emailResult = await sendEmail({
+        const emailResult = await sendTrackedEventEmail(supabase, {
+          tenantId: event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
+          emailType: 'reminder', bookingId: scheduledEmail.booking_id, recipientEmail: scheduledEmail.attendee_email,
+          scheduledEmailId: scheduledEmail.id, source: 'reminder_cron',
+        }, {
           to: scheduledEmail.attendee_email,
           subject: subject,
           html: formatBodyAsHtml(body),
           cc: ccList.length > 0 ? ccList : undefined,
           tenantId: event.tenant_id,
           inboxDelivery,
-        });
+        }, sendEmail);
 
         if (emailResult.success) {
           const { error: sentError } = await supabase

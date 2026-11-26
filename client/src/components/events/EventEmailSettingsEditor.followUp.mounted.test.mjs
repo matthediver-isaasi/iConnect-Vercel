@@ -98,11 +98,18 @@ const change = async (element, value) => {
   });
 };
 const rows = () => JSON.parse(byId("fixture-emails").textContent);
-async function mount(Surface, props = {}, previewResponse = null, schedulingResult = null) {
-  let saved = [], calls = [], previewHandler = previewResponse;
+async function mount(Surface, props = {}, previewResponse = null, schedulingResult = null, statsHandler = null) {
+  let saved = [], calls = [], statsCalls = [], previewHandler = previewResponse;
   globalThis.emailFixtureToasts = [];
   globalThis.fetch = async (url, options = {}) => {
     assert.equal(options.credentials, "include");
+    // Read-only delivery stats are tracked separately from mutating transport.
+    if (/^\/api\/event-emails\/[^/]+\/stats(\?|$)/.test(url)) {
+      assert.equal(options.method ?? "GET", "GET");
+      assert.equal(options.body, undefined);
+      statsCalls.push(url);
+      return statsHandler ? statsHandler(url) : json({trackingStartedAt: null, emails: {}});
+    }
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push({url, ...options, payload});
     if (url === "/api/event-emails/fixture-event" && options.method === "PUT") {
@@ -122,7 +129,7 @@ async function mount(Surface, props = {}, previewResponse = null, schedulingResu
   const root = createRoot(host);
   await act(async () => root.render(React.createElement(Surface, props)));
   return {
-    calls, saved: () => saved,
+    calls, statsCalls, saved: () => saved,
     preview: handler => { previewHandler = handler; },
     render: async nextProps => { await act(async () => root.render(React.createElement(Surface, nextProps))); },
     cleanup: async () => { await act(async () => root.unmount()); host.remove(); },
@@ -444,4 +451,42 @@ test("new email/event resets attendee; follow-ups never request attendee lookup"
     assert.equal(document.getElementById("email-preview-attendee-search"), null);
     assert.equal(fixture.calls.at(-1).payload.bookingId, undefined);
   } finally { await fixture.cleanup(); }
+});
+
+test("saved email setups show read-only delivery stats and a per-recipient list on every editor", async () => {
+  const savedEmail = {id: "11111111-1111-4111-8111-111111111111", email_type: "reminder", subject: "See you soon", body: "Body", is_enabled: true, timing_type: "1_day_before", created_at: "2026-01-01T00:00:00Z"};
+  const statsHandler = url => url.includes("emailId=")
+    ? json({page: 1, pageSize: 25, total: 2, recipients: [
+        {id: "r1", email: "delivered@example.invalid", status: "delivered", sentAt: "2027-02-02T10:00:00Z", opened: true, failureReason: null},
+        {id: "r2", email: "bounced@example.invalid", status: "bounced_or_failed", sentAt: "2027-02-02T10:00:00Z", opened: false, failureReason: "Mailbox does not exist"},
+      ]})
+    : json({trackingStartedAt: "2027-02-01T00:00:00Z", emails: {[savedEmail.id]: {total: 5, sent: 4, delivered: 2, awaiting: 1, opened: 1, failed: 2, sending: 0}}});
+  for (const [name, props] of [["EditEventFixture", {editing: true}], ["CreateComplexEventFixture", {editing: true}]]) {
+    const fixture = await mount(surfaces[name], {...props, initial: [savedEmail]}, null, null, statsHandler);
+    try {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      assert.equal(byId(`text-email-sent-${savedEmail.id}`).textContent, "4 sent (accepted)");
+      assert.equal(byId(`text-email-delivered-${savedEmail.id}`).textContent, "2 delivered");
+      assert.equal(byId(`text-email-awaiting-${savedEmail.id}`).textContent, "1 awaiting confirmation");
+      assert.equal(byId(`text-email-opened-${savedEmail.id}`).textContent, "1 tracking-image recipients");
+      assert.equal(byId(`text-email-failed-${savedEmail.id}`).textContent, "2 failed");
+      assert.match(byId(`email-delivery-stats-${savedEmail.id}`).textContent, /tracking-image requests and may include privacy preloading/);
+      assert.match(byId(`text-tracking-started-${savedEmail.id}`).textContent, /Tracking started on .*2027/);
+      await click(byId(`button-email-recipients-${savedEmail.id}`));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      const list = byId("event-email-recipients").textContent;
+      assert.match(list, /bounced@example\.invalid.*Bounced \/ delivery failed.*Mailbox does not exist/s);
+      assert.match(list, /delivered@example\.invalid.*Delivered/s);
+      assert.ok(fixture.statsCalls.some(url => url.includes(`emailId=${savedEmail.id}`)));
+      // Viewing stats never saves, schedules, re-queues or sends anything.
+      assert.equal(fixture.calls.length, 0);
+    } finally { await fixture.cleanup(); }
+  }
+  const create = await mount(surfaces.CreateEventFixture, {}, null, null, () => assert.fail("Unsaved events must not request stats"));
+  try {
+    await click(byId("button-add-follow-up-email"));
+    const [row] = rows();
+    assert.match(byId(`email-delivery-stats-${row.id}`).textContent, /appear after this email is saved/);
+    assert.equal(create.statsCalls.length, 0);
+  } finally { await create.cleanup(); }
 });
