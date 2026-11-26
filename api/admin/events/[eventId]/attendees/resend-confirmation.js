@@ -1,7 +1,7 @@
 import { getSessionMember } from '../../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../../_lib/roleVisibility.js';
-import { sendConfirmationEmailsFromTemplate } from '../../../../_lib/eventConfirmationEmail.js';
+import { sendConfirmationEmailsFromTemplate, buildBookingPricingDetails } from '../../../../_lib/eventConfirmationEmail.js';
 import { getZoomAccessTokenForTenant } from '../../../../_lib/zoomClient.js';
 import { isGroupAdminForEventRequest } from '../../../../_lib/groupAdminEventWrite.js';
 
@@ -164,25 +164,6 @@ async function getPersonalizedZoomUrl(eventId, attendeeEmail, tenantId) {
   return null;
 }
 
-function buildPricingDetails(booking) {
-  if (!booking) return null;
-  const discount = Number(booking.discount_code_amount ?? booking.discount_amount ?? 0);
-  const freeTickets = Number(booking.free_tickets || 0);
-  const discountDescription = booking.discount_code_description
-    || booking.discount_description
-    || null;
-
-  if (discount > 0 || freeTickets > 0) {
-    return {
-      discount: discount > 0 ? discount : 0,
-      freeTickets: freeTickets > 0 ? freeTickets : 0,
-      discountDescription,
-    };
-  }
-
-  return null;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -249,7 +230,7 @@ export default async function handler(req, res) {
       email: attendeeEmail,
     };
 
-    const pricingDetails = buildPricingDetails(booking);
+    const pricingDetails = buildBookingPricingDetails(booking);
     const tenantId = booking.tenant_id || null;
     const targetEventId = booking.event_id || eventId;
 

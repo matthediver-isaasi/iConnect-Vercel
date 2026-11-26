@@ -627,7 +627,7 @@ export default function EventEmailSettingsEditor({
         </div>
       ))}
 
-      <EventEmailRecipientsDialog eventId={eventId} email={recipientsEmail} onClose={() => setRecipientsEmail(null)} />
+      <EventEmailRecipientsDialog eventId={eventId} email={recipientsEmail} onClose={() => setRecipientsEmail(null)} onResent={deliveryStats.reload} />
       <Dialog open={!!preview && preview.eventId === eventId} onOpenChange={(open) => { if (!open) { previewRequest.current++; setPreview(null); } }}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-y-auto">
           <DialogHeader>

@@ -12,6 +12,28 @@ import { renderFollowUp } from '../_lib/eventFollowUpRendering.js';
 import { loadAttendeeMemberFieldValues, applyMemberFieldPlaceholders } from '../_lib/eventEmailMemberFields.js';
 import {loadScheduledReminderBooking,reminderRecipientStillEligible} from '../_lib/scheduledReminderBooking.js';
 
+// Marks a row a worker has claimed but not finished. A row still carrying it
+// may be mid-send (or crashed mid-send) and must never be re-queued.
+export const SCHEDULED_EMAIL_CLAIM_MESSAGE = 'Delivery claimed; outcome unknown. Do not re-send without checking delivery history.';
+
+export const SCHEDULED_EVENT_EMAIL_SELECT = `
+  id,
+  event_email_id,
+  booking_id,
+  attendee_email,
+  scheduled_send_time,
+  session_id,
+  event_email:event_email_id (
+    id,
+    subject,
+    body,
+    cc,
+    event_survey_assignment_id,
+    event_id,
+    is_complex_event
+  )
+`;
+
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
@@ -29,23 +51,7 @@ export default async function handler(req, res) {
     const now = new Date();
     const { data: pendingEmails, error: fetchError } = await supabase
       .from('scheduled_email')
-      .select(`
-        id,
-        event_email_id,
-        booking_id,
-        attendee_email,
-        scheduled_send_time,
-        session_id,
-        event_email:event_email_id (
-          id,
-          subject,
-          body,
-          cc,
-          event_survey_assignment_id,
-          event_id,
-          is_complex_event
-        )
-      `)
+      .select(SCHEDULED_EVENT_EMAIL_SELECT)
       .eq('status', 'pending')
       .lte('scheduled_send_time', now.toISOString())
       .order('scheduled_send_time', { ascending: true })
@@ -68,280 +74,10 @@ export default async function handler(req, res) {
     const skipped = [];
 
     for (const scheduledEmail of pendingEmails) {
-      // Use an existing terminal status as a fail-closed claim: a crash or an
-      // ambiguous provider outcome requires investigation, never automatic retry.
-      const { data: claimed, error: claimError } = await supabase.from('scheduled_email')
-        .update({ status: 'failed', error_message: 'Delivery claimed; outcome unknown. Do not re-send without checking delivery history.' })
-        .eq('id', scheduledEmail.id).eq('status', 'pending')
-        .eq('scheduled_send_time', scheduledEmail.scheduled_send_time).select('id');
-      if (claimError || !claimed?.length) continue;
-      try {
-        const { data: eventEmail, error: configError } = await supabase.from('event_email')
-          .select('*').eq('id', scheduledEmail.event_email_id).maybeSingle();
-        if (configError) throw configError;
-        if (!eventEmail) {
-          console.log(`[cron/send-event-reminders] No event_email found for scheduled_email ${scheduledEmail.id}`);
-          await markAsFailed(scheduledEmail.id, 'Event email configuration not found');
-          failedCount++;
-          continue;
-        }
-        if (eventEmail.email_type === 'follow_up') {
-          const { data: row, error: rowError } = await supabase.from('scheduled_email').select('*').eq('id', scheduledEmail.id).single();
-          if (rowError) throw rowError;
-          const validation = await validateFollowUpDelivery(supabase, row, eventEmail);
-          if (validation.reason) {
-            await markAsCancelled(row.id, validation.reason);
-            skipped.push({ id: row.id, reason: validation.reason });
-            continue;
-          }
-          const rendered = await renderFollowUp(supabase, validation, eventEmail);
-          const inboxDelivery = await buildInboxDelivery({ tenantId: validation.event.tenant_id,
-            memberId: validation.booking.member_id || null, email: validation.booking.attendee_email, labelKey: 'events' });
-          // Re-read authority after rendering/provider-independent lookups.
-          const { data: latestConfig, error: latestError } = await supabase.from('event_email').select('*').eq('id', eventEmail.id).maybeSingle();
-          if (latestError) throw latestError;
-          const latest = latestConfig && await validateFollowUpDelivery(supabase, row, latestConfig);
-          if (!latest || latest.reason || JSON.stringify(latestConfig) !== JSON.stringify(eventEmail)) {
-            await markAsCancelled(row.id, latest?.reason || 'Follow-up configuration changed during preparation');
-            continue;
-          }
-          const cc = parseCcField(eventEmail.cc);
-          const delivery = await sendTrackedEventEmail(supabase, {
-            tenantId: validation.event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
-            emailType: 'follow_up', bookingId: validation.booking.id || row.booking_id,
-            recipientEmail: validation.booking.attendee_email, scheduledEmailId: row.id, source: 'follow_up_cron',
-          }, { to: validation.booking.attendee_email, ...rendered,
-            cc: cc.length ? cc : undefined, tenantId: validation.event.tenant_id, inboxDelivery }, sendEmail);
-          if (!delivery.success) throw new Error(delivery.error || 'Follow-up delivery outcome unknown');
-          const { error: sentError } = await supabase.from('scheduled_email')
-            .update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', row.id).eq('status', 'failed');
-          if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
-          sentCount++;
-          continue;
-        }
-        if (!eventEmail.is_enabled || eventEmail.email_type !== 'reminder') {
-          await markAsCancelled(scheduledEmail.id, 'Reminder disabled or no longer a reminder');
-          skipped.push({ id: scheduledEmail.id, reason: 'Reminder disabled or no longer a reminder' });
-          continue;
-        }
-
-        // event_email has no tenant column: the owning event row is the tenant
-        // authority for the booking, event and inbox lookups below.
-        const { data: owningEvent, error: ownerError } = await supabase
-          .from(eventEmail.is_complex_event ? 'complex_event' : 'event')
-          .select('id, tenant_id').eq('id', eventEmail.event_id).maybeSingle();
-        if (ownerError) throw ownerError;
-        if (!owningEvent?.tenant_id || (eventEmail.tenant_id && eventEmail.tenant_id !== owningEvent.tenant_id)) {
-          await markAsFailed(scheduledEmail.id, 'Event not found');
-          failedCount++;
-          continue;
-        }
-        const reminderScope = { ...eventEmail, tenant_id: owningEvent.tenant_id };
-        const booking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
-
-        if (!booking) {
-          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in booking or complex_event_booking`);
-          await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
-          failedCount++;
-          continue;
-        }
-
-        if (booking.status === 'cancelled' || booking.event_id !== eventEmail.event_id) {
-          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} is cancelled, skipping`);
-          await markAsCancelled(scheduledEmail.id, 'Booking cancelled or no longer belongs to event');
-          skipped.push({ id: scheduledEmail.id, reason: 'Booking cancelled or no longer belongs to event' });
-          continue;
-        }
-
-        let event = null;
-        const isComplexEvent = eventEmail.is_complex_event || false;
-
-        if (isComplexEvent) {
-          const { data: complexEvent, error: complexError } = await supabase
-            .from('complex_event')
-            .select('id, title, start_date, location, status, timezone, tenant_id')
-            .eq('tenant_id', reminderScope.tenant_id)
-            .eq('id', eventEmail.event_id)
-            .single();
-
-          if (complexError || !complexEvent) {
-            console.log(`[cron/send-event-reminders] Complex event not found for ${eventEmail.event_id}`);
-            await markAsFailed(scheduledEmail.id, 'Complex event not found');
-            failedCount++;
-            continue;
-          }
-
-          event = {
-            ...complexEvent,
-            is_complex: true,
-            is_online: false,
-            zoom_meeting_id: null,
-            zoom_webinar_id: null
-          };
-        } else {
-          const { data: regularEvent, error: eventError } = await supabase
-            .from('event')
-            .select('id, title, start_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
-            .eq('tenant_id', reminderScope.tenant_id)
-            .eq('id', eventEmail.event_id)
-            .single();
-
-          if (eventError || !regularEvent) {
-            console.log(`[cron/send-event-reminders] Event not found for ${eventEmail.event_id}`);
-            await markAsFailed(scheduledEmail.id, 'Event not found');
-            failedCount++;
-            continue;
-          }
-          event = regularEvent;
-        }
-
-        let zoomJoinUrl = null;
-        if (event.zoom_meeting_id) {
-          const { data: zoomMeeting } = await supabase
-            .from('zoom_meeting')
-            .select('join_url')
-            .eq('id', event.zoom_meeting_id)
-            .single();
-          zoomJoinUrl = zoomMeeting?.join_url;
-        } else if (event.zoom_webinar_id) {
-          const { data: zoomWebinar } = await supabase
-            .from('zoom_webinar')
-            .select('join_url')
-            .eq('id', event.zoom_webinar_id)
-            .single();
-          zoomJoinUrl = zoomWebinar?.join_url;
-        }
-        
-        event.zoom_join_url = zoomJoinUrl;
-
-        let complexEventData = null;
-        if (event.is_complex) {
-          complexEventData = await fetchComplexEventData(
-            event.id,
-            booking.ticket_class_id,
-            booking.ticket_class_name,
-            event.tenant_id,
-            event.timezone
-          );
-          console.log(`[cron/send-event-reminders] Fetched complex event data: ${complexEventData?.sessions?.length || 0} sessions`);
-        }
-
-        // Training events (Task #3419): the reminder row may be bound to one
-        // agenda line (scheduled_email.session_id = agenda line id). Fetch
-        // agenda context so {{agenda_schedule}} and per-line tokens resolve.
-        let trainingAgendaData = null;
-        let trainingAgendaLine = null;
-        if (!event.is_complex) {
-          trainingAgendaData = await fetchTrainingAgendaData(event.id);
-          if (event.is_training) {
-            if (!trainingAgendaData) throw new Error('Unable to load training agenda; delivery suppressed');
-            // Read the additive column only for training events. A deployment
-            // ahead of the migration must not stop unrelated event reminders.
-            const { data: targetState, error: targetStateError } = await supabase.from('scheduled_email')
-              .select('training_target_snapshot').eq('id', scheduledEmail.id).single();
-            if (targetStateError) throw new Error('Training reminder target verification unavailable; check the target-snapshot migration before scheduling delivery');
-            const validation = validateTrainingReminder(event, eventEmail,
-              { ...scheduledEmail, training_target_snapshot: targetState?.training_target_snapshot },
-              trainingAgendaData.lines);
-            if (validation.reason) {
-              await markAsCancelled(scheduledEmail.id, validation.reason);
-              skipped.push({ id: scheduledEmail.id, reason: validation.reason });
-              continue;
-            }
-            event = trainingReminderEvent(event, validation.target);
-          }
-          if (scheduledEmail.session_id && trainingAgendaData?.lines) {
-            trainingAgendaLine = trainingAgendaData.lines.find(l => l.id === scheduledEmail.session_id) || null;
-            // Prefer the line's own join link for {{zoom_link}} on Online
-            // lines (http(s)-validated to keep emails injection-safe).
-            const lineJoinUrl = safeHttpUrl(trainingAgendaLine?.zoom_join_url);
-            if (lineJoinUrl) {
-              event.zoom_join_url = lineJoinUrl;
-            }
-          }
-        }
-
-        const surveyContent = await resolveEventEmailSurvey(supabase, eventEmail, event, isComplexEvent ? 'complex_event' : 'event');
-        await personaliseEmailZoomTargets(
-          createEventEmailZoomResolver(supabase, event.tenant_id, scheduledEmail.attendee_email),
-          event, complexEventData, trainingAgendaData, buildSessionScheduleHtml,
-        );
-        if (trainingAgendaLine) event.zoom_join_url = trainingAgendaLine.zoom_join_url || '';
-
-        let subject = renderPlaceholders(surveyContent.subject, {
-          event,
-          booking,
-          complexEventData
-        });
-
-        let body = renderPlaceholders(surveyContent.body, {
-          event,
-          booking,
-          complexEventData
-        });
-
-        if (!event.is_complex) {
-          subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData, line: trainingAgendaLine });
-          body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData, line: trainingAgendaLine });
-        }
-
-        // Member custom fields ({{field_name}}) come from the attendee's own record.
-        const memberFieldValues = await loadAttendeeMemberFieldValues(supabase, {
-          tenantId: event.tenant_id, attendeeEmail: scheduledEmail.attendee_email, texts: [subject, body] });
-        subject = applyMemberFieldPlaceholders(subject, memberFieldValues, { html: false });
-        body = applyMemberFieldPlaceholders(body, memberFieldValues);
-
-        const ccList = parseCcField(eventEmail.cc);
-
-        const inboxDelivery = await buildInboxDelivery({
-          tenantId: event.tenant_id,
-          memberId: booking?.member_id || null,
-          email: scheduledEmail.attendee_email,
-          labelKey: 'events',
-        });
-
-        const latestBooking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
-        if (!reminderRecipientStillEligible(booking,latestBooking,scheduledEmail.attendee_email)) {
-          await markAsCancelled(scheduledEmail.id,'Booking or recipient changed during reminder preparation');
-          skipped.push({id:scheduledEmail.id,reason:'Booking or recipient changed during reminder preparation'});
-          continue;
-        }
-        const emailResult = await sendTrackedEventEmail(supabase, {
-          tenantId: event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
-          emailType: 'reminder', bookingId: scheduledEmail.booking_id, recipientEmail: scheduledEmail.attendee_email,
-          scheduledEmailId: scheduledEmail.id, source: 'reminder_cron',
-        }, {
-          to: scheduledEmail.attendee_email,
-          subject: subject,
-          html: formatBodyAsHtml(body),
-          cc: ccList.length > 0 ? ccList : undefined,
-          tenantId: event.tenant_id,
-          inboxDelivery,
-        }, sendEmail);
-
-        if (emailResult.success) {
-          const { error: sentError } = await supabase
-            .from('scheduled_email')
-            .update({
-              status: 'sent',
-              sent_at: new Date().toISOString(),
-              error_message: null
-            })
-            .eq('id', scheduledEmail.id);
-          if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
-          
-          sentCount++;
-          console.log(`[cron/send-event-reminders] Sent reminder to ${scheduledEmail.attendee_email}`);
-        } else {
-          await markAsFailed(scheduledEmail.id, emailResult.error || 'Send failed');
-          failedCount++;
-        }
-
-      } catch (err) {
-        console.error(`[cron/send-event-reminders] Error processing email ${scheduledEmail.id}:`, err);
-        await markAsFailed(scheduledEmail.id, err.message);
-        failedCount++;
-      }
+      const result = await processScheduledEventEmail(scheduledEmail);
+      if (result.outcome === 'sent') sentCount++;
+      else if (result.outcome === 'failed') failedCount++;
+      else if (result.skipped) skipped.push(result.skipped);
     }
 
     console.log(`[cron/send-event-reminders] Complete: ${sentCount} sent, ${failedCount} failed`);
@@ -484,4 +220,274 @@ function formatBodyAsHtml(body) {
     .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1">$1</a>');
   
   return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
+}
+
+// Claims and sends one scheduled reminder/follow-up row. The pending->failed
+// claim makes this safe to call from the cron and from an admin resend at the
+// same time: only one caller can send a given pending row.
+export async function processScheduledEventEmail(scheduledEmail, { source = null } = {}) {
+  // Use an existing terminal status as a fail-closed claim: a crash or an
+  // ambiguous provider outcome requires investigation, never automatic retry.
+  const { data: claimed, error: claimError } = await supabase.from('scheduled_email')
+    .update({ status: 'failed', error_message: SCHEDULED_EMAIL_CLAIM_MESSAGE })
+    .eq('id', scheduledEmail.id).eq('status', 'pending')
+    .eq('scheduled_send_time', scheduledEmail.scheduled_send_time).select('id');
+  if (claimError) return { outcome: 'claim_error', reason: claimError.message || 'Claim failed' };
+  if (!claimed?.length) return { outcome: 'not_claimed' };
+  try {
+    const { data: eventEmail, error: configError } = await supabase.from('event_email')
+      .select('*').eq('id', scheduledEmail.event_email_id).maybeSingle();
+    if (configError) throw configError;
+    if (!eventEmail) {
+      console.log(`[cron/send-event-reminders] No event_email found for scheduled_email ${scheduledEmail.id}`);
+      await markAsFailed(scheduledEmail.id, 'Event email configuration not found');
+      return { outcome: 'failed', reason: 'Event email configuration not found' };
+    }
+    if (eventEmail.email_type === 'follow_up') {
+      const { data: row, error: rowError } = await supabase.from('scheduled_email').select('*').eq('id', scheduledEmail.id).single();
+      if (rowError) throw rowError;
+      const validation = await validateFollowUpDelivery(supabase, row, eventEmail);
+      if (validation.reason) {
+        await markAsCancelled(row.id, validation.reason);
+        return { outcome: 'skipped', skipped: { id: row.id, reason: validation.reason } };
+      }
+      const rendered = await renderFollowUp(supabase, validation, eventEmail);
+      const inboxDelivery = await buildInboxDelivery({ tenantId: validation.event.tenant_id,
+        memberId: validation.booking.member_id || null, email: validation.booking.attendee_email, labelKey: 'events' });
+      // Re-read authority after rendering/provider-independent lookups.
+      const { data: latestConfig, error: latestError } = await supabase.from('event_email').select('*').eq('id', eventEmail.id).maybeSingle();
+      if (latestError) throw latestError;
+      const latest = latestConfig && await validateFollowUpDelivery(supabase, row, latestConfig);
+      if (!latest || latest.reason || JSON.stringify(latestConfig) !== JSON.stringify(eventEmail)) {
+        await markAsCancelled(row.id, latest?.reason || 'Follow-up configuration changed during preparation');
+        return { outcome: 'skipped', skipped: { id: row.id, reason: latest?.reason || 'Follow-up configuration changed during preparation' } };
+      }
+      const cc = parseCcField(eventEmail.cc);
+      const delivery = await sendTrackedEventEmail(supabase, {
+        tenantId: validation.event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
+        emailType: 'follow_up', bookingId: validation.booking.id || row.booking_id,
+        recipientEmail: validation.booking.attendee_email, scheduledEmailId: row.id, source: source || 'follow_up_cron',
+      }, { to: validation.booking.attendee_email, ...rendered,
+        cc: cc.length ? cc : undefined, tenantId: validation.event.tenant_id, inboxDelivery }, sendEmail);
+      if (!delivery.success) throw new Error(delivery.error || 'Follow-up delivery outcome unknown');
+      const { error: sentError } = await supabase.from('scheduled_email')
+        .update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', row.id).eq('status', 'failed');
+      if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
+      return { outcome: 'sent' };
+    }
+    if (!eventEmail.is_enabled || eventEmail.email_type !== 'reminder') {
+      await markAsCancelled(scheduledEmail.id, 'Reminder disabled or no longer a reminder');
+      return { outcome: 'skipped', skipped: { id: scheduledEmail.id, reason: 'Reminder disabled or no longer a reminder' } };
+    }
+
+    // event_email has no tenant column: the owning event row is the tenant
+    // authority for the booking, event and inbox lookups below.
+    const { data: owningEvent, error: ownerError } = await supabase
+      .from(eventEmail.is_complex_event ? 'complex_event' : 'event')
+      .select('id, tenant_id').eq('id', eventEmail.event_id).maybeSingle();
+    if (ownerError) throw ownerError;
+    if (!owningEvent?.tenant_id || (eventEmail.tenant_id && eventEmail.tenant_id !== owningEvent.tenant_id)) {
+      await markAsFailed(scheduledEmail.id, 'Event not found');
+      return { outcome: 'failed', reason: 'Event not found' };
+    }
+    const reminderScope = { ...eventEmail, tenant_id: owningEvent.tenant_id };
+    const booking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
+
+    if (!booking) {
+      console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in booking or complex_event_booking`);
+      await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
+      return { outcome: 'failed', reason: 'Booking not found (may have been deleted)' };
+    }
+
+    if (booking.status === 'cancelled' || booking.event_id !== eventEmail.event_id) {
+      console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} is cancelled, skipping`);
+      await markAsCancelled(scheduledEmail.id, 'Booking cancelled or no longer belongs to event');
+      return { outcome: 'skipped', skipped: { id: scheduledEmail.id, reason: 'Booking cancelled or no longer belongs to event' } };
+    }
+
+    let event = null;
+    const isComplexEvent = eventEmail.is_complex_event || false;
+
+    if (isComplexEvent) {
+      const { data: complexEvent, error: complexError } = await supabase
+        .from('complex_event')
+        .select('id, title, start_date, location, status, timezone, tenant_id')
+        .eq('tenant_id', reminderScope.tenant_id)
+        .eq('id', eventEmail.event_id)
+        .single();
+
+      if (complexError || !complexEvent) {
+        console.log(`[cron/send-event-reminders] Complex event not found for ${eventEmail.event_id}`);
+        await markAsFailed(scheduledEmail.id, 'Complex event not found');
+        return { outcome: 'failed', reason: 'Complex event not found' };
+      }
+
+      event = {
+        ...complexEvent,
+        is_complex: true,
+        is_online: false,
+        zoom_meeting_id: null,
+        zoom_webinar_id: null
+      };
+    } else {
+      const { data: regularEvent, error: eventError } = await supabase
+        .from('event')
+        .select('id, title, start_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
+        .eq('tenant_id', reminderScope.tenant_id)
+        .eq('id', eventEmail.event_id)
+        .single();
+
+      if (eventError || !regularEvent) {
+        console.log(`[cron/send-event-reminders] Event not found for ${eventEmail.event_id}`);
+        await markAsFailed(scheduledEmail.id, 'Event not found');
+        return { outcome: 'failed', reason: 'Event not found' };
+      }
+      event = regularEvent;
+    }
+
+    let zoomJoinUrl = null;
+    if (event.zoom_meeting_id) {
+      const { data: zoomMeeting } = await supabase
+        .from('zoom_meeting')
+        .select('join_url')
+        .eq('id', event.zoom_meeting_id)
+        .single();
+      zoomJoinUrl = zoomMeeting?.join_url;
+    } else if (event.zoom_webinar_id) {
+      const { data: zoomWebinar } = await supabase
+        .from('zoom_webinar')
+        .select('join_url')
+        .eq('id', event.zoom_webinar_id)
+        .single();
+      zoomJoinUrl = zoomWebinar?.join_url;
+    }
+    
+    event.zoom_join_url = zoomJoinUrl;
+
+    let complexEventData = null;
+    if (event.is_complex) {
+      complexEventData = await fetchComplexEventData(
+        event.id,
+        booking.ticket_class_id,
+        booking.ticket_class_name,
+        event.tenant_id,
+        event.timezone
+      );
+      console.log(`[cron/send-event-reminders] Fetched complex event data: ${complexEventData?.sessions?.length || 0} sessions`);
+    }
+
+    // Training events (Task #3419): the reminder row may be bound to one
+    // agenda line (scheduled_email.session_id = agenda line id). Fetch
+    // agenda context so {{agenda_schedule}} and per-line tokens resolve.
+    let trainingAgendaData = null;
+    let trainingAgendaLine = null;
+    if (!event.is_complex) {
+      trainingAgendaData = await fetchTrainingAgendaData(event.id);
+      if (event.is_training) {
+        if (!trainingAgendaData) throw new Error('Unable to load training agenda; delivery suppressed');
+        // Read the additive column only for training events. A deployment
+        // ahead of the migration must not stop unrelated event reminders.
+        const { data: targetState, error: targetStateError } = await supabase.from('scheduled_email')
+          .select('training_target_snapshot').eq('id', scheduledEmail.id).single();
+        if (targetStateError) throw new Error('Training reminder target verification unavailable; check the target-snapshot migration before scheduling delivery');
+        const validation = validateTrainingReminder(event, eventEmail,
+          { ...scheduledEmail, training_target_snapshot: targetState?.training_target_snapshot },
+          trainingAgendaData.lines);
+        if (validation.reason) {
+          await markAsCancelled(scheduledEmail.id, validation.reason);
+          return { outcome: 'skipped', skipped: { id: scheduledEmail.id, reason: validation.reason } };
+        }
+        event = trainingReminderEvent(event, validation.target);
+      }
+      if (scheduledEmail.session_id && trainingAgendaData?.lines) {
+        trainingAgendaLine = trainingAgendaData.lines.find(l => l.id === scheduledEmail.session_id) || null;
+        // Prefer the line's own join link for {{zoom_link}} on Online
+        // lines (http(s)-validated to keep emails injection-safe).
+        const lineJoinUrl = safeHttpUrl(trainingAgendaLine?.zoom_join_url);
+        if (lineJoinUrl) {
+          event.zoom_join_url = lineJoinUrl;
+        }
+      }
+    }
+
+    const surveyContent = await resolveEventEmailSurvey(supabase, eventEmail, event, isComplexEvent ? 'complex_event' : 'event');
+    await personaliseEmailZoomTargets(
+      createEventEmailZoomResolver(supabase, event.tenant_id, scheduledEmail.attendee_email),
+      event, complexEventData, trainingAgendaData, buildSessionScheduleHtml,
+    );
+    if (trainingAgendaLine) event.zoom_join_url = trainingAgendaLine.zoom_join_url || '';
+
+    let subject = renderPlaceholders(surveyContent.subject, {
+      event,
+      booking,
+      complexEventData
+    });
+
+    let body = renderPlaceholders(surveyContent.body, {
+      event,
+      booking,
+      complexEventData
+    });
+
+    if (!event.is_complex) {
+      subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData, line: trainingAgendaLine });
+      body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData, line: trainingAgendaLine });
+    }
+
+    // Member custom fields ({{field_name}}) come from the attendee's own record.
+    const memberFieldValues = await loadAttendeeMemberFieldValues(supabase, {
+      tenantId: event.tenant_id, attendeeEmail: scheduledEmail.attendee_email, texts: [subject, body] });
+    subject = applyMemberFieldPlaceholders(subject, memberFieldValues, { html: false });
+    body = applyMemberFieldPlaceholders(body, memberFieldValues);
+
+    const ccList = parseCcField(eventEmail.cc);
+
+    const inboxDelivery = await buildInboxDelivery({
+      tenantId: event.tenant_id,
+      memberId: booking?.member_id || null,
+      email: scheduledEmail.attendee_email,
+      labelKey: 'events',
+    });
+
+    const latestBooking = await loadScheduledReminderBooking(supabase,reminderScope,scheduledEmail.booking_id);
+    if (!reminderRecipientStillEligible(booking,latestBooking,scheduledEmail.attendee_email)) {
+      await markAsCancelled(scheduledEmail.id,'Booking or recipient changed during reminder preparation');
+      return { outcome: 'skipped', skipped: {id:scheduledEmail.id,reason:'Booking or recipient changed during reminder preparation'} };
+    }
+    const emailResult = await sendTrackedEventEmail(supabase, {
+      tenantId: event.tenant_id, eventId: eventEmail.event_id, eventEmailId: eventEmail.id,
+      emailType: 'reminder', bookingId: scheduledEmail.booking_id, recipientEmail: scheduledEmail.attendee_email,
+      scheduledEmailId: scheduledEmail.id, source: source || 'reminder_cron',
+    }, {
+      to: scheduledEmail.attendee_email,
+      subject: subject,
+      html: formatBodyAsHtml(body),
+      cc: ccList.length > 0 ? ccList : undefined,
+      tenantId: event.tenant_id,
+      inboxDelivery,
+    }, sendEmail);
+
+    if (emailResult.success) {
+      const { error: sentError } = await supabase
+        .from('scheduled_email')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          error_message: null
+        })
+        .eq('id', scheduledEmail.id);
+      if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
+      
+      console.log(`[cron/send-event-reminders] Sent reminder to ${scheduledEmail.attendee_email}`);
+      return { outcome: 'sent' };
+    } else {
+      await markAsFailed(scheduledEmail.id, emailResult.error || 'Send failed');
+      return { outcome: 'failed', reason: emailResult.error || 'Send failed' };
+    }
+
+  } catch (err) {
+    console.error(`[cron/send-event-reminders] Error processing email ${scheduledEmail.id}:`, err);
+    await markAsFailed(scheduledEmail.id, err.message);
+    return { outcome: 'failed', reason: err.message };
+  }
 }

@@ -130,32 +130,91 @@ export async function loadEventEmailStats(db, tenantId, eventId) {
   return { trackingStartedAt: tracking?.data?.started_at || null, emails };
 }
 
+// Admin resend eligibility. Only failed rows may be resent, and only while no
+// later send for the same scheduled row / booking / recipient is in flight,
+// accepted or delivered. Rows the provider accepted or delivered never qualify.
+export const RESENDABLE_EMAIL_TYPES = ['confirmation', 'booking_confirmation', 'reminder', 'follow_up'];
+export function resendIdentityKey(row) {
+  if (row?.scheduled_email_id) return `s:${row.scheduled_email_id}`;
+  if (row?.booking_id) return `b:${row.booking_id}`;
+  return `e:${String(row?.recipient_email || '').trim().toLowerCase()}`;
+}
+
+export function resendBlockReason(row) {
+  if (!row) return 'Send not found';
+  if (row.status === 'delivered') return 'Delivered — cannot be resent';
+  if (row.status === 'accepted') return 'Accepted by the provider and awaiting confirmation — cannot be resent';
+  if (row.status !== 'failed') return 'Still sending — cannot be resent';
+  if (!RESENDABLE_EMAIL_TYPES.includes(row.email_type)) return 'This email type cannot be resent';
+  if (row.email_type === 'reminder' || row.email_type === 'follow_up') {
+    if (!row.scheduled_email_id) return 'No scheduled send is linked to this row';
+  } else if (!row.booking_id) {
+    return 'No booking is linked to this row';
+  }
+  return null;
+}
+
+// Returns a Map of failed row id -> newer non-failed row that supersedes it.
+export async function findSupersedingDeliveries(db, tenantId, eventId, eventEmailId, rows) {
+  const failed = (rows || []).filter(row => row.status === 'failed');
+  const superseded = new Map();
+  if (!failed.length) return superseded;
+  const since = failed.reduce((min, row) => (row.created_at < min ? row.created_at : min), failed[0].created_at);
+  const bookingIds = [...new Set(failed.map(row => row.booking_id).filter(Boolean))];
+  const emails = [...new Set(failed.filter(row => !row.booking_id).map(row => row.recipient_email).filter(Boolean))];
+  const candidates = [];
+  const base = () => db.from('event_email_delivery')
+    .select('id, booking_id, scheduled_email_id, recipient_email, status, created_at')
+    .eq('tenant_id', tenantId).eq('event_id', eventId).eq('event_email_id', eventEmailId)
+    .in('status', ['sending', 'accepted', 'delivered']).gt('created_at', since);
+  for (const [column, values] of [['booking_id', bookingIds], ['recipient_email', emails]]) {
+    if (!values.length) continue;
+    const { data, error } = await base().in(column, values).order('created_at', { ascending: false }).limit(1000);
+    if (error) throw error;
+    candidates.push(...(data || []));
+  }
+  for (const row of failed) {
+    const key = resendIdentityKey(row);
+    const newer = candidates.find(c => c.id !== row.id && c.created_at > row.created_at && resendIdentityKey(c) === key);
+    if (newer) superseded.set(row.id, newer);
+  }
+  return superseded;
+}
+
 export async function loadEventEmailRecipients(db, tenantId, eventId, eventEmailId, { page = 1, pageSize = 25 } = {}) {
   const size = Math.min(Math.max(Number(pageSize) || 25, 1), 100);
   const current = Math.max(Number(page) || 1, 1);
   const from = (current - 1) * size;
   const { data, error, count } = await db.from('event_email_delivery')
-    .select('id, recipient_email, status, failure_source, sent_at, delivered_at, first_opened_at, open_count, failed_at, failure_reason, temporary_failure_reason, created_at', { count: 'exact' })
+    .select('id, recipient_email, email_type, booking_id, scheduled_email_id, send_source, status, failure_source, sent_at, delivered_at, first_opened_at, open_count, failed_at, failure_reason, temporary_failure_reason, created_at', { count: 'exact' })
     .eq('tenant_id', tenantId).eq('event_id', eventId).eq('event_email_id', eventEmailId)
     .order('created_at', { ascending: false }).order('id', { ascending: false })
     .range(from, from + size - 1);
   if (error) throw error;
+  const superseded = await findSupersedingDeliveries(db, tenantId, eventId, eventEmailId, data || []);
   return {
     page: current,
     pageSize: size,
     total: count ?? null,
-    recipients: (data || []).map(row => ({
-      id: row.id,
-      email: row.recipient_email,
-      status: displayStatus(row),
-      sentAt: row.sent_at,
-      attemptedAt: row.created_at,
-      deliveredAt: row.delivered_at,
-      openedAt: row.first_opened_at,
-      opened: (row.open_count || 0) > 0,
-      failedAt: row.failed_at,
-      failureReason: row.status === 'failed' ? row.failure_reason : (row.status === 'accepted' ? row.temporary_failure_reason : null),
-    })),
+    recipients: (data || []).map(row => {
+      const blocked = resendBlockReason(row) || (superseded.has(row.id) ? 'Already resent' : null);
+      return {
+        id: row.id,
+        email: row.recipient_email,
+        status: displayStatus(row),
+        sentAt: row.sent_at,
+        attemptedAt: row.created_at,
+        deliveredAt: row.delivered_at,
+        openedAt: row.first_opened_at,
+        opened: (row.open_count || 0) > 0,
+        failedAt: row.failed_at,
+        failureReason: row.status === 'failed' ? row.failure_reason : (row.status === 'accepted' ? row.temporary_failure_reason : null),
+        isResend: row.send_source === 'admin_resend',
+        resent: superseded.has(row.id),
+        resendable: !blocked,
+        resendBlockedReason: row.status === 'failed' ? blocked : null,
+      };
+    }),
   };
 }
 

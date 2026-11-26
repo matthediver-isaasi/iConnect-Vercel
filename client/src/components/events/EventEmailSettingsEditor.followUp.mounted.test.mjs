@@ -43,6 +43,13 @@ const DialogState = createContext(false);
 export const Dialog = ({open, children}) => <DialogState.Provider value={open}>{open ? children : null}</DialogState.Provider>;
 export const DialogContent = ({children, ...props}) => useContext(DialogState) ? <section role="dialog" {...props}>{children}</section> : null;
 export const DialogHeader = Box, DialogTitle = Box, DialogDescription = Box;
+const AlertState = createContext(false);
+export const AlertDialog = ({open, children}) => <AlertState.Provider value={open}>{open ? children : null}</AlertState.Provider>;
+export const AlertDialogContent = ({children, ...props}) => useContext(AlertState) ? <section role="alertdialog" {...props}>{children}</section> : null;
+export const AlertDialogHeader = Box, AlertDialogTitle = Box, AlertDialogDescription = Box, AlertDialogFooter = Box;
+export const AlertDialogCancel = ({children, ...props}) => <button type="button" {...props}>{children}</button>;
+export const AlertDialogAction = ({children, ...props}) => <button type="button" {...props}>{children}</button>;
+export const Checkbox = ({checked, onCheckedChange, ...props}) => <input type="checkbox" checked={!!checked} onChange={e => onCheckedChange(e.target.checked)} {...props}/>;
 `;
 const bundle = await build({
   stdin: {
@@ -118,6 +125,9 @@ async function mount(Surface, props = {}, previewResponse = null, schedulingResu
     }
     if (/^\/api\/event-emails\/[^/]+\/preview$/.test(url) && options.method === "POST") {
       return previewHandler ? previewHandler(payload) : json({subject: "Thank you", html: "<p>Sample target</p>"});
+    }
+    if (/^\/api\/event-emails\/[^/]+\/resend$/.test(url) && options.method === "POST") {
+      return json({sent: 1, failed: 0, skipped: 0, results: [{deliveryId: payload.deliveryIds[0], outcome: "sent"}]});
     }
     if (url === "/api/event-emails/fixture-event/reschedule" && options.method === "POST") {
       return json(schedulingResult || {requeued: 3, bookingsScheduled: 2, preserved: 1, cancelled: 1});
@@ -457,8 +467,8 @@ test("saved email setups show read-only delivery stats and a per-recipient list 
   const savedEmail = {id: "11111111-1111-4111-8111-111111111111", email_type: "reminder", subject: "See you soon", body: "Body", is_enabled: true, timing_type: "1_day_before", created_at: "2026-01-01T00:00:00Z"};
   const statsHandler = url => url.includes("emailId=")
     ? json({page: 1, pageSize: 25, total: 2, recipients: [
-        {id: "r1", email: "delivered@example.invalid", status: "delivered", sentAt: "2027-02-02T10:00:00Z", opened: true, failureReason: null},
-        {id: "r2", email: "bounced@example.invalid", status: "bounced_or_failed", sentAt: "2027-02-02T10:00:00Z", opened: false, failureReason: "Mailbox does not exist"},
+        {id: "r1", email: "delivered@example.invalid", status: "delivered", sentAt: "2027-02-02T10:00:00Z", opened: true, failureReason: null, resendable: false},
+        {id: "r2", email: "bounced@example.invalid", status: "bounced_or_failed", sentAt: "2027-02-02T10:00:00Z", opened: false, failureReason: "Mailbox does not exist", resendable: true},
       ]})
     : json({trackingStartedAt: "2027-02-01T00:00:00Z", emails: {[savedEmail.id]: {total: 5, sent: 4, delivered: 2, awaiting: 1, opened: 1, failed: 2, sending: 0}}});
   for (const [name, props] of [["EditEventFixture", {editing: true}], ["CreateComplexEventFixture", {editing: true}]]) {
@@ -480,6 +490,24 @@ test("saved email setups show read-only delivery stats and a per-recipient list 
       assert.ok(fixture.statsCalls.some(url => url.includes(`emailId=${savedEmail.id}`)));
       // Viewing stats never saves, schedules, re-queues or sends anything.
       assert.equal(fixture.calls.length, 0);
+      // Delivered rows cannot be selected; resend needs selection plus confirmation.
+      assert.equal(byId("checkbox-resend-r1"), null);
+      assert.equal(byId("button-resend-selected").disabled, true);
+      await click(byId("checkbox-resend-r2"));
+      await click(byId("button-resend-selected"));
+      assert.match(document.querySelector('[role="alertdialog"]').textContent, /Resend this email to 1 recipient/);
+      assert.equal(fixture.calls.length, 0, "nothing is sent before confirming");
+      await click(byId("button-resend-cancel"));
+      assert.equal(fixture.calls.length, 0);
+      await click(byId("button-resend-selected"));
+      const statsBefore = fixture.statsCalls.length;
+      await click(byId("button-resend-confirm"));
+      await settle();
+      assert.equal(fixture.calls.length, 1);
+      assert.match(fixture.calls[0].url, new RegExp(`/api/event-emails/[^/]+/resend$`));
+      assert.deepEqual(fixture.calls[0].payload, {emailId: savedEmail.id, deliveryIds: ["r2"], confirm: true});
+      assert.match(byId("text-resend-summary").textContent, /1 resent/);
+      assert.ok(fixture.statsCalls.length >= statsBefore + 2, "list and counts reload after resend");
     } finally { await fixture.cleanup(); }
   }
   const create = await mount(surfaces.CreateEventFixture, {}, null, null, () => assert.fail("Unsaved events must not request stats"));

@@ -3,6 +3,7 @@
   "buildCommand": "node scripts/check-node-runtime.mjs && node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/event-emails/[eventId]/resend.js": { "maxDuration": 300 },
     "api/cron/member-lifecycle.js": {
       "maxDuration": 300
     },

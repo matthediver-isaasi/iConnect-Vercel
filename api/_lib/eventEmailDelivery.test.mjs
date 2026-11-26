@@ -197,7 +197,10 @@ test('stats endpoint is admin guarded, tenant scoped and read-only', async () =>
       const q = {
         select() { return q; },
         eq(k, v) { filters[k] = v; return q; },
+        in(k, v) { filters[`in:${k}`] = v; return q; },
+        gt(k, v) { filters[`gt:${k}`] = v; return q; },
         order() { return q; },
+        async limit() { calls.push({ table, filters, superseding: true }); return { data: [], error: null }; },
         async maybeSingle() {
           calls.push({ table, filters });
           if (table === 'event') return { data: filters.tenant_id === TENANT ? { id: EVENT } : null, error: null };
@@ -230,6 +233,7 @@ test('stats endpoint is admin guarded, tenant scoped and read-only', async () =>
   assert.equal(list.status, 200);
   assert.equal(list.body.recipients[0].status, 'bounced_or_failed');
   assert.equal(list.body.recipients[0].failureReason, 'Bounced');
+  assert.equal(list.body.recipients[0].resendable, false, 'row without a linked booking cannot be resent');
   const ledgerRead = calls.find(c => c.table === 'event_email_delivery');
   assert.deepEqual(ledgerRead.filters, { tenant_id: TENANT, event_id: EVENT, event_email_id: SETTING });
 });

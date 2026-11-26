@@ -78,3 +78,65 @@ test('event email delivery ledger: ordering, dedupe, stats and grants', async ()
     await h.cleanup();
   }
 });
+
+test('admin resend claims: one lease per recipient identity, re-checked under lock', async () => {
+  const { spawn } = await import('node:child_process');
+  const h = await createLocalPostgresHarness('event-email-resend-');
+  const run = (cmd, args, input) => {
+    const r = spawnSync(cmd, args, { input, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr); return r.stdout.trim();
+  };
+  const psqlArgs = () => ['-h', h.socket, '-p', String(h.port), '-U', 'postgres', '-d', 'postgres', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-At'];
+  const sql = text => run('psql', psqlArgs(), text);
+  const sqlAsync = text => new Promise((resolve, reject) => {
+    const p = spawn('psql', [...psqlArgs(), '-c', text]); let out = '';
+    p.stdout.on('data', d => { out += d; }); p.on('error', reject);
+    p.on('close', code => (code === 0 ? resolve(out.trim()) : reject(new Error(`psql ${code}`))));
+  });
+  const T = '11111111-1111-4111-8111-111111111111', E = '22222222-2222-4222-8222-222222222222';
+  const S = '33333333-3333-4333-8333-333333333333', B = '44444444-4444-4444-8444-444444444444';
+  const row = n => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
+  const claim = (n, tenant = T) => sql(`SELECT public.claim_event_email_resend('${tenant}','${E}','${S}','${row(n)}',600)`);
+  const field = (json, key) => JSON.parse(json)[key];
+  let started = false;
+  try {
+    run('initdb', ['-D', h.data, '-A', 'trust', '-U', 'postgres']);
+    run('pg_ctl', ['-D', h.data, '-l', path.join(h.root, 'postgres.log'), '-o', `-F -k ${h.socket} -c listen_addresses= -p ${h.port}`, '-w', 'start']); started = true;
+    sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
+    sql(readFileSync('supabase/migrations/202702010001_event_email_delivery.sql', 'utf8'));
+    const migration = readFileSync('supabase/migrations/202702010002_event_email_resend_claim.sql', 'utf8');
+    sql(migration); sql(migration); // replay-safe
+    const insert = (n, status, extra = '') => sql(`INSERT INTO event_email_delivery(id,tenant_id,event_id,event_email_id,email_type,booking_id,recipient_email,status,failure_source,created_at)
+      VALUES('${row(n)}','${T}','${E}','${S}','booking_confirmation',${extra || `'${B}'`},'a@example.invalid','${status}',${status === 'failed' ? "'provider'" : 'NULL'},'2027-02-01T0${n}:00:00Z')`);
+    insert(1, 'failed'); insert(2, 'failed'); insert(3, 'delivered', 'NULL');
+
+    assert.equal(field(claim(3), 'reason'), 'not_failed');
+    assert.equal(field(claim(1, S), 'reason'), 'not_found', 'tenant scoped');
+    // Overlapping requests for the same row: exactly one wins.
+    const outcomes = await Promise.all([1, 2, 3, 4].map(() => sqlAsync(`SELECT public.claim_event_email_resend('${T}','${E}','${S}','${row(1)}',600)`)));
+    assert.equal(outcomes.filter(o => field(o, 'claimed')).length, 1);
+    assert.ok(outcomes.filter(o => !field(o, 'claimed')).every(o => field(o, 'reason') === 'in_progress'));
+    // A different failed row for the same booking shares the lease.
+    assert.equal(field(claim(2), 'reason'), 'in_progress');
+    const token = field(outcomes.find(o => field(o, 'claimed')), 'token');
+    assert.equal(sql(`SELECT public.release_event_email_resend_claim('${token}')`), 't');
+    assert.equal(sql(`SELECT public.release_event_email_resend_claim('${token}')`), 'f');
+    // After release, a newer accepted send for the booking supersedes both failed rows.
+    insert(4, 'accepted');
+    assert.equal(field(claim(1), 'reason'), 'already_resent');
+    assert.equal(field(claim(2), 'reason'), 'already_resent');
+    sql(`UPDATE event_email_delivery SET status='failed', failure_source='provider' WHERE id='${row(4)}'`);
+    assert.equal(field(claim(2), 'claimed'), true, 'a later failure is resendable again');
+    // An expired lease (crashed request) may be taken over.
+    sql(`UPDATE event_email_resend_claim SET claimed_until = now() - interval '1 second'`);
+    assert.equal(field(claim(1), 'claimed'), true);
+
+    assert.equal(sql(`SELECT has_table_privilege('service_role','event_email_resend_claim','SELECT') OR has_table_privilege('authenticated','event_email_resend_claim','SELECT')
+      OR has_function_privilege('authenticated','public.claim_event_email_resend(uuid,uuid,uuid,uuid,integer)','EXECUTE')`), 'f');
+    assert.equal(sql(`SELECT has_function_privilege('service_role','public.claim_event_email_resend(uuid,uuid,uuid,uuid,integer)','EXECUTE')
+      AND has_function_privilege('service_role','public.release_event_email_resend_claim(uuid)','EXECUTE')`), 't');
+  } finally {
+    if (started) spawnSync('pg_ctl', ['-D', h.data, '-m', 'immediate', 'stop'], { encoding: 'utf8' });
+    await h.cleanup();
+  }
+});

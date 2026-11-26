@@ -14,6 +14,26 @@ export function parseCcField(cc) {
   return cc.split(',').map(s => s.trim()).filter(Boolean);
 }
 
+// Discount / free-ticket details shown in a resent confirmation.
+export function buildBookingPricingDetails(booking) {
+  if (!booking) return null;
+  const discount = Number(booking.discount_code_amount ?? booking.discount_amount ?? 0);
+  const freeTickets = Number(booking.free_tickets || 0);
+  const discountDescription = booking.discount_code_description
+    || booking.discount_description
+    || null;
+
+  if (discount > 0 || freeTickets > 0) {
+    return {
+      discount: discount > 0 ? discount : 0,
+      freeTickets: freeTickets > 0 ? freeTickets : 0,
+      discountDescription,
+    };
+  }
+
+  return null;
+}
+
 export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null, deliveryOptions = {}) {
   if (!supabase) return [];
 

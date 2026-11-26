@@ -13,3 +13,9 @@ Event emails are tracked per send attempt in a dedicated ledger, identified to M
 
 **Why:** before this ledger, confirmation sends were unrecorded and reminder sends had no message ID, so failures were invisible.
 **How to apply:** status writes go through the database functions only (service role has no direct UPDATE).
+
+## Admin resend
+- Resend is admin-triggered only and must never duplicate an attendee email: a persisted per-recipient lease must be taken (and eligibility re-checked under lock) before preparing a resend. History checks alone are raceable because the new ledger row only appears just before the provider call.
+- A scheduled row still carrying the worker's claim marker may be mid-send or crashed mid-send; never re-queue it.
+
+**Why:** duplicate sends to attendees are worse than a missed resend.
