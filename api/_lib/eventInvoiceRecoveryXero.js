@@ -303,8 +303,9 @@ export async function createEventInvoiceRecoveryXero({
   const prepareInvoiceContact = async () => {
     if (preparedContact) return preparedContact;
     let contact = snapshot.invoice.Contact;
-    // Covers queued pre-selector member Stripe invoices too. Never rewrite an
-    // existing contact/address, even if the contact appeared after checkout.
+    // Owner policy: always send the frozen invoice address, including to an
+    // existing customer (Xero shows the contact's latest address on all of its
+    // invoices). Work frozen without an address keeps its ContactID only.
     if (snapshot.bookingContractVersion === 2) {
       const payer = snapshot.contact;
       if (!payer?.provenance || !payer.name || payer.providerBindingConflict) throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
@@ -316,7 +317,8 @@ export async function createEventInvoiceRecoveryXero({
         if (error instanceof EventInvoiceRecoveryError) throw error;
         throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
       }
-      if (existing) contact = { ContactID: existing.ContactID };
+      if (existing) contact = { ContactID: existing.ContactID,
+        ...(payer.invoicingAddress ? { Addresses: [invoicingAddressToXero(payer.invoicingAddress)] } : {}) };
       else {
         if (!payer.invoicingAddress) throw new EventInvoiceRecoveryError('invoice_address_required');
         contact = { Name: payer.name, EmailAddress: payer.email, Addresses: [invoicingAddressToXero(payer.invoicingAddress)] };
@@ -346,19 +348,23 @@ export async function createEventInvoiceRecoveryXero({
           && String(existing.EmailAddress || '').trim().toLowerCase() !== String(policy.contact.email || '').trim().toLowerCase()))) {
         throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
       }
-      if (existing) contact = { ContactID: existing.ContactID };
-      else if (policy?.mode === 'deferred') {
-        // Never use a card-verification or organisation address as a fallback.
-        // A new customer needs the member's own saved invoicing address.
+      // Never use a card-verification or organisation address as a fallback.
+      // Deferred work uses the member's own saved invoicing address.
+      const savedMemberAddress = async () => {
         const saved = await db.from('invoicing_address_private').select(INVOICING_ADDRESS_KEYS.join(','))
           .eq('tenant_id', row.tenant_id).eq('owner_type', 'member')
           .eq('owner_id', policy.memberId).maybeSingle();
         if (saved.error) throw new EventInvoiceRecoveryError('invoice_address_lookup_unavailable', { retry: true });
         const address = resolveStoredInvoicingAddress(saved.data || {}, 'member');
-        if (!address || invoicingAddressError(address.address) || !address.address.invoicing_city
-          || !address.address.invoicing_postal_code || !address.address.invoicing_country) {
-          throw new EventInvoiceRecoveryError('invoice_address_required');
-        }
+        return !address || invoicingAddressError(address.address) || !address.address.invoicing_city
+          || !address.address.invoicing_postal_code || !address.address.invoicing_country ? null : address;
+      };
+      if (existing) {
+        const address = policy?.address || (policy?.mode === 'deferred' ? await savedMemberAddress() : null);
+        contact = { ContactID: existing.ContactID, ...(address ? { Addresses: [invoicingAddressToXero(address)] } : {}) };
+      } else if (policy?.mode === 'deferred') {
+        const address = await savedMemberAddress();
+        if (!address) throw new EventInvoiceRecoveryError('invoice_address_required');
         contact = { Name: policy.contact.name, EmailAddress: policy.contact.email,
           Addresses: [invoicingAddressToXero(address)] };
       }
@@ -455,6 +461,20 @@ export async function createEventInvoiceRecoveryXero({
           throw new EventInvoiceRecoveryError('created_invoice_customer_unverified');
         }
         contact = { ContactID: created.ContactID };
+        preparedContact = contact;
+      }
+      if (contact.ContactID && contact.Addresses?.length) {
+        // Existing customer: update its POBOX (invoice) address before the
+        // invoice, inside the same ambiguous-write fence, and verify readback.
+        const expected = contact.Addresses[0];
+        const saved = single(await api('Contacts', 'POST', { Contacts: [{ ContactID: contact.ContactID, Addresses: [expected] }] },
+          `${identity}-contact-address`), 'Contacts');
+        const actual = saved.Addresses?.find(address => address.AddressType === 'POBOX');
+        if (saved.ContactID !== contact.ContactID || !actual || Object.entries(expected).some(([key, value]) =>
+          String(actual[key] ?? '').trim() !== String(value ?? '').trim())) {
+          throw new EventInvoiceRecoveryError('invoice_address_sync_unverified');
+        }
+        contact = { ContactID: contact.ContactID };
         preparedContact = contact;
       }
       return single(await api('Invoices', 'POST', {

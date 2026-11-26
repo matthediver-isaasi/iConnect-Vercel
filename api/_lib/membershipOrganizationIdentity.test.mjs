@@ -113,3 +113,29 @@ test('legacy frozen requests do not acquire new organisation identity during rep
     return { companyId: 'company', contactId: 'contact', payload: { Type: 'ACCREC', Status: 'DRAFT', LineItems: [] } };
   } });
 });
+
+test('existing organisation contact receives the invoice address (Xero shows it on earlier invoices too)', async () => {
+  const writes = [];
+  const resolver = membershipOrganizationContactResolver(identity, 'company', async (url, init = {}) => {
+    if ((init.method || 'GET') === 'GET') return new Response(JSON.stringify({ Contacts: contacts }), { status: 200 });
+    const body = JSON.parse(init.body);
+    writes.push(body);
+    return new Response(JSON.stringify({ Contacts: [{ ...contacts[0], Addresses: body.Contacts[0].Addresses }] }), { status: 200 });
+  });
+  assert.equal(await resolver('fixture-token', 'company', { email: args.invoicingEmail,
+    address: '1 Main Street\nCambridge\nCB1 1AA' }), 'contact');
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].Contacts[0], { ContactID: 'contact', Addresses: [{ AddressType: 'POBOX',
+    AddressLine1: '1 Main Street', City: 'Cambridge', PostalCode: 'CB1 1AA' }] });
+  // Never overwrites the contact's email; no address means no write.
+  assert.equal('EmailAddress' in writes[0].Contacts[0], false);
+  assert.equal(await resolver('fixture-token', 'company', { email: args.invoicingEmail }), 'contact');
+  assert.equal(writes.length, 1);
+});
+
+test('unverified organisation address update fails closed before invoicing', async () => {
+  const resolver = membershipOrganizationContactResolver(identity, 'company', async (url, init = {}) =>
+    (init.method || 'GET') === 'GET' ? new Response(JSON.stringify({ Contacts: contacts }), { status: 200 })
+      : new Response(JSON.stringify({ Contacts: [{ ...contacts[0], Addresses: [] }] }), { status: 200 }));
+  await assert.rejects(resolver('fixture-token', 'company', { address: '1 Main Street' }), /ADDRESS_UNVERIFIED/);
+});

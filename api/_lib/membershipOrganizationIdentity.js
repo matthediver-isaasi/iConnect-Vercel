@@ -1,4 +1,5 @@
 import { uniqueOrganizationContact, xeroOrganizationContactCreator } from './formInvoiceOrganization.js';
+import { xeroContactInvoiceAddress } from './xero.js';
 
 const fail = code => { throw Object.assign(new Error(code), { code, permanent: true }); };
 
@@ -49,6 +50,18 @@ export function membershipOrganizationContactResolver(identity, expectedCompanyI
       email: contactInfo?.email || null,
       create: xeroOrganizationContactCreator(send, providerFailure),
     });
+    // Owner policy: always send the invoice address, accepting that Xero shows
+    // the contact's latest address on its earlier invoices too.
+    const address = xeroContactInvoiceAddress(contactInfo);
+    if (address) {
+      const response = await send('Contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Contacts: [{ ContactID: contact.ContactID, Addresses: [address] }] }) });
+      if (!response.ok) providerFailure(response);
+      const saved = (await response.json())?.Contacts?.find(c => c.ContactID === contact.ContactID);
+      const actual = saved?.Addresses?.find(a => a.AddressType === 'POBOX');
+      if (!actual || saved.HasValidationErrors || Object.entries(address).some(([key, value]) =>
+        String(actual[key] ?? '').trim() !== String(value ?? '').trim())) fail('XERO_ORGANIZATION_ADDRESS_UNVERIFIED');
+    }
     return contact.ContactID;
   };
 }

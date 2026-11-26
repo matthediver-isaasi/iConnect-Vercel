@@ -152,10 +152,11 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
     || (!known.trusted && (!normalized(member.email) || normalized(existing.EmailAddress) !== normalized(member.email))))) {
     fail('Saved Xero customer identity requires review');
   }
-  const result = { applicable: true, required: !existing, provider, contact, existingContactId: existing?.ContactID || null,
+  // Owner policy: always send the selected invoice address to Xero, including
+  // for existing customers. Xero has no per-invoice address, so this accepts
+  // that the customer's other invoices display the latest address.
+  const result = { applicable: true, required: true, provider, contact, existingContactId: existing?.ContactID || null,
     personalAddress: null, organizationAddress: null, organizationLabel: null };
-  // Existing customers must never trigger address collection or private reads.
-  if (existing) return result;
   const read = async (ownerType, ownerId) => {
     const row = await db.from('invoicing_address_private').select(INVOICING_ADDRESS_KEYS.join(','))
       .eq('tenant_id', tenantId).eq('owner_type', ownerType).eq('owner_id', ownerId).maybeSingle();
@@ -347,7 +348,10 @@ export async function loadPaidEventInvoicePolicy({ db, tenantId, eventId, source
 }
 
 export function policyInvoiceContact(policy) {
-  if (policy.existingContactId) return { ContactID: policy.existingContactId };
+  // Policies frozen before the always-send rule have no address for existing
+  // customers; they keep their original ContactID-only instruction.
+  if (policy.existingContactId) return { ContactID: policy.existingContactId,
+    ...(policy.address ? { Addresses: [invoicingAddressToXero(policy.address)] } : {}) };
   if (policy.mode === 'deferred') return { Name: policy.contact.name, EmailAddress: policy.contact.email };
   if (!policy.address) fail('Frozen invoice address missing');
   return { Name: policy.contact.name, EmailAddress: policy.contact.email, Addresses: [invoicingAddressToXero(policy.address)] };

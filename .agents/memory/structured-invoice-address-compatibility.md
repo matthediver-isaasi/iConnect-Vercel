@@ -14,6 +14,24 @@ invoice creation and update paths.
 not just the organisation editor or one provider helper. Do not interpret this
 requirement as approval to overwrite accounting contacts or historical invoices.
 
+**Superseding rule (owner decision, 2026-11-26): always send the invoice address
+to Xero, including to existing customers.** The owner accepts that Xero then
+shows the contact's latest address on that customer's earlier invoices, including
+paid ones, until Xero supports per-invoice addresses.
+
+**Why:** Wrong or blank Bill To addresses on new invoices were worse than
+historical invoices displaying an updated address.
+
+**How to apply:** This replaces the temporary event-ticket exception below
+("existing Xero account: do not ask, do not send") and the "obtain approval
+before correcting a shared contact" step. Member event checkout now asks every
+Xero purchaser for an address. Recovery and organisation-membership invoices
+update the contact's POBOX address and verify the readback before invoicing.
+Snapshots frozen before this rule keep their original instructions. Never update
+the contact's email, and never use a card-verification address as the
+invoice address. A database guard makes cart-checkout form answers immutable, so
+a renamed organisation cannot be written back into a paid submission's answers.
+
 Xero's ordinary invoice billing address comes from the contact's POBOX address;
 its Accounting API does not support a per-invoice postal-address override.
 InvoiceAddresses is US sales-tax-specific, not a general workaround.

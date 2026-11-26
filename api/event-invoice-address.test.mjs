@@ -53,11 +53,15 @@ test('identity conflict returns successful deferred discovery rather than blocki
   assert.equal(res.body.organizationAddress, null);
   assert.equal(res.body.error, undefined);
 });
-test('existing customer discovery exposes no provider identity or private addresses', async () => {
+test('existing customer discovery asks for an invoice address and exposes no provider identity', async () => {
   const { res, calls } = await request();
-  assert.deepEqual(res.body, { applicable: true, required: false, deferred: false, message: null, personalAddress: null, organizationAddress: null, organizationLabel: null });
+  assert.equal(res.body.applicable, true);
+  assert.equal(res.body.required, true);
+  assert.equal(res.body.personalAddress.address.invoicing_address_line1, 'Private personal address');
+  assert.equal('existingContactId' in res.body, false);
+  assert.equal(JSON.stringify(res.body).includes('ContactID'), false);
   assert.equal(res.headers['Cache-Control'], 'private, no-store');
-  assert.equal(calls.some(c => c.table === 'invoicing_address_private'), false);
+  assert.equal(calls.find(c => c.table === 'invoicing_address_private').filters.owner_id, 'member');
   assert.ok(calls.every(c => c.filters.tenant_id === 'tenant' || c.filters.app_tenant_id === 'tenant'));
 });
 test('absent customer discovery returns personal structured address only to its own member', async () => {

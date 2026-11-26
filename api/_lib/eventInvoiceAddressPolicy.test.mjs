@@ -68,13 +68,18 @@ test('exact lookup exhausts pages and rejects duplicates, archived, namesakes, e
   await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: [existing] }), { ...contact, contactId: 'different' }));
 });
 
-for (const source of ['simple', 'complex']) test(`${source}: existing customer skips all private address reads and ignores supplied address`, async () => {
+for (const source of ['simple', 'complex']) test(`${source}: existing customer also selects an invoice address that is sent to Xero`, async () => {
   const f = fixture();
   const context = await eventAddressContext({ ...f.input, source, lookup: async () => existing });
-  assert.equal(context.required, false);
+  assert.equal(context.required, true);
   assert.equal(context.existingContactId, 'customer');
-  assert.equal(f.calls.some(c => c.table === 'invoicing_address_private'), false);
-  assert.equal(selectedEventInvoiceAddress(context, { mode: 'personal', address: { bad: true } }), null);
+  assert.equal(context.personalAddress.address.invoicing_address_line1, 'Personal street');
+  assert.throws(() => selectedEventInvoiceAddress(context, { mode: 'personal', address: { bad: true } }), /address/i);
+  const selected = selectedEventInvoiceAddress(context, { mode: 'personal', address });
+  assert.deepEqual(policyInvoiceContact({ existingContactId: 'customer', address: selected }), { ContactID: 'customer',
+    Addresses: [{ AddressType: 'POBOX', AddressLine1: 'Personal street', AddressLine2: '', City: 'London', Region: '',
+      PostalCode: 'SW1A 1AA', Country: 'United Kingdom' }] });
+  // Policies frozen before this rule keep their ContactID-only instruction.
   assert.deepEqual(policyInvoiceContact({ existingContactId: 'customer' }), { ContactID: 'customer' });
 });
 
@@ -101,7 +106,8 @@ test('known legacy ContactID is verified in the selected company; invalid mappin
   let observed;
   const context = await eventAddressContext({ ...f.input, lookup: async identity => { observed = identity; return existing; } });
   assert.equal(observed.contactId, 'customer');
-  assert.equal(context.required, false);
+  assert.equal(context.required, true);
+  assert.equal(context.existingContactId, 'customer');
   await assert.rejects(eventAddressContext({ ...f.input, lookup: async () => null }), /Saved Xero/);
   await assert.rejects(eventAddressContext({ ...f.input, lookup: async () => ({ ...existing, EmailAddress: 'another@example.test' }) }), /Saved Xero/);
   f.rows.member.xero_tenant_id = 'different-company';
@@ -116,7 +122,8 @@ test('immutable company/member invoice mappings outrank changed email; conflicti
     assert.equal(identity.contactId, 'customer');
     return { ...existing, EmailAddress: 'previous-email@example.test' };
   } });
-  assert.equal(result.required, false);
+  assert.equal(result.required, true);
+  assert.equal(result.existingContactId, 'customer');
   f.rows.member.xero_contact_id = 'different-customer';
   await assert.rejects(eventAddressContext(f.input), /ambiguous/);
   delete f.rows.member.xero_contact_id;
@@ -267,7 +274,7 @@ for (const source of ['simple', 'complex']) {
   }
 }
 
-for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconnected', 'provider-offline', ...Object.keys(customerConflicts)]) {
+for (const outcome of ['existing', 'existing-saved-address', 'saved-address', 'missing-address', 'disconnected', 'provider-offline', ...Object.keys(customerConflicts)]) {
   test(`deferred invoice recovery: ${outcome}`, async () => {
     const policy = { version: 1, mode: 'deferred', tenantId: 'tenant', memberId: 'member',
       provider, contact, address: null };
@@ -282,7 +289,7 @@ for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconne
           reads.push({ table, filters });
           return { data: table === 'tenant_accounting_settings' ? { active_provider: 'xero' }
             : table === 'tenant_integrations' ? { is_enabled: outcome !== 'disconnected' }
-            : table === 'invoicing_address_private' ? outcome === 'saved-address' ? address : null
+            : table === 'invoicing_address_private' ? ['saved-address', 'existing-saved-address'].includes(outcome) ? address : null
             : { tenant_id: 'company', access_token: 'isolated-test', expires_at: new Date(Date.now() + 3600000).toISOString() } };
         } };
     } };
@@ -292,10 +299,12 @@ for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconne
         deadlineAt: Date.now() + 20000, fetchImpl: async (url, init) => {
           if (outcome === 'provider-offline') throw new Error('Network unavailable');
           if (init.method === 'GET') return { ok: true, json: async () => ({
-            Contacts: contactReads++ === 0 ? (customerConflicts[outcome] || (outcome === 'existing' ? [existing] : [])) : [],
+            Contacts: contactReads++ === 0 ? (customerConflicts[outcome] || (outcome.startsWith('existing') ? [existing] : [])) : [],
           }) };
-          writes.push({ url, body: JSON.parse(init.body) });
-          return { ok: true, json: async () => url.endsWith('/Contacts') ? { Contacts: [existing] } : { Invoices: [{ InvoiceID: 'invoice' }] } };
+          const body = JSON.parse(init.body);
+          writes.push({ url, body });
+          return { ok: true, json: async () => url.endsWith('/Contacts')
+            ? { Contacts: [{ ...existing, Addresses: body.Contacts[0].Addresses }] } : { Invoices: [{ InvoiceID: 'invoice' }] } };
         } });
       await writer.prepareInvoice();
       assert.equal(writes.length, 0, 'preparation is read-only');
@@ -315,9 +324,10 @@ for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconne
       assert.deepEqual(invoice.body.Invoices[0].Contact, { ContactID: 'customer' });
       const contactWrite = writes.find(w => w.url.endsWith('/Contacts'));
       if (outcome === 'existing') {
+        // No saved personal address: the existing customer keeps its address.
         assert.equal(contactWrite, undefined);
-        assert.equal(reads.some(r => r.table === 'invoicing_address_private'), false);
       } else {
+        if (outcome === 'existing-saved-address') assert.equal(contactWrite.body.Contacts[0].ContactID, 'customer');
         assert.equal(contactWrite.body.Contacts[0].Addresses[0].AddressLine1, 'Personal street');
         const addressRead = reads.find(r => r.table === 'invoicing_address_private');
         assert.deepEqual(addressRead.filters, { tenant_id: 'tenant', owner_type: 'member', owner_id: 'member' });
@@ -375,7 +385,7 @@ test('producer uses frozen personal address, not subsequent charge address; miss
   assert.match(snapshot.reviewReasons.join(), /mismatch/);
 });
 
-for (const legacy of [false, true]) test(`writer strips addresses when customer appears later (legacy=${legacy})`, async () => {
+for (const legacy of [false, true]) test(`writer sends the frozen selected address to an existing customer (legacy=${legacy})`, async () => {
   const row = { tenant_id: 'tenant', booking_group_reference: 'BOOK-ADDRESS', snapshot: { provider, contact, paymentMethod: 'stripe',
     invoice: { Contact: { Name: contact.name, Addresses: [{ AddressLine1: 'MUST NOT SEND' }] }, LineItems: [{ Description: 'Ticket' }] },
     ...(!legacy ? { invoiceAddressPolicy: { version: 1, tenantId: 'tenant', memberId: 'member', provider, contact,
@@ -388,13 +398,26 @@ for (const legacy of [false, true]) test(`writer strips addresses when customer 
   let reads = 0;
   const writer = await createEventInvoiceRecoveryXero({ db, row, identity: 'identity', guard: async () => {},
     deadlineAt: Date.now() + 20000, fetchImpl: async (url, init) => {
+      if (url.includes('Contacts') && init.method === 'POST') {
+        const body = JSON.parse(init.body);
+        writes.push({ contact: body });
+        return { ok: true, json: async () => ({ Contacts: [{ ...existing, Addresses: body.Contacts[0].Addresses }] }) };
+      }
       if (url.includes('Contacts')) return { ok: true, json: async () => ({ Contacts: reads++ ? [] : [existing] }) };
       writes.push(JSON.parse(init.body));
       return { ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'invoice' }] }) };
     } });
   await writer.createInvoice();
-  assert.deepEqual(writes[0].Invoices[0].Contact, { ContactID: 'customer' });
-  assert.equal(row.snapshot.invoice.Contact.Addresses[0].AddressLine1, 'MUST NOT SEND');
+  const invoice = writes.find(w => w.Invoices);
+  assert.deepEqual(invoice.Invoices[0].Contact, { ContactID: 'customer' });
+  const contactWrite = writes.find(w => w.contact)?.contact;
+  if (legacy) assert.equal(contactWrite, undefined, 'pre-policy snapshots keep their ContactID-only instruction');
+  else {
+    assert.deepEqual(contactWrite.Contacts[0].ContactID, 'customer');
+    assert.equal(contactWrite.Contacts[0].Addresses[0].AddressLine1, 'Personal street');
+    assert.ok(writes.indexOf(writes.find(w => w.contact)) < writes.indexOf(invoice), 'address is updated before the invoice');
+  }
+  assert.equal(JSON.stringify(writes).includes('MUST NOT SEND'), false);
 });
 
 for (const collision of [false, true]) test(`absent customer uses create-only PUT, concurrent collision cannot upsert (collision=${collision})`, async () => {

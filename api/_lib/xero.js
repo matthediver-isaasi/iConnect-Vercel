@@ -249,6 +249,15 @@ function parseAddressLines(addressText) {
   return address;
 }
 
+// The POBOX address Xero prints on invoices, from the caller's invoice address.
+export function xeroContactInvoiceAddress(info) {
+  const lines = typeof info?.address === 'string' ? info.address.split('\n').map(line => line.trim()).filter(Boolean) : [];
+  return info?.requireInvoiceAddress && lines.length
+    ? { AddressType: 'POBOX', AddressLine1: lines[0], AddressLine2: lines[1] || '',
+      AddressLine3: lines[2] || '', AddressLine4: lines.slice(3).join(', ') }
+    : parseAddressLines(info?.address);
+}
+
 export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo, transportOptions = null) {
   const info = typeof contactInfo === 'string'
     ? { name: contactInfo, email: null, isOrganization: true, address: null }
@@ -257,11 +266,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
 
   console.log(`[Xero] Finding/creating contact: ${info.name}`);
 
-  const lines = typeof info.address === 'string' ? info.address.split('\n').map(line => line.trim()).filter(Boolean) : [];
-  const parsedAddress = info.requireInvoiceAddress && lines.length
-    ? { AddressType: 'POBOX', AddressLine1: lines[0], AddressLine2: lines[1] || '',
-      AddressLine3: lines[2] || '', AddressLine4: lines.slice(3).join(', ') }
-    : parseAddressLines(info.address);
+  const parsedAddress = xeroContactInvoiceAddress(info);
 
   const escapedName = info.name.replace(/"/g, '\\"');
   const transportFetch = (url, init = {}) => transportOptions
