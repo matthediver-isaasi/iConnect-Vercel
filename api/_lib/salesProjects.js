@@ -5,6 +5,7 @@ import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
 import { OpportunityHttpError, principalFromContext, parsePagination } from './opportunityRules.js';
 import { loadOpportunityAccess, enrichOpportunities } from './opportunityService.js';
 import { salesTaskAutomationRequest } from './salesTaskAutomation.js';
+import { resolveUnifiedSalesUser } from './salesPrincipals.js';
 
 const fail = (status, message) => { throw new OpportunityHttpError(status, message); };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,10 +29,19 @@ export async function projectActor(db, context, dependencies = {}) {
   // identity when masquerading. Do not grant board access from Sales admin.
   const row = await result(db.from(principal.kind === 'member' ? 'member' : 'tenant_user')
     .select('identity_id').eq('tenant_id', context.tenantId).eq('id', principal.id).maybeSingle());
+  let identity = row?.identity_id;
+  // Unified staff sessions carry the identity ID as tenantUserId, without a
+  // legacy tenant_user row. Revalidate the same active tenant/staff membership
+  // used by getSessionTenantUser; never substitute the original masquerader or
+  // an associated member identity, and never fall back for member principals.
+  if (!row && principal.kind === 'tenant_user' && uuid.test(principal.id || '')) {
+    const unified = await resolveUnifiedSalesUser(db, context.tenantId, principal.id);
+    identity = unified?.id;
+  }
   return {
     p_tenant: context.tenantId, p_kind: principal.kind, p_actor: principal.id,
     p_admin: Boolean(await (dependencies.hasAdminAccess || hasAdminAccess)(context)),
-    p_identity: uuid.test(row?.identity_id || '') ? row.identity_id : null,
+    p_identity: uuid.test(identity || '') ? identity : null,
   };
 }
 export function projectTaskOptions(query) {

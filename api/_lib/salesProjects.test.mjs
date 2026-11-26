@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSalesProjectTasksHandler } from '../sales/project-tasks.js';
-import { projectTaskOptions } from './salesProjects.js';
+import { projectTaskOptions, projectActor } from './salesProjects.js';
 import { guardSalesLinkedProject } from './salesLinkedProjectGuard.js';
 
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -30,7 +30,12 @@ function fixture(overrides = {}) {
         in(key, values) { filters.push(row => values.includes(row[key])); return q; },
         order() { return q; },
          limit() { return q; },
-         or() { filters.push(row => row.is_archived !== true); return q; },
+         or(expression) {
+           filters.push(expression === 'role.eq.owner,role.eq.admin,membership_type.eq.owner'
+             ? row => row.role === 'owner' || row.role === 'admin' || row.membership_type === 'owner'
+             : row => row.is_archived !== true);
+           return q;
+         },
         maybeSingle() { return Promise.resolve({ data: (rows[table] || []).filter(row => filters.every(f => f(row)))[0] || null, error: null }); },
         then(resolve, reject) { return Promise.resolve({ data: (rows[table] || []).filter(row => filters.every(f => f(row))), error: null }).then(resolve, reject); },
       };
@@ -54,6 +59,70 @@ function fixture(overrides = {}) {
   }
   return { request, rows, calls, db };
 }
+
+test('unified staff create/link permissions resolve their own active tenant identity', async () => {
+  const staff = { ...context, tenantUserId: id(20), memberId: id(2) };
+  const f = fixture({ getTenantContext: async () => staff });
+  f.rows.tenant_identity = [{ id: id(20) }];
+  f.rows.tenant_membership = [
+    { identity_id: id(20), tenant_id: id(1), status: 'active', role: 'member' },
+    { identity_id: id(20), tenant_id: id(1), status: 'active', role: 'admin' },
+  ];
+  const actor = await projectActor(f.db, staff, { hasAdminAccess: async () => true });
+  assert.equal(actor.p_identity, id(20), 'associated member is not the active staff identity');
+  assert.equal(actor.p_kind, 'tenant_user');
+  assert.equal(actor.p_actor, id(20));
+  const options = await f.request({ view: 'create-options' });
+  assert.equal(options.statusCode, 200);
+  assert.deepEqual(options.body, { canCreateBoard: true, canLinkBoard: true });
+  assert.ok(f.calls.some(c => c[0] === 'eq' && c[1] === 'tenant_membership' && c[2] === 'tenant_id' && c[3] === id(1)));
+});
+
+test('unified staff identity fallback denies inactive, foreign, non-staff or missing identities', async () => {
+  const staff = { ...context, tenantUserId: id(20) };
+  const base = { identity_id: id(20), tenant_id: id(1), status: 'active', role: 'admin' };
+  for (const membership of [{ ...base, status: 'inactive' }, { ...base, tenant_id: id(99) },
+    { ...base, role: 'member' }, { ...base, identity_id: id(99) }, null]) {
+    const f = fixture({ getTenantContext: async () => staff });
+    f.rows.tenant_identity = [{ id: id(20) }];
+    f.rows.tenant_membership = membership ? [membership] : [];
+    const options = await f.request({ view: 'create-options' });
+    assert.deepEqual(options.body, { canCreateBoard: false, canLinkBoard: false });
+  }
+  const f = fixture({ getTenantContext: async () => staff });
+  f.rows.tenant_membership = [base];
+  assert.equal((await projectActor(f.db, staff, { hasAdminAccess: async () => true })).p_identity, null);
+});
+
+test('owner memberships, legacy staff and member masquerades keep their distinct principals', async () => {
+  const f = fixture();
+  f.rows.tenant_identity = [{ id: id(20) }];
+  f.rows.tenant_membership = [{ identity_id: id(20), tenant_id: id(1), status: 'active', role: 'member', membership_type: 'owner' }];
+  const staff = { ...context, tenantUserId: id(20) };
+  assert.equal((await projectActor(f.db, staff, { hasAdminAccess: async () => true })).p_identity, id(20));
+  f.rows.tenant_user = [{ id: id(30), tenant_id: id(1), identity_id: id(31) }];
+  const legacy = await projectActor(f.db, { ...context, tenantUserId: id(30) }, { hasAdminAccess: async () => true });
+  assert.equal(legacy.p_identity, id(31));
+  const masquerade = await projectActor(f.db, { ...context, originalIdentityId: id(20), preservedTenantUserId: id(20) },
+    { hasAdminAccess: async () => false });
+  assert.equal(masquerade.p_identity, id(4));
+  assert.equal(masquerade.p_kind, 'member');
+  f.rows.member = [];
+  assert.equal((await projectActor(f.db, { ...context, memberId: id(20) },
+    { hasAdminAccess: async () => false })).p_identity, null, 'member IDs never use staff fallback');
+  f.rows.tenant_user = [{ id: id(20), tenant_id: id(1), identity_id: null }];
+  assert.equal((await projectActor(f.db, staff, { hasAdminAccess: async () => true })).p_identity, null,
+    'existing malformed legacy rows are not reinterpreted as another login');
+});
+
+test('staff identity resolution propagates lookup failures rather than guessing access', async () => {
+  const db = { from(table) {
+    return { select() { return this; }, eq() { return this; },
+      async maybeSingle() { return { error: Error('identity provider unavailable') }; } };
+  } };
+  await assert.rejects(projectActor(db, { ...context, tenantUserId: id(20) }, { hasAdminAccess: async () => true }),
+    /identity provider unavailable/);
+});
 
 test('default mode is preserved; server supplies permissions and identity, not caller flags', async () => {
   const f = fixture();

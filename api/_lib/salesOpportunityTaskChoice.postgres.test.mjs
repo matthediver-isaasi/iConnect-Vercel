@@ -13,16 +13,18 @@ const base = `
  CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
  CREATE SCHEMA auth;
  CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT 'service_role'::text$$;
+ GRANT USAGE ON SCHEMA auth TO service_role;
  CREATE TABLE tenant(id uuid PRIMARY KEY);
  CREATE TABLE organization(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,name text);
  CREATE TABLE tenant_identity(id varchar PRIMARY KEY,first_name text,last_name text,email text);
+ CREATE TABLE tenant_membership(id varchar PRIMARY KEY,identity_id varchar,tenant_id uuid,status varchar,role varchar,membership_type varchar);
  CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,organization_id uuid,identity_id text,first_name text,last_name text,email text);
  CREATE TABLE tenant_user(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,identity_id varchar,first_name text,last_name text,email text);
  CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid NOT NULL);
  CREATE TABLE sales_settings(tenant_id uuid PRIMARY KEY,quote_task_list_name text NOT NULL DEFAULT 'Quote tasks');
 `;
 
-test('Opportunity task choice: atomic create/link, rollback, lock and legacy exception', { timeout: 45000 }, async () => {
+test('Opportunity task choice: atomic create/link, rollback, lock and legacy exception', { timeout: 120000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sales-task-choice-'));
   const data = path.join(root, 'data'), socket = path.join(root, 'socket');
   await mkdir(socket);
@@ -52,6 +54,8 @@ test('Opportunity task choice: atomic create/link, rollback, lock and legacy exc
     sql(base);
     apply('scripts/migrations/add-project-management.sql');
     apply('supabase/migrations/20260908_opportunity_pipeline.sql');
+    apply('supabase/migrations/202701240001_opportunity_owner_identity.sql');
+    apply('supabase/migrations/202701240002_opportunity_identity_type_compatibility.sql');
     apply('supabase/migrations/202610090001_sales_project_tasks.sql');
     sql(`
       INSERT INTO tenant VALUES('${u(1)}'),('${u(2)}');
@@ -74,6 +78,8 @@ test('Opportunity task choice: atomic create/link, rollback, lock and legacy exc
 
     apply('supabase/migrations/202702020001_sales_opportunity_task_choice.sql');
     apply('supabase/migrations/202702020001_sales_opportunity_task_choice.sql'); // replay-safe
+    apply('supabase/migrations/202702030002_sales_project_unified_identity.sql');
+    apply('supabase/migrations/202702030002_sales_project_unified_identity.sql');
     const migrationSql = await readFile(path.join(rootPath, 'supabase/migrations/202610120004_sales_automatic_quote_task_lists.sql'), 'utf8');
     const start = migrationSql.indexOf('CREATE FUNCTION public.sales_quote_task_destination');
     sql(migrationSql.slice(start, migrationSql.indexOf('END $$;', start) + 'END $$;'.length));
@@ -177,6 +183,52 @@ test('Opportunity task choice: atomic create/link, rollback, lock and legacy exc
     assert.equal(count('sales_opportunity_project', `opportunity_id IN ('${created.id}','${u(32)}','${u(31)}')`), '0');
     // The attachment record is service-only.
     assert.equal(sql(`SELECT has_table_privilege('authenticated','sales_opportunity_board_attachment','select')`), 'f');
+    // Unified staff have identity IDs but no legacy tenant_user rows.
+    sql(`INSERT INTO tenant_identity(id,first_name) VALUES
+      ('${u(90)}','Unified admin'),('${u(91)}','Other tenant'),('${u(92)}','Inactive'),
+      ('${u(93)}','Portal only'),('${u(94)}','Membership owner'),('external-non-uuid','External key');
+      INSERT INTO tenant_membership(id,identity_id,tenant_id,status,role,membership_type) VALUES
+      ('90-member','${u(90)}','${u(1)}','active','member','team'),
+      ('90-admin','${u(90)}','${u(1)}','active','admin','team'),
+      ('91','${u(91)}','${u(2)}','active','admin','owner'),
+      ('92','${u(92)}','${u(1)}','inactive','admin','owner'),
+      ('93','${u(93)}','${u(1)}','active','member','member'),
+      ('94','${u(94)}','${u(1)}','active','member','owner'),
+      ('95','${u(95)}','${u(1)}','active','admin','owner');
+      INSERT INTO tenant_user(id,tenant_id,identity_id) VALUES('${u(96)}','${u(1)}','${u(21)}');`);
+    const identity = (kind, actor, tenant = 1) => sql(`SELECT public.sales_project_actor_identity('${u(tenant)}','${kind}','${u(actor)}')`);
+    assert.equal(identity('tenant_user', 90), u(90), 'duplicates do not hide a staff membership');
+    assert.equal(identity('tenant_user', 94), u(94));
+    assert.equal(identity('tenant_user', 96), u(21), 'legacy staff identity mapping is unchanged');
+    assert.equal(identity('member', 10), u(20), 'member masquerades use the member identity');
+    for (const actor of [91, 92, 93, 95]) assert.equal(identity('tenant_user', actor), '', `deny identity ${actor}`);
+    assert.equal(identity('tenant_user', 90, 2), '');
+    assert.equal(identity('member', 90), '', 'member principals never fall back to staff identity');
+    for (const role of ['anon', 'authenticated']) {
+      assert.equal(sql(`SELECT has_function_privilege('${role}','sales_project_actor_identity(uuid,text,uuid)','execute')`), 'f');
+    }
+    const staffCreate = (action, boardId = null, actor = 90, suppliedIdentity = actor) =>
+      `public.create_sales_opportunity_with_project('${u(1)}','tenant_user','${u(actor)}','${u(suppliedIdentity)}',
+        '${row('Unified staff opportunity', { owner_kind: 'tenant_user', owner_id: u(actor) })}'::jsonb,
+        '${action}',${boardId ? `'${boardId}'` : 'NULL'})`;
+    const staff = JSON.parse(sql(`SET ROLE service_role; SELECT ${staffCreate('create')};`));
+    assert.equal(staff.owner_id, u(90));
+    assert.equal(sql(`SELECT visibility||'|'||created_by FROM project_board WHERE id='${staff.project_board_id}'`), `private|${u(90)}`);
+    assert.equal(sql(`SELECT role FROM project_board_member WHERE board_id='${staff.project_board_id}' AND identity_id='${u(90)}'`), 'owner');
+    assert.equal(sql(`SELECT count(*) FROM project_label WHERE board_id='${staff.project_board_id}'`), '6');
+    const eligible = sql(`INSERT INTO project_board(tenant_id,name,visibility,created_by)
+      VALUES('${u(1)}','Existing private board','private','${u(90)}') RETURNING id`);
+    sql(`INSERT INTO project_board_member(board_id,identity_id,role) VALUES('${eligible}','${u(90)}','member')`);
+    const beforeDenied = count('opportunity');
+    rejects(`PERFORM ${staffCreate('link', eligible)};`, '42501');
+    rejects(`PERFORM ${staffCreate('create', null, 90, 20)};`, '42501');
+    assert.equal(count('opportunity'), beforeDenied, 'failed link and forged identity create no orphan opportunities');
+    sql(`UPDATE project_board_member SET role='admin' WHERE board_id='${eligible}' AND identity_id='${u(90)}'`);
+    const staffLinked = JSON.parse(sql(`SET ROLE service_role; SELECT ${staffCreate('link', eligible)};`));
+    assert.equal(staffLinked.project_board_id, eligible);
+    sql(`UPDATE tenant_membership SET status='inactive' WHERE identity_id='${u(90)}' AND role='admin'`);
+    assert.equal(identity('tenant_user', 90), '', 'revocation is rechecked at write time');
+    rejects(`PERFORM public.sales_project_attach_board('${u(1)}','${staff.id}','No retry','tenant_user','${u(90)}','${u(90)}','create',NULL);`, '42501');
   } finally {
     if (started) spawnSync('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

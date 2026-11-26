@@ -153,12 +153,14 @@ test('invalid unified owners and database failures cannot create opportunities',
 });
 
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-function taskChoiceFixture({ features = () => true, rpcError = null, identity = uid(4) } = {}) {
+function taskChoiceFixture({ features = () => true, rpcError = null, identity = uid(4), unifiedStaff = false } = {}) {
   const inserted = [], rpcs = [];
   const records = {
     organization: { id: 'org', tenant_id: 'tenant-a' },
     opportunity_stage: { id: 'stage', tenant_id: 'tenant-a', is_active: true, is_lost: false },
     member: { id: uid(2), tenant_id: 'tenant-a', organization_id: 'org', identity_id: identity },
+    tenant_identity: unifiedStaff ? { id: uid(20) } : null,
+    tenant_membership: unifiedStaff ? [{ identity_id: uid(20), tenant_id: 'tenant-a', status: 'active', role: 'admin' }] : [],
   };
   const db = {
     from(table) {
@@ -166,11 +168,17 @@ function taskChoiceFixture({ features = () => true, rpcError = null, identity = 
       const q = {
         select() { return q; },
         eq(key, value) { filters[key] = value; return q; },
+        or() { return q; },
+        limit() { return q; },
         insert(row) { inserted.push(row); return q; },
         async single() { return { data: { id: 'standard-created', ...inserted.at(-1) }, error: null }; },
         async maybeSingle() {
           const record = records[table];
-          return { data: record && filters.tenant_id === 'tenant-a' ? record : null, error: null };
+          return { data: record && !Array.isArray(record) && Object.entries(filters).every(([key, value]) => record[key] === value) ? record : null, error: null };
+        },
+        then(resolve, reject) {
+          const rows = Array.isArray(records[table]) ? records[table] : records[table] ? [records[table]] : [];
+          return Promise.resolve({ data: rows.filter(row => Object.entries(filters).every(([key, value]) => row[key] === value)), error: null }).then(resolve, reject);
         },
       };
       return q;
@@ -182,7 +190,8 @@ function taskChoiceFixture({ features = () => true, rpcError = null, identity = 
     },
   };
   const handler = createOpportunitiesHandler({ db,
-    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', memberId: uid(2), roleId: 'role' }),
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', memberId: uid(2), roleId: 'role',
+      ...(unifiedStaff ? { tenantUserId: uid(20) } : {}) }),
     hasFeatureAccess: async (role, key) => features(key), hasAdminAccess: async () => false });
   const send = async (extra) => {
     const res = { status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
@@ -219,6 +228,21 @@ test('task choice: standard keeps the direct insert; create and link use one ato
     assert.equal('tenant_id' in args.p_opportunity, false);
     assert.equal('created_by_id' in args.p_opportunity, false);
     assert.equal(res.body.project_board_id, uid(6));
+  }
+});
+
+test('unified staff opportunity creation and linking submit the verified staff identity, not an associated member', async () => {
+  for (const taskChoice of ['create', 'link']) {
+    const f = taskChoiceFixture({ unifiedStaff: true });
+    const res = await f.send({ taskChoice, ...(taskChoice === 'link' ? { boardId: uid(6) } : {}), p_identity: uid(99) });
+    assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+    assert.equal(f.inserted.length, 0);
+    const [name, args] = f.rpcs[0];
+    assert.equal(name, 'create_sales_opportunity_with_project');
+    assert.equal(args.p_actor, uid(20));
+    assert.equal(args.p_identity, uid(20));
+    assert.equal(args.p_kind, 'tenant_user');
+    assert.equal(args.p_opportunity.owner_id, uid(20));
   }
 });
 

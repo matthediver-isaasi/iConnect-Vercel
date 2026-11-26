@@ -12,9 +12,13 @@ const migration = path.join(rootPath, 'supabase/migrations/202610090001_sales_pr
 const base = `
  CREATE EXTENSION IF NOT EXISTS pgcrypto;
  CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+ CREATE SCHEMA auth;
+ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT 'service_role'::text$$;
+ GRANT USAGE ON SCHEMA auth TO service_role;
  CREATE TABLE tenant(id uuid PRIMARY KEY);
  CREATE TABLE organization(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,name text);
  CREATE TABLE tenant_identity(id varchar PRIMARY KEY,first_name text,last_name text,email text);
+ CREATE TABLE tenant_membership(id varchar PRIMARY KEY,identity_id varchar,tenant_id uuid,status varchar,role varchar,membership_type varchar);
  CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,organization_id uuid,identity_id text,first_name text,last_name text,email text);
  CREATE TABLE tenant_user(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,identity_id varchar,first_name text,last_name text,email text);
  CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid NOT NULL);
@@ -47,6 +51,8 @@ test('Sales Projects migration: isolation, grants, atomic linking, modes, paging
     apply(path.join(rootPath, 'scripts/migrations/add-project-management.sql'));
     apply(path.join(rootPath, 'supabase/migrations/20260908_opportunity_pipeline.sql'));
     apply(migration);
+    apply(path.join(rootPath, 'supabase/migrations/202702030002_sales_project_unified_identity.sql'));
+    apply(path.join(rootPath, 'supabase/migrations/202702030002_sales_project_unified_identity.sql'));
     sql(`
       INSERT INTO tenant VALUES('${u(1)}'),('${u(2)}');
       INSERT INTO organization VALUES('${u(5)}','${u(1)}','Customer'),('${u(6)}','${u(2)}','Private customer');
@@ -117,6 +123,8 @@ test('Sales Projects migration: isolation, grants, atomic linking, modes, paging
     sql(`UPDATE project_board SET is_archived=false WHERE id='${board}';`);
     apply(migration);
     assert.equal(read({ scope: 'all' }).total, 3, 'Replay retains records and mode');
+    // The predecessor recreates its old RPC; restore forward migration order.
+    apply(path.join(rootPath, 'supabase/migrations/202702030002_sales_project_unified_identity.sql'));
     sql(call('unlink', 4));
     assert.equal(sql('SELECT count(*) FROM project_card'), '3');
     assert.equal(sql('SELECT count(*) FROM opportunity_task'), '1');
@@ -147,6 +155,16 @@ test('Sales Projects migration: isolation, grants, atomic linking, modes, paging
     const lastPage = read({ scope: 'all', page: 12, pageSize: 100 });
     assert.equal(lastPage.total, 1105, 'Counts are not truncated by PostgREST caps');
     assert.equal(lastPage.items.length, 5, 'Later pages remain accessible');
+    // The identity-only forward patch also supports the live legacy RPC shape.
+    sql(`INSERT INTO tenant_identity VALUES('${u(90)}','Unified','Staff','staff@example.test');
+      INSERT INTO tenant_membership VALUES('staff','${u(90)}','${u(1)}','active','admin','team');
+      INSERT INTO opportunity(id,tenant_id,organization_id,stage_id,owner_kind,owner_id,name,created_by_kind,created_by_id)
+      VALUES('${u(90)}','${u(1)}','${u(5)}','${u(7)}','member','${u(10)}','Unified legacy path','member','${u(10)}');`);
+    assert.equal(sql(`SELECT public.sales_project_actor_identity('${u(1)}','tenant_user','${u(90)}')`), u(90));
+    sql(call('create', 1, 90, null, 'tenant_user', 90, 90, true));
+    const unifiedBoard = sql(`SELECT board_id FROM sales_opportunity_project WHERE opportunity_id='${u(90)}'`);
+    assert.equal(sql(`SELECT identity_id||'|'||role FROM project_board_member WHERE board_id='${unifiedBoard}'`), `${u(90)}|owner`);
+    assert.equal(sql(`SELECT has_function_privilege('anon','sales_project_actor_identity(uuid,text,uuid)','execute')`), 'f');
   } finally {
     if (started) spawnSync('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });
