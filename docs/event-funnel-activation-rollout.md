@@ -3,8 +3,10 @@
 ## Status — 26 November 2026
 
 The original 45-file base release is already installed on DEST. **Never replay
-it.** Purchasing remains disabled. The membership follow-up and the new
-controlled-activation migration are prepared, not installed by this work.
+it.** The owner-approved membership follow-up and controlled-activation migration
+were installed atomically on verified DEST on 26 November 2026, after a successful
+rollback-only rehearsal against its actual schema. **Never replay these either.**
+Purchasing and workers remain disabled.
 Matching application deployment and an authenticated checkout rehearsal remain
 separate release requirements. No real booking, payment, email, accounting or
 Zoom operation was performed during implementation.
@@ -31,14 +33,13 @@ Zoom operation was performed during implementation.
 - Pausing new purchasing does not disable recovery of existing purchases.
   Disabling workers is a separate operational decision.
 
-## Pending schema packages
+## Installed schema additions
 
 1. `202701270001_event_funnel_membership_entitlements.sql`
 2. `202702040001_event_funnel_controlled_activation.sql`
 
-Both require an explicitly approved installation, live compatibility checks and
-a rollback-only rehearsal on the actual installed baseline. Apply in order,
-preferably in one transaction. Do not replay their historical prerequisites.
+Both were explicitly approved, compatibility-checked, rehearsed with rollback and
+committed together. Do not replay them or their historical prerequisites.
 The first adds private benefit/consumption/reservation records, history columns
 and guarded membership triggers. The second adds private rollout controls and
 worker heartbeats and replaces the draft-only readiness response. It does not
@@ -54,10 +55,42 @@ node scripts/package-event-funnel-migrations.mjs /tmp/funnel-activation-package 
 Never use the base installer to apply these additions. No automatic migration
 step or generic source-directory push is permitted.
 
-## Deployment and activation sequence
+## Installation evidence
 
-1. Install and verify the approved additions; confirm both rollout switches
-   remain false and existing customer records are unchanged.
+- Target: verified DEST `lvmzliemqnieeoruhkik`, reported `ACTIVE_HEALTHY`.
+- Managed migration: `20261126113157_event_funnel_membership_and_controlled_activation`.
+- Membership source SHA-256:
+  `1541810f2960f77715dd5a88a9148a6a50d2d5871d79586577ac752c9a32ca4c`.
+- Activation source SHA-256:
+  `c08991c69902a05f74ef6af122f00fc58738d5fda8962ba62f4475f5055a2b1c`.
+- Both exact source bodies executed in one guarded PostgreSQL DO statement.
+  Outer source transactions were validated and removed; no historical base SQL
+  was replayed. Advisory and short DDL locks bounded concurrent installation.
+- Rehearsal reached the deliberate `FUNNEL_ADDITIONS_REHEARSAL_PASSED_ROLLED_BACK`
+  exception only after all schema, grant and preservation assertions succeeded.
+  An independent query confirmed the new tables/columns were absent, both
+  modified function hashes were restored, and no rehearsal migration was recorded.
+- The same statement, without the deliberate exception, then committed. Existing
+  rows in both membership histories and the tracked funnel order, definition,
+  session, hold, version and entry tables retained their row counts and MVCC
+  fingerprints. Only the disabled singleton was seeded in the new tables.
+- Post-commit: 36 funnel tables with RLS, no funnel RPC accessible to browser
+  roles, two new history columns, and all 45 original base versions retained.
+- Readiness: `schemaReady=true`, `activationVersion=1`, `authoring=true`,
+  `purchasing=false`, `workersEnabled=false`, `workersHealthy=false`.
+  Reader/worker versions remain zero and no application release is marked verified.
+- Zero entitlements, consumptions, reservations, worker heartbeats, funnel orders
+  or definitions. No customer/provider operations were run.
+- Authenticated PostgREST discovery passed for readiness, membership readiness
+  and an empty membership-list read. This did not invoke a recovery worker.
+- Supabase's project metadata did not expose actual PITR recoverable timestamps.
+  Recovery coverage remains owner-reported; no restore rehearsal was requested
+  or performed, and none is claimed.
+
+## Remaining deployment and activation sequence
+
+1. The additions are installed and verified; keep both rollout switches false
+   while completing the remaining deployment checks.
 2. Deploy the matching application, publication path, booking readers and both
    scheduled workers. Confirm the actual production runtime exposes
    `VERCEL_ENV=production` and the intended `VERCEL_GIT_COMMIT_SHA`. A preview

@@ -2,8 +2,9 @@
 
 **Implementation update, 26 November:** The unconditional application publishing
 block has been replaced by a permission-checked, revision-safe publication path
-and controlled activation/worker admission. The membership addition and new
-activation controls are prepared but not installed. Purchasing remains off.
+and controlled activation/worker admission. The owner-approved membership addition
+and activation controls were subsequently rollback-rehearsed and installed
+atomically on verified DEST. Purchasing and workers remain off.
 See [the activation rollout](event-funnel-activation-rollout.md) for current
 requirements; statements below about the old code blocker describe the earlier
 installation, not the updated application implementation.
