@@ -152,7 +152,7 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
     assert.match(await page.getByRole("alert").innerText(), /Quoted price/);
     await page.getByRole("button", { name: "Delete line 1", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: /^Delete line/ }).count(), 1);
-    await page.getByRole("button", { name: "Free text", exact: true }).click();
+    await page.getByRole("button", { name: "Custom line", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: /^Delete line/ }).count(), 2);
     await page.evaluate(() => window.showExhibitionFixture());
     await page.getByText("EX-NORTH-117", { exact: true }).waitFor();

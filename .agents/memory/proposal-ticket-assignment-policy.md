@@ -58,3 +58,17 @@ Never reconstruct an original capacity maximum from a remaining counter.
 **Why:** Separate claim/counter requests temporarily expose reserved places to
 other purchases; decrementing again inside an already transactional credit batch
 would consume the place twice.
+
+Proposal Event ticket lines take description, standard unit price (net of the
+ticket's VAT-inclusive current price, early bird if active) and VAT from the
+ticket on the server; the browser only sends reference, quantity, discount and a
+permission-gated quoted override. Product lines inherit the catalogue product's
+ticket link only; a different submitted link is rejected unless it is the
+unchanged saved reference.
+
+**Why:** Approved simplification so line types do not overlap and prices cannot
+drift from the ticket.
+
+**How to apply:** Unchanged saved ticket lines keep their recorded terms; a
+different provider VAT code is accepted only when the ticket's VAT has no synced
+provider code, never to replace a mapped ticket VAT.

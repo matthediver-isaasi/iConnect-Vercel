@@ -22,6 +22,7 @@ import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
 import QuoteLineTicketSelect from "./QuoteLineTicketSelect";
+import QuoteProductTicketSummary from "./QuoteProductTicketSummary";
 import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
 import QuoteContactSelect from "./QuoteContactSelect";
 import SendQuoteDialog from "./SendQuoteDialog";
@@ -303,7 +304,48 @@ export function ticketLineError(line) {
   return "";
 }
 
-export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride, exhibitionDisabled = true, onExhibitionSelect, onDeleteHeldLine }) {
+const LINE_TYPES = [
+  { type: "product", label: "Catalogue product", hint: "An item from your catalogue, priced from the catalogue." },
+  { type: "bundle", label: "Bundle", hint: "A catalogue bundle, including any tickets it contains." },
+  { type: "ticket", label: "Event ticket", hint: "Tickets for an event. Price and VAT come from the ticket." },
+  { type: "free_text", label: "Custom line", hint: "Anything else, with your own description and price." },
+];
+
+// Selecting a ticket copies its current terms. The server re-reads them on save.
+export function ticketLineChanges(eventReference, ticket) {
+  if (!ticket) return { eventReference, ticketTaxCodeRequired: false, ticketPriceError: "" };
+  const price = ticket.unitPriceMinor ?? 0;
+  return {
+    eventReference, description: `${ticket.eventName || "Event"} — ${ticket.name || "Ticket"}`,
+    standardUnitPriceMinor: price, quotedUnitPriceMinor: price,
+    standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined,
+    taxCode: ticket.taxCode || null, taxRateBps: ticket.taxRateBps ?? 0, taxChanged: false, legacyTax: false,
+    originalTaxCode: undefined, originalTaxRateBps: undefined, originalLegacyTax: undefined,
+    ticketTaxCodeRequired: ticket.taxCodeRequired === true, ticketPriceError: ticket.priceUnavailableReason || "",
+  };
+}
+
+export function ticketLineForSaving(line) {
+  if (line.ticketPriceError) throw new Error(line.ticketPriceError);
+  if (line.ticketTaxCodeRequired && !line.taxChanged) {
+    throw new Error("The ticket's VAT setting does not match a synced provider VAT code. Choose a provider VAT code for the ticket line.");
+  }
+  const quoted = quotePriceMinor(line, "quotedUnitPriceMinor");
+  return {
+    // Standard price, VAT and description are taken from the ticket on the server.
+    ...(quoted !== minor(line.standardUnitPriceMinor) ? { quotedUnitPriceMinor: quoted } : {}),
+    ...(line.taxChanged && taxCodeKey(line.taxCode) ? { taxCode: { provider: line.taxCode.provider, id: line.taxCode.id } } : {}),
+  };
+}
+
+function ticketVatSummary(line) {
+  if (line.taxCode) return taxCodeLabel(line.taxCode);
+  if (!line.eventReference?.ticketTypeId) return "VAT comes from the selected ticket.";
+  return line.legacyTax && line.persistedLineId ? "Legacy tax — no saved provider code. Existing tax is preserved."
+    : `Ticket VAT ${Number(line.taxRateBps || 0) / 100}% — no synced provider VAT code.`;
+}
+
+export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride, exhibitionDisabled = true, onExhibitionSelect, onDeleteHeldLine, ticketRequest = request }) {
   const { singular } = useQuoteNaming();
   const taxOptions = useCatalogueTaxOptions(!readOnly);
   const taxItems = providerTaxOptions(taxOptions.data);
@@ -325,15 +367,15 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
       ...catalogueTaxForNewQuoteLine(type, source) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
-  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles, tickets or a custom line. Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("ticket")}><Plus className="mr-1 h-3.5 w-3.5" />Ticket</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
+  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2">{LINE_TYPES.map(item => <Button key={item.type} size="sm" variant="outline" title={item.hint} onClick={() => add(item.type)}><Plus className="mr-1 h-3.5 w-3.5" />{item.label}</Button>)}</div>}{!readOnly && <ul aria-label="Line types" className="grid w-full gap-x-4 gap-y-1 text-xs text-slate-500 sm:grid-cols-2">{LINE_TYPES.map(item => <li key={item.type}><span className="font-medium text-slate-700">{item.label}:</span> {item.hint}</li>)}</ul>}</CardHeader><CardContent>
     {!form.lines.length ? <p className="rounded-lg border border-dashed py-10 text-center text-sm text-slate-500">No lines yet.</p> : <div className="space-y-3">{form.lines.map((line, index) => {
       const totals = readOnly ? persistedLineAmounts(line) : lineTotals(line);
       return <div key={line.key} className="min-w-0 rounded-xl border bg-slate-50/50 p-3">
-        {(line.type === "product" || line.type === "ticket") && <QuoteLineTicketSelect line={line} disabled={readOnly} request={request} onChange={eventReference => patch(index, { eventReference })} />}
+        {line.type === "ticket" && <QuoteLineTicketSelect line={line} disabled={readOnly} request={ticketRequest} currency={form.currency} onChange={(eventReference, ticket) => patch(index, ticketLineChanges(eventReference, ticket))} />}
         <div className="grid gap-3 [&>div]:min-w-0" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))" }}>
-          <div><Label>Description / item</Label>{line.type === "product" || line.type === "bundle" ? <Select disabled={readOnly} value={String(line[`${line.type}Id`] || "")} onValueChange={(id) => choose(index, line.type, id)}><SelectTrigger className="bg-white"><SelectValue placeholder={`Choose ${line.type}`} /></SelectTrigger><SelectContent>{(line.type === "product" ? products : bundles).map((item) => <SelectItem key={idOf(item)} value={String(idOf(item))}>{nameOf(item)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={line.description} onChange={(e) => patch(index, { description: e.target.value })} placeholder="Description" />}</div>
+          <div><Label>{line.type === "product" ? "Catalogue product" : line.type === "bundle" ? "Bundle" : line.type === "ticket" ? "Line description" : "Description"}</Label>{line.type === "product" || line.type === "bundle" ? <Select disabled={readOnly} value={String(line[`${line.type}Id`] || "")} onValueChange={(id) => choose(index, line.type, id)}><SelectTrigger className="bg-white"><SelectValue placeholder={`Choose ${line.type}`} /></SelectTrigger><SelectContent>{(line.type === "product" ? products : bundles).map((item) => <SelectItem key={idOf(item)} value={String(idOf(item))}>{nameOf(item)}</SelectItem>)}</SelectContent></Select> : line.type === "ticket" ? <p aria-label={`Line ${index + 1} ticket description`} className="mt-2 break-words text-sm text-slate-700">{line.description || "Filled in from the ticket"}</p> : <Input disabled={readOnly} value={line.description} onChange={(e) => patch(index, { description: e.target.value })} placeholder="Description" />}</div>
           <div><Label>Quantity</Label><Input disabled={readOnly} type="number" min={line.type === "ticket" || line.eventReference ? "1" : "0"} step={line.type === "ticket" || line.eventReference ? "1" : "0.01"} value={line.quantity} onChange={(e) => patch(index, { quantity: e.target.value })} /></div>
-          <div><Label>Standard unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || !["free_text", "ticket"].includes(line.type)} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
+          <div><Label>Standard unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || line.type !== "free_text"} title={line.type === "ticket" ? "Taken from the ticket" : ""} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
           <div><Label>Quoted unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} quoted price`} disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="text" inputMode="decimal" value={quotePriceText(line, "quotedUnitPriceMinor")} onChange={(e) => patch(index, { quotedUnitPriceMinorInput: e.target.value })} /></div>
           <div><Label>Discount %</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to apply discounts" : ""} type="number" min="0" max="100" step=".01" value={Number(line.discountBps || 0) / 100} onChange={(e) => patch(index, { discountBps: Math.round(Number(e.target.value) * 100) })} /></div>
           <div><Label>Tax/VAT %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
@@ -347,10 +389,12 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
         {lineRequiresExhibition(line, products, bundles) && <QuoteExhibitionSpaces line={line} quoteId={form.id} eventId={form.eventId} readOnly={readOnly} disabled={exhibitionDisabled} onSelect={(slotKey, spaceId) => onExhibitionSelect?.(line.key, slotKey, spaceId)} />}
         {quotePriceError(line) && <p role="alert" className="mt-2 text-sm text-rose-700">{quotePriceError(line)}</p>}
         {ticketLineError(line) && !readOnly && <p role="alert" className="mt-2 text-sm text-rose-700">{ticketLineError(line)}</p>}
+        {line.type === "ticket" && line.ticketPriceError && !readOnly && <p role="alert" className="mt-2 text-sm text-rose-700">{line.ticketPriceError}</p>}
+        {line.type === "product" && <QuoteProductTicketSummary line={line} request={ticketRequest} />}
         {(line.type === "product" || line.type === "bundle") && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
         <div className="mt-3">
           <Label>Provider VAT code</Label>
-          {line.type === "product" || readOnly || (line.type === "bundle" && bundles.find(item => String(idOf(item)) === String(line.bundleId))?.taxOverride) ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the catalogue VAT code automatically."}</p> : <>
+          {line.type === "ticket" && (readOnly || !(line.ticketTaxCodeRequired || line.taxChanged)) ? <p className="mt-1 text-xs text-slate-600">{ticketVatSummary(line)}</p> : line.type === "product" || readOnly || (line.type === "bundle" && bundles.find(item => String(idOf(item)) === String(line.bundleId))?.taxOverride) ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the catalogue VAT code automatically."}</p> : <>
             <select aria-label={`Line ${index + 1} provider VAT code`} className="mt-1 h-9 w-full rounded-md border border-input bg-white px-3 text-sm disabled:opacity-50" disabled={taxOptions.isPending || taxOptions.isError} value={line.taxChanged ? taxCodeKey(line.taxCode) : ""} onChange={(event) => {
               if (!event.target.value) {
                 const saved = form.lines[index];
@@ -497,7 +541,12 @@ function QuoteEditor() {
     lines: form.lines.map((line) => {
       const error = ticketLineError(line);
       if (error) throw new Error(error);
-      return { ...quoteLineIdentityForSaving(line), ...exhibitionSelectionPayload(line), ...(["product", "ticket"].includes(line.type) ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(["free_text", "ticket"].includes(line.type) ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) };
+      if (line.type === "ticket") {
+        return { ...quoteLineIdentityForSaving(line), eventReference: line.eventReference ?? null, kind: "ticket", catalogueId: null,
+          description: line.description, quantity: String(line.quantity || "0"), discountBps: minor(line.discountBps), ...ticketLineForSaving(line) };
+      }
+      // Product ticket links come from the catalogue (or the unchanged saved line) on the server.
+      return { ...quoteLineIdentityForSaving(line), ...exhibitionSelectionPayload(line), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) };
     }),
     expectedVersion: quote.rowVersion,
   });

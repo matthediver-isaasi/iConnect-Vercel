@@ -11,6 +11,7 @@ import { resolvePercentageInstalments } from '../../shared/salesBillingConfigura
 import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 import { resolveEventTicketReference } from './salesCatalogue.js';
 import { assertSalesTicketEventSelectable } from './salesTicketEventOptions.js';
+import { resolveSalesTicketLinePricing } from './salesTicketPricing.js';
 import { prepareExhibitionLine, exhibitionError } from './salesExhibition.js';
 import { resolveProposalMembershipSchedule } from './proposalMembershipCatalogue.js';
 import { collectProposalMembershipBenefits, membershipBenefitLabel } from '../../shared/proposalMembershipEntitlements.js';
@@ -83,27 +84,94 @@ const productTicketReference = product => product?.event_reference_kind ? {
   kind: product.event_reference_kind, eventId: product.event_id, ticketTypeId: product.ticket_type_id,
 } : null;
 
-async function resolveLine(db, tenantId, line, index, allowPriceOverride, previous, categories) {
+const sameTicketReference = (a, b) => Boolean(a && b) && a.kind === b.kind
+  && String(a.eventId) === String(b.eventId) && String(a.ticketTypeId) === String(b.ticketTypeId);
+const sameOptionalTicketReference = (a, b) => (!a && !b) || sameTicketReference(a, b);
+
+async function ticketTaxCodeIsFallback(db, tenantId, reference, currency, dependencies) {
+  try {
+    const pricing = await resolveSalesTicketLinePricing(db, tenantId, reference, currency, dependencies);
+    return !pricing.taxCode;
+  } catch (error) {
+    // A saved ticket that can no longer be priced keeps its recorded VAT.
+    if (error instanceof SalesHttpError && error.status === 400) return false;
+    throw error;
+  }
+}
+
+/**
+ * Ticket lines are priced from the ticket itself. Browser-supplied standard
+ * prices, VAT rates and descriptions are ignored. An unchanged saved ticket
+ * keeps its recorded description, standard price and tax evidence.
+ */
+async function resolveTicketLine(db, tenantId, line, allowPriceOverride, previous, dependencies) {
+  const reference = line.eventReference;
+  if (!reference) throw new SalesHttpError(400, 'Select an event and ticket type');
+  const previousSnapshot = previous?.catalogue_kind === 'ticket' ? previous.catalogue_snapshot : null;
+  const unchanged = sameTicketReference(productTicketReference(previousSnapshot), reference);
+  let standard; let taxCode; let taxRateBps; let description; let ticketPricing = null;
+  const explicitTaxCode = line.taxCode && !(unchanged && line.taxCode.provider === previousSnapshot?.tax_code?.provider
+    && line.taxCode.id === previousSnapshot?.tax_code?.id) ? line.taxCode : null;
+  if (unchanged) {
+    standard = Number(previous.standard_unit_price_minor);
+    description = previous.description;
+    taxCode = previousSnapshot.tax_code || null;
+    taxRateBps = Number(previous.tax_rate_bps);
+    // VAT stays ticket-owned: a different provider code is accepted only as
+    // the fallback for a ticket whose VAT setting has no synced provider code.
+    if (explicitTaxCode && await ticketTaxCodeIsFallback(db, tenantId, reference, line.currency, dependencies)) {
+      taxCode = await resolveSalesTaxCode(db, tenantId, explicitTaxCode, dependencies);
+      taxRateBps = taxCode.rateBps;
+    }
+  } else {
+    const pricing = await resolveSalesTicketLinePricing(db, tenantId, reference, line.currency, dependencies);
+    standard = pricing.unitPriceMinor;
+    description = `${pricing.eventTitle} — ${pricing.ticketName}`;
+    if (pricing.taxCode) {
+      taxCode = pricing.taxCode;
+    } else if (explicitTaxCode) {
+      taxCode = await resolveSalesTaxCode(db, tenantId, explicitTaxCode, dependencies);
+    } else if (pricing.taxCodeRequired) {
+      throw new SalesHttpError(400, `The VAT setting on ${description} does not match a synced provider VAT code. Choose a provider VAT code for this ticket line.`);
+    } else taxCode = null;
+    taxRateBps = taxCode ? taxCode.rateBps : pricing.vat.rateBps || 0;
+    ticketPricing = { gross_unit_price_minor: pricing.grossUnitPriceMinor, net_unit_price_minor: pricing.unitPriceMinor,
+      currency: pricing.priceCurrency, is_early_bird: pricing.isEarlyBird, vat: pricing.vat };
+  }
+  if (!Number.isSafeInteger(standard) || standard < 0) throw new SalesHttpError(400, 'The saved ticket price is invalid');
+  const quoted = line.quotedUnitPriceMinor ?? standard;
+  if ((quoted !== standard || (line.discountBps || 0) !== 0) && !allowPriceOverride) {
+    throw new SalesHttpError(403, 'Catalogue price override capability required');
+  }
+  const amounts = calculateQuoteLine({ quantity: line.quantity, quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps });
+  const snapshot = await freezeQuoteTicketProduct(db, tenantId, { name: description || 'Event ticket', tax_code: taxCode,
+    component_kind: 'ticket', standard_price_minor: standard, currency: line.currency,
+    ...(ticketPricing ? { ticket_pricing: ticketPricing } : previousSnapshot?.ticket_pricing ? { ticket_pricing: previousSnapshot.ticket_pricing } : {}) },
+  reference, amounts.quantity, previousSnapshot);
+  if (!snapshot.event_id) throw new SalesHttpError(400, 'Select an event and ticket type');
+  return { kind: 'ticket', catalogueId: null, catalogueSnapshot: snapshot,
+    description: description || `${snapshot.event_title || 'Event'} — ${snapshot.ticket_name || 'Ticket'}`,
+    quantity: amounts.quantity, standardUnitPriceMinor: standard, quotedUnitPriceMinor: quoted,
+    priceOverridden: quoted !== standard, discountBps: line.discountBps || 0, taxRateBps, ...amounts, components: [] };
+}
+
+async function resolveLine(db, tenantId, line, index, allowPriceOverride, previous, categories, dependencies = {}) {
+  if (line.kind === 'ticket') return resolveTicketLine(db, tenantId, line, allowPriceOverride, previous, dependencies);
   const preserveTax = previous && previous.catalogue_kind === line.kind
     && (previous.catalogue_id || null) === (line.catalogueId || null)
     && (!line.taxCode || (line.taxCode.provider === previous.catalogue_snapshot?.tax_code?.provider
       && line.taxCode.id === previous.catalogue_snapshot?.tax_code?.id));
-  if (line.kind === 'free_text' || line.kind === 'ticket') {
+  if (line.kind === 'free_text') {
     const taxCode = preserveTax ? previous.catalogue_snapshot?.tax_code || null
-      : line.taxCode ? await resolveSalesTaxCode(db, tenantId, line.taxCode) : null;
+      : line.taxCode ? await resolveSalesTaxCode(db, tenantId, line.taxCode, dependencies) : null;
     if (preserveTax || taxCode) line = { ...line, taxRateBps: preserveTax ? Number(previous.tax_rate_bps) : taxCode.rateBps };
     if ((line.standardUnitPriceMinor !== line.quotedUnitPriceMinor || (line.discountBps || 0) !== 0) && !allowPriceOverride) {
       throw new SalesHttpError(403, 'Catalogue price override capability required');
     }
     const amounts = calculateQuoteLine(line);
-    const snapshot = line.kind === 'ticket'
-      ? await freezeQuoteTicketProduct(db, tenantId, { name: line.description || 'Event ticket', tax_code: taxCode,
-        component_kind: 'ticket', standard_price_minor: line.standardUnitPriceMinor, currency: line.currency },
-        line.eventReference, amounts.quantity, previous?.catalogue_kind === 'ticket' ? previous.catalogue_snapshot : null)
-      : taxCode ? { tax_code: taxCode } : null;
-    if (line.kind === 'ticket' && !snapshot.event_id) throw new SalesHttpError(400, 'Select an event and ticket type');
+    const snapshot = taxCode ? { tax_code: taxCode } : null;
     return { kind: line.kind, catalogueId: null, catalogueSnapshot: snapshot,
-      description: line.description || (line.kind === 'ticket' ? `${snapshot.event_title || 'Event'} — ${snapshot.ticket_name || 'Ticket'}` : ''),
+      description: line.description || '',
       quantity: amounts.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor,
       quotedUnitPriceMinor: line.quotedUnitPriceMinor, priceOverridden: line.standardUnitPriceMinor !== line.quotedUnitPriceMinor,
       discountBps: line.discountBps || 0, taxRateBps: line.taxRateBps || 0, ...amounts, components: [] };
@@ -140,8 +208,16 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   if (line.kind === 'product') {
     const previousProduct = previous?.catalogue_kind === 'product' && previous.catalogue_id === item.id
       ? previous.catalogue_snapshot : null;
-    const reference = line.eventReference !== undefined ? line.eventReference
-      : productTicketReference(previousProduct || item);
+    // Product lines inherit the catalogue product's own ticket link. A saved
+    // proposal-local reference (legacy behaviour) survives only unchanged.
+    const catalogueReference = productTicketReference(item);
+    const savedReference = previousProduct ? productTicketReference(previousProduct) : undefined;
+    const fallback = previousProduct ? savedReference : catalogueReference;
+    const reference = line.eventReference === undefined ? fallback : line.eventReference;
+    if (line.eventReference !== undefined && !sameOptionalTicketReference(reference, catalogueReference)
+      && !(previousProduct && sameOptionalTicketReference(reference, savedReference))) {
+      throw new SalesHttpError(400, `Quote line ${index + 1} ticket link must match the catalogue product. Add an Event ticket line to sell a different ticket.`);
+    }
     snapshot = await freezeQuoteTicketProduct(db, tenantId, item, reference, amounts.quantity, previousProduct);
   }
   if (line.kind === 'bundle') {
@@ -209,7 +285,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   return resolved;
 }
 
-export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson, previousBillingSchedule, previousLegalHtml) {
+export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson, previousBillingSchedule, previousLegalHtml, dependencies = {}) {
   if (draft.legalHtml === undefined && previousLegalHtml !== undefined) draft = { ...draft, legalHtml: previousLegalHtml };
   const snapshots = await snapshotReferences(db, tenantId, actor, draft, previousSalesperson);
   const expanded = [];
@@ -223,7 +299,7 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
   }
   const categories = new Map();
   const lines = await Promise.all(expanded.map(async (line, index) => ({ ...await resolveLine(
-    db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id), categories,
+    db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id), categories, dependencies,
   ), sourceLineId: line.id })));
   let membershipBenefits;
   try { membershipBenefits = collectProposalMembershipBenefits(lines, snapshots.organisationSnapshot, tenantId); }

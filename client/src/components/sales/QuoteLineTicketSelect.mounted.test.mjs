@@ -100,32 +100,30 @@ test("ticket picker uses future-only paged search and prevents selecting ineligi
   } finally { await fixture.close(); }
 });
 
-test("optional allocation hydrates saved tickets, preserves same-event choice and clears only on explicit event changes", async () => {
+test("ticket line hydrates its event, preserves same-event choice and passes the chosen ticket terms", async () => {
   const calls = [], changes = [];
   function Harness() {
     const [eventReference, setReference] = React.useState(null);
     return h(Allocation, {
-      line: { quantity: 2, eventReference }, request: async url => {
+      line: { type: "ticket", quantity: 2, eventReference }, currency: "GBP", request: async url => {
         calls.push(url);
         return { items: [future], hasMore: false };
       },
-      onChange: next => { changes.push(next); setReference(next); },
+      onChange: (next, ticket) => { changes.push([next, ticket]); setReference(next); },
     });
   }
   const fixture = await mount(Harness, {});
   try {
     assert.equal(calls.length, 0);
-    assert.match(fixture.host.textContent, /does not allocate tickets/);
+    assert.match(fixture.host.textContent, /description, price and VAT come from the ticket/);
+    assert.doesNotMatch(fixture.host.textContent, /for this product/);
     await click("Event");
     await choose("Learning forum");
-    assert.deepEqual(changes[0], { kind: "complex", eventId: "future", ticketTypeId: "" });
-    assert.ok(calls.some(url => url.includes("ticketEvents=true&selectedId=future&kind=complex")));
+    assert.deepEqual(changes[0], [{ kind: "complex", eventId: "future", ticketTypeId: "" }, null]);
+    assert.ok(calls.some(url => url.includes("ticketEvents=true&selectedId=future&kind=complex&currency=GBP")));
     await click("Event");
     await choose("Learning forum");
     assert.equal(changes.length, 1, "reselecting the current event does not clear tickets");
-    await click("Event");
-    await choose("No event");
-    assert.equal(changes.at(-1), null);
   } finally { await fixture.close(); }
 });
 
@@ -209,7 +207,7 @@ test("direct Ticket selection cannot clear its required event and resets type on
     onChange: next => changes.push(next),
   });
   try {
-    assert.match(fixture.host.textContent, /Ticket selection/);
+    assert.match(fixture.host.textContent, /Event ticket/);
     assert.doesNotMatch(fixture.host.textContent, /for this product/);
     await click("Event"); await choose("No event");
     assert.deepEqual(changes, []);

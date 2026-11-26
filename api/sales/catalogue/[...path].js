@@ -50,7 +50,7 @@ export function createSalesCatalogueHandler(dependencies = {}) {
           return res.status(405).json({ error: 'Method not allowed' });
         }
         if (req.query?.ticketEvents === 'true') {
-          return res.status(200).json(await listSalesTicketEventOptions(db, actor.tenantId, req.query));
+          return res.status(200).json(await listSalesTicketEventOptions(db, actor.tenantId, { ...req.query, withPricing: true, dependencies: undefined }));
         }
         if (req.query?.quoteEvents === 'true') {
           return res.status(200).json(await listQuoteEventOptions(db, actor.tenantId, req.query));

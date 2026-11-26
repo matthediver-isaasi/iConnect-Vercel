@@ -1,5 +1,6 @@
 import { SalesHttpError } from './salesAccess.js';
 import { isTicketClosed } from '../../shared/ticketRelease.js';
+import { enrichSalesTicketEventOptions } from './salesTicketPricing.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,7 +25,9 @@ export async function listSalesTicketEventOptions(db, tenantId, options = {}) {
     throw error;
   }
   if (!data || !Array.isArray(data.items)) throw new SalesHttpError(503, 'Ticket event search is unavailable');
-  return data;
+  if (!options.withPricing) return data;
+  const currency = /^[A-Za-z]{3}$/.test(String(options.currency || '')) ? String(options.currency).toUpperCase() : null;
+  return enrichSalesTicketEventOptions(db, tenantId, data, { currency, dependencies: options.dependencies });
 }
 
 export async function assertSalesTicketEventSelectable(db, tenantId, reference) {

@@ -14,7 +14,7 @@ const React = (await import("react")).default;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = createRequire(import.meta.url)("@tanstack/react-query");
-const children = /\/(AmendQuoteButton|InvoiceStatusPanel|QuoteOpportunitySelect|QuoteEventSelect|QuoteLineTicketSelect|QuoteSalespersonSelect|QuoteContactSelect|SendQuoteDialog|AgreementLegalEditor|AgreementDocument|AgreementSignatureRequests|AgreementFinalizationPanel|AcceptQuoteButton|QuoteVersionDocuments|QuoteBillingSettings|BillingSchedule)$/;
+const children = /\/(AmendQuoteButton|InvoiceStatusPanel|QuoteOpportunitySelect|QuoteEventSelect|QuoteLineTicketSelect|QuoteProductTicketSummary|QuoteSalespersonSelect|QuoteContactSelect|SendQuoteDialog|AgreementLegalEditor|AgreementDocument|AgreementSignatureRequests|AgreementFinalizationPanel|AcceptQuoteButton|QuoteVersionDocuments|QuoteBillingSettings|BillingSchedule)$/;
 const compiled = await build({
   entryPoints: ["client/src/components/sales/QuotesWorkspace.jsx"],
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
@@ -124,7 +124,7 @@ async function replace(fixture) {
   await act(async () => { select.value = "new"; select.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
 }
 
-test("saved direct tickets roundtrip negotiated prices, description, reference and tax without a catalogue item", async () => {
+test("saved direct tickets resave their reference and negotiated price, leaving standard price and VAT to the server", async () => {
   const quote = freshQuote();
   const reference = { kind: "complex", eventId: "learning-forum", ticketTypeId: "team-pass" };
   quote.currentVersion.lines = [{
@@ -145,11 +145,14 @@ test("saved direct tickets roundtrip negotiated prices, description, reference a
     assert.equal(line.catalogueId, null);
     assert.equal(line.description, "Negotiated team places");
     assert.equal(line.quantity, "3");
-    assert.equal(line.standardUnitPriceMinor, 8750);
+    assert.equal(Object.hasOwn(line, "standardUnitPriceMinor"), false, "ticket standard price comes from the server");
     assert.equal(line.quotedUnitPriceMinor, 8125);
     assert.equal(line.discountBps, 375);
     assert.deepEqual(line.eventReference, reference);
-    assert.deepEqual(line.taxCode, { provider: "xero", id: "OUTPUT" });
+    assert.equal(Object.hasOwn(line, "taxCode"), false, "unchanged ticket VAT is preserved by the server");
+    assert.match(fixture.host.textContent, /Standard sales VAT/);
+    assert.equal(fixture.host.querySelector('[aria-label="Line 1 standard price"]').disabled, true);
+    assert.equal(fixture.host.querySelector('input[placeholder="Description"]'), null);
     assert.equal(line.id, lineId);
   } finally { await fixture.close(); }
 });
@@ -176,7 +179,7 @@ test("incomplete or fractional direct tickets cannot save or recalculate", async
   }
 });
 
-test("product ticket references and free-text standard prices remain in save payloads", async () => {
+test("product lines leave ticket links to the server and free-text standard prices remain in save payloads", async () => {
   const quote = freshQuote();
   const reference = { kind: "simple", eventId: "forum", ticketTypeId: "individual" };
   quote.currentVersion.lines = [
@@ -187,7 +190,7 @@ test("product ticket references and free-text standard prices remain in save pay
   try {
     await click(button(fixture.host, "Save draft")); await settle();
     const [product, custom] = fixture.state.commands[0].lines;
-    assert.deepEqual(product.eventReference, reference);
+    assert.equal(Object.hasOwn(product, "eventReference"), false);
     assert.equal(product.catalogueId, "ticket-product");
     assert.equal(custom.standardUnitPriceMinor, 7125);
     assert.equal(custom.quotedUnitPriceMinor, 6875);
@@ -480,7 +483,7 @@ test("new free-text lines display the sales default VAT and submit its provider 
   const code = { provider: "xero", id: "OUTPUT2", name: "Standard sales VAT", rateBps: 2000, selectable: true };
   const fixture = await mount({ taxOptions: { data: { provider: "xero", items: [code], defaultProductTaxCode: code }, isPending: false, isError: false } });
   try {
-    await click(button(fixture.host, "Free text")); await settle();
+    await click(button(fixture.host, "Custom line")); await settle();
     const select = fixture.host.querySelector('[aria-label="Line 2 provider VAT code"]');
     assert.equal(select.selectedOptions[0].textContent, code.name);
     await click(button(fixture.host, "Save draft")); await settle();
@@ -494,10 +497,10 @@ test("a free-text line added while VAT is loading gets the default when loading 
   quote.currentVersion.lines = [];
   const fixture = await mount({ quote, taxOptions: { isPending: true, isError: false } });
   try {
-    await click(button(fixture.host, "Free text")); await settle();
+    await click(button(fixture.host, "Custom line")); await settle();
     const code = { provider: "quickbooks", id: "7", name: "Zero rated sales", rateBps: 0, selectable: true };
     fixture.state.taxOptions = { data: { provider: "quickbooks", items: [code], defaultProductTaxCode: code }, isPending: false, isError: false };
-    await click(button(fixture.host, "Free text")); await settle();
+    await click(button(fixture.host, "Custom line")); await settle();
     for (const select of fixture.host.querySelectorAll('select[aria-label$="provider VAT code"]')) {
       assert.equal(select.selectedOptions[0].textContent, code.name);
     }

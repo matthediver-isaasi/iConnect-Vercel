@@ -15,7 +15,7 @@ const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
 const built = await build({
-  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote, ticketLineError } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx"; export { default as BundleTaxOverride } from "./client/src/pages/sales/BundleTaxOverride.jsx";', loader: "js" },
+  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote, ticketLineError, ticketLineChanges, ticketLineForSaving } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx"; export { default as BundleTaxOverride } from "./client/src/pages/sales/BundleTaxOverride.jsx";', loader: "js" },
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
   alias: { "@": `${process.cwd()}/client/src`, "@shared": `${process.cwd()}/shared` },
   plugins: [{
@@ -33,65 +33,121 @@ const built = await build({
   }],
 });
 
-test("direct Ticket editor adds a non-catalogue line with one description, manual pricing and provider tax", async () => {
+const forum = { id: "forum", kind: "complex", name: "Learning forum", eligible: true, ticketOptions: [
+  { id: "team", name: "Team pass", delegateCapacity: 5, unitPriceMinor: 10000, grossUnitPriceMinor: 12000, priceCurrency: "GBP",
+    taxCode: { provider: "xero", id: "OUTPUT2", name: "Standard 20%", rateBps: 2000 }, taxRateBps: 2000, taxCodeRequired: false,
+    vat: { key: "OUTPUT2", percentage: 20 } },
+  { id: "legacy", name: "Legacy pass", delegateCapacity: 1, unitPriceMinor: 5000, grossUnitPriceMinor: 5000, priceCurrency: "GBP",
+    taxCode: null, taxRateBps: 0, taxCodeRequired: true, vat: { key: "OLD", percentage: 0 } },
+] };
+const ticketRequest = async () => ({ items: [forum], hasMore: false });
+
+test("ticket selection fills description, standard price and VAT from the ticket and saves no browser standard price", () => {
+  const { ticketLineChanges, ticketLineForSaving } = mod.exports;
+  const reference = { kind: "complex", eventId: "forum", ticketTypeId: "team" };
+  const changes = ticketLineChanges(reference, { ...forum.ticketOptions[0], eventName: forum.name });
+  assert.equal(changes.description, "Learning forum — Team pass");
+  assert.equal(changes.standardUnitPriceMinor, 10000);
+  assert.equal(changes.quotedUnitPriceMinor, 10000);
+  assert.deepEqual(changes.taxCode, forum.ticketOptions[0].taxCode);
+  assert.equal(changes.taxRateBps, 2000);
+  assert.equal(changes.ticketTaxCodeRequired, false);
+  const line = { type: "ticket", quantity: 2, discountBps: 0, ...changes };
+  assert.deepEqual(ticketLineForSaving(line), {}, "unchanged quoted price and ticket VAT are server-owned");
+  assert.deepEqual(ticketLineForSaving({ ...line, quotedUnitPriceMinorInput: "90.00" }), { quotedUnitPriceMinor: 9000 });
+  const legacy = { type: "ticket", quantity: 1, ...ticketLineChanges(reference, { ...forum.ticketOptions[1], eventName: forum.name }) };
+  assert.throws(() => ticketLineForSaving(legacy), /Choose a provider VAT code/);
+  const chosen = { ...legacy, taxChanged: true, taxCode: { provider: "xero", id: "ZERO", name: "Zero", rateBps: 0 } };
+  assert.deepEqual(ticketLineForSaving(chosen), { taxCode: { provider: "xero", id: "ZERO" } });
+  assert.throws(() => ticketLineForSaving({ ...line, ticketPriceError: "This ticket is priced in EUR" }), /priced in EUR/);
+  assert.deepEqual(ticketLineChanges({ ...reference, ticketTypeId: "" }, null).eventReference.ticketTypeId, "");
+});
+
+test("line editor offers four clearly labelled line types and a ticket line has no free-text description or editable standard price", async () => {
   const zero = { provider: "xero", id: "ZERO", name: "Zero rated sales", rateBps: 0, selectable: true };
   globalThis.quoteTaxFixture = { provider: "xero", items: [zero] };
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let current;
   let changeForm;
-  function Fixture({ readOnly = false, canOverride = false }) {
+  function Fixture({ readOnly = false, canOverride = false, products = [] }) {
     const [form, setForm] = React.useState({ currency: "GBP", lines: [] });
     current = form; changeForm = setForm;
-    return React.createElement(mod.exports.LinesEditor, { form, setForm, products: [], bundles: [], readOnly, canOverride });
+    return React.createElement(mod.exports.LinesEditor, { form, setForm, products, bundles: [], readOnly, canOverride, ticketRequest });
   }
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   const render = props => root.render(React.createElement(QueryClientProvider, { client: cache }, React.createElement(Fixture, props)));
+  const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
   try {
     await act(async () => render({}));
-    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Ticket").click());
+    const labels = [...host.querySelectorAll("button")].map(button => button.textContent);
+    for (const label of ["Catalogue product", "Bundle", "Event ticket", "Custom line"]) assert.ok(labels.includes(label), label);
+    assert.match(host.textContent, /Price and VAT come from the ticket/);
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Event ticket").click());
     assert.equal(current.lines[0].type, "ticket");
     assert.equal(current.lines[0].productId, "");
-    assert.equal(current.lines[0].bundleId, "");
-    assert.match(host.textContent, /Ticket selection/);
-    assert.equal(host.querySelectorAll('input[placeholder="Description"]').length, 1);
+    assert.equal(host.querySelector('input[placeholder="Description"]'), null);
     assert.equal(host.querySelector('[aria-label="Line description"]'), null);
-    assert.equal(host.querySelector('input[type="number"]').min, "1");
-    assert.equal(host.querySelector('input[type="number"]').step, "1");
-    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').disabled, false);
+    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').disabled, true);
     assert.equal(host.querySelector('[aria-label="Line 1 quoted price"]').disabled, true);
-    assert.equal(host.querySelector('input[max="100"]').disabled, true);
+    assert.equal(host.querySelector('input[type="number"]').step, "1");
     assert.match(host.textContent, /Choose a ticket event and ticket type/);
-    await act(async () => {
-      const input = host.querySelector('input[placeholder="Description"]');
-      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "Negotiated forum places");
-      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
-    assert.equal(current.lines[0].description, "Negotiated forum places");
-    const select = host.querySelector('[aria-label="Line 1 provider VAT code"]');
-    await act(async () => {
-      select.value = JSON.stringify(["xero", zero.id]);
-      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    });
-    assert.equal(current.lines[0].taxCode.id, zero.id);
-    assert.equal(current.lines[0].taxChanged, true);
-    await act(async () => {
-      const input = host.querySelector('[aria-label="Line 1 standard price"]');
-      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "87.50");
-      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
-    assert.equal(current.lines[0].standardUnitPriceMinorInput, "87.50");
-    assert.equal(current.lines[0].quotedUnitPriceMinorInput, "87.50");
+    assert.match(host.textContent, /VAT comes from the selected ticket/);
+    const reference = { kind: "complex", eventId: "forum", ticketTypeId: "team" };
+    await act(async () => changeForm(old => ({ ...old, lines: [{ ...old.lines[0], quantity: 2,
+      ...mod.exports.ticketLineChanges(reference, { ...forum.ticketOptions[0], eventName: forum.name }) }] })));
+    await settle();
+    assert.match(host.querySelector('[aria-label="Line 1 ticket description"]').textContent, /Learning forum — Team pass/);
+    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').value, "100.00");
+    assert.match(host.textContent, /Standard 20%/);
+    assert.equal(host.querySelector('[aria-label="Line 1 provider VAT code"]'), null, "matched ticket VAT is read-only");
+    assert.match(host.textContent, /2 tickets × 5 delegates per ticket = 10 places/);
+    assert.match(host.textContent, /£120\.00 incl\. VAT/);
     await act(async () => render({ canOverride: true }));
     assert.equal(host.querySelector('[aria-label="Line 1 quoted price"]').disabled, false);
-    await act(async () => render({ readOnly: true }));
-    assert.equal(host.querySelector('[aria-label="Line 1 standard price"]').disabled, true);
-    assert.equal(host.querySelector('input[placeholder="Description"]').disabled, true);
-    await act(async () => {
-      changeForm(old => ({ ...old, lines: [{ ...old.lines[0], type: "free_text", quantity: "1.25" }] }));
-      render({});
-    });
-    assert.equal(host.querySelector('input[type="number"]').step, "0.01");
+    assert.equal(host.querySelector('input[max="100"]').disabled, false);
+    await act(async () => changeForm(old => ({ ...old, lines: [{ ...old.lines[0],
+      ...mod.exports.ticketLineChanges({ ...reference, ticketTypeId: "legacy" }, { ...forum.ticketOptions[1], eventName: forum.name }) }] })));
+    await settle();
+    const select = host.querySelector('[aria-label="Line 1 provider VAT code"]');
+    assert.ok(select, "unmatched ticket VAT offers the provider code fallback");
+    await act(async () => { select.value = JSON.stringify(["xero", zero.id]); select.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
+    assert.equal(current.lines[0].taxCode.id, zero.id);
+    assert.equal(current.lines[0].taxChanged, true);
+  } finally {
+    await act(async () => root.unmount()); cache.clear(); host.remove(); delete globalThis.quoteTaxFixture;
+  }
+});
+
+test("product lines have no ticket picker and show inherited or saved legacy ticket links read-only", async () => {
+  globalThis.quoteTaxFixture = { provider: "xero", items: [] };
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const reference = { kind: "complex", eventId: "forum", ticketTypeId: "team" };
+  const product = { id: "pass", name: "Forum pass", standardPriceMinor: 9000, taxRateBps: 0, eventReference: reference };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const lines = [
+    { key: "a", type: "product", productId: "pass", description: "Forum pass", quantity: 2, standardUnitPriceMinor: 9000, quotedUnitPriceMinor: 9000, eventReference: reference },
+    { key: "b", type: "product", productId: "plain", description: "Plain product", quantity: 1, standardUnitPriceMinor: 100, quotedUnitPriceMinor: 100, eventReference: null },
+    { key: "c", type: "product", productId: "old", persistedLineId: "11111111-1111-4111-8111-111111111111", description: "Legacy", quantity: 3, standardUnitPriceMinor: 100, quotedUnitPriceMinor: 100,
+      eventReference: { kind: "simple", eventId: "past", ticketTypeId: "seat" },
+      catalogue_snapshot: { event_reference_kind: "simple", event_id: "past", ticket_type_id: "seat", event_title: "Previous forum", ticket_name: "Seat", capacity_metadata: { delegate_capacity: 1 } } },
+  ];
+  const calls = [];
+  const render = () => root.render(React.createElement(QueryClientProvider, { client: cache }, React.createElement(mod.exports.LinesEditor, {
+    form: { currency: "GBP", lines }, setForm: () => {}, products: [product], bundles: [], readOnly: false, canOverride: false,
+    ticketRequest: async url => { calls.push(url); return { items: [forum] }; },
+  })));
+  try {
+    await act(async () => render());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.equal(host.querySelector('[aria-label="Event"]'), null, "no ticket event picker on product lines");
+    assert.equal(host.querySelector('[aria-label="Ticket type"]'), null);
+    assert.match(host.textContent, /Includes: Learning forum — Team pass/);
+    assert.match(host.textContent, /Includes: Previous forum — Seat/);
+    assert.equal(host.textContent.match(/Includes:/g).length, 2);
+    assert.match(host.textContent, /cannot be changed on the proposal/);
+    assert.equal(calls.length, 1, "saved legacy names come from the line snapshot");
   } finally {
     await act(async () => root.unmount()); cache.clear(); host.remove(); delete globalThis.quoteTaxFixture;
   }

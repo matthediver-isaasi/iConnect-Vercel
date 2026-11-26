@@ -40,7 +40,7 @@ const groups = [
   },
   {
     name: '3. quote contract and lifecycle',
-    files: ['api/_lib/salesQuote.test.mjs', 'shared/salesBilling.test.mjs',
+    files: ['api/_lib/salesQuote.test.mjs', 'api/_lib/salesQuoteTickets.test.mjs', 'api/_lib/salesTicketPricing.test.mjs', 'shared/salesBilling.test.mjs',
       'api/_lib/salesBilling.postgres.test.mjs', 'api/_lib/salesBillingLifecycle.postgres.test.mjs'],
   },
   {

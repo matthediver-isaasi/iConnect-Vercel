@@ -273,7 +273,7 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
       errors.push(`lines[${index}] requires an event, ticket type and positive whole ticket quantity`);
     }
     try { parseQuoteQuantity(line.quantity); } catch (error) { errors.push(`lines[${index}].quantity: ${error.message}`); }
-    for (const price of ['standardUnitPriceMinor', 'quotedUnitPriceMinor']) if ((['free_text', 'ticket'].includes(line.kind) || price in line) && (!isMinorUnitAmount(line[price]) || line[price] < 0)) errors.push(`lines[${index}].${price} must be a non-negative safe integer`);
+    for (const price of ['standardUnitPriceMinor', 'quotedUnitPriceMinor']) if ((line.kind === 'free_text' || price in line) && (!isMinorUnitAmount(line[price]) || line[price] < 0)) errors.push(`lines[${index}].${price} must be a non-negative safe integer`);
     if ('discountBps' in line && (!Number.isInteger(line.discountBps) || line.discountBps < 0 || line.discountBps > 10000)) errors.push(`lines[${index}].discountBps is invalid`);
     if ('taxRateBps' in line && (!Number.isInteger(line.taxRateBps) || line.taxRateBps < 0 || line.taxRateBps > 100000)) errors.push(`lines[${index}].taxRateBps is invalid`);
     optionalText(errors, line.description, `lines[${index}].description`, 20000);
