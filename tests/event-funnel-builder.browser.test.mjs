@@ -61,6 +61,97 @@ async function open() {
   await page.getByTestId('funnel-node-source').waitFor();
   return { page, errors };
 }
+async function dragBy(page, locator, dx, dy) {
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 8 });
+  await page.mouse.up();
+}
+test('connector bends, segments and labels save and reload without changing routing', async () => {
+  const { page, errors } = await open();
+  try {
+    const label = page.getByRole('button', { name: 'Move label: Continue', exact: true });
+    await label.click();
+    await page.getByRole('button', { name: 'Add bend', exact: true }).click();
+    assert.ok(await page.getByTestId('funnel-connector-bend').count() >= 4);
+    const key = JSON.stringify(['source', 'accept', 'branch']);
+    const path = () => page.evaluate(id => document.getElementById(id)?.getAttribute('d'), key);
+    // All three edit controls support both pointer and keyboard input.
+    await dragBy(page, label, 85, -45);
+    const beforeSegment = await path();
+    await dragBy(page, page.getByTestId('funnel-connector-segment').first(), 25, 25);
+    assert.notEqual(await path(), beforeSegment);
+    const beforeBend = await path();
+    await dragBy(page, page.getByTestId('funnel-connector-bend').nth(1), 15, 20);
+    assert.notEqual(await path(), beforeBend);
+    await label.focus(); await page.keyboard.press('ArrowRight');
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    const first = await page.evaluate(() => window.saved[0]);
+    assert.ok(first.layout.connectors[key].bends.length >= 4);
+    assert.ok(first.layout.connectors[key].labelOffset.x > 40);
+    assert.equal(first.graph.nodes[0].accept, 'branch');
+    assert.equal('connectors' in first.graph, false);
+    const transform = await label.getAttribute('style');
+    await page.getByTestId('funnel-definition-choice').selectOption('fixture');
+    assert.equal(await label.getAttribute('style'), transform);
+    // Adding a step or moving an existing one must not discard other layout.
+    await label.click();
+    await page.getByTestId('funnel-add-condition').click();
+    await dragBy(page, page.getByTestId('funnel-node-source'), 20, 10);
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 2);
+    const added = await page.evaluate(() => window.saved[1]);
+    assert.deepEqual(added.layout.connectors[key], first.layout.connectors[key]);
+    assert.equal(added.graph.nodes.length, first.graph.nodes.length + 1);
+    await label.click();
+    await page.getByRole('button', { name: 'Reset line', exact: true }).click();
+    await page.getByRole('button', { name: 'Reset label', exact: true }).click();
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 3);
+    const second = await page.evaluate(() => window.saved[2]);
+    assert.deepEqual(second.layout.connectors[key], {});
+    assert.deepEqual(second.graph, added.graph);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+test('editing lock blocks all authored changes but allows inspection, navigation and simulation', async () => {
+  const { page, errors } = await open();
+  try {
+    await page.getByTestId('funnel-lock-editing').click();
+    assert.equal(await page.getByTestId('funnel-lock-editing').getAttribute('aria-pressed'), 'true');
+    for (const id of ['funnel-name', 'funnel-add-addon', 'funnel-auto-layout', 'funnel-save', 'funnel-publish', 'funnel-new']) {
+      assert.equal(await page.getByTestId(id).isDisabled(), true, id);
+    }
+    await page.getByTestId('funnel-node-branch').click();
+    assert.equal(await page.getByLabel('Condition name', { exact: true }).isDisabled(), true);
+    await page.getByTestId('funnel-node-parking').click();
+    assert.match(await page.locator('.efb-inspector').innerText(), /Step 3 · Annual conference — Parking/);
+    assert.equal(await page.getByLabel('If accepted, continue to', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByTestId('funnel-delete-node').isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Move label: Continue', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByTestId('funnel-connector-bend').count(), 0);
+    const source = page.getByTestId('funnel-node-source');
+    const originalPosition = await source.locator('..').getAttribute('style');
+    await dragBy(page, source, 55, 35);
+    assert.equal(await source.locator('..').getAttribute('style'), originalPosition);
+    assert.equal(await page.locator('.react-flow__minimap-node').count(), 5);
+    const viewport = page.locator('.react-flow__viewport');
+    const beforeZoom = await viewport.getAttribute('style');
+    await page.locator('.react-flow__controls-zoomin').click();
+    await page.waitForFunction(previous => document.querySelector('.react-flow__viewport')?.getAttribute('style') !== previous, beforeZoom);
+    await page.getByTestId('funnel-quantity-source-standard').fill('1');
+    await page.getByTestId('funnel-run-preview').click();
+    await page.waitForFunction(() => window.previewCalls.length === 1);
+    await page.getByTestId('funnel-lock-editing').click();
+    await page.getByTestId('funnel-node-branch').click();
+    assert.equal(await page.getByLabel('Condition name', { exact: true }).isDisabled(), false);
+    await page.getByLabel('Condition name', { exact: true }).fill('Editable again');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
 test('mini-map renders visible measured nodes and keeps them after edits', async () => {
   const { page, errors } = await open();
   try {

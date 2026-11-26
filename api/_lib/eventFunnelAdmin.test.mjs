@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEventFunnelAdminHandler, validateFunnelLayout, validateFunnelReferences } from './eventFunnelAdmin.js';
+import { funnelConnectorKey } from '../../shared/eventFunnelEditorLayout.mjs';
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
 const eventId = '00000000-0000-4000-8000-000000000002';
@@ -45,6 +46,23 @@ function harness(overrides = {}, eventRow = { id: eventId, start_date: '2099-01-
   return { invoke, calls, db };
 }
 const save = () => ({ action: 'save', id, name: 'Admissions', expectedRevision: 0, graph: graph(), layout: { positions: {} } });
+test('connector layout saves independently and rejects foreign or unbounded geometry', async () => {
+  const input = save(), key = funnelConnectorKey({ source: 'source', sourceHandle: 'accept', target: 'checkout' });
+  input.layout.connectors = { [key]: { bends: [{ x: 10, y: 20 }, { x: 120, y: 180 }], labelOffset: { x: 15, y: -20 } } };
+  const before = structuredClone(input.graph);
+  const h = harness(), result = await h.invoke(input);
+  assert.equal(result.code, 200);
+  const args = h.calls.find(([name]) => name === 'event_funnel_save_definition')[1];
+  assert.deepEqual(args.p_layout, input.layout);
+  assert.deepEqual(args.p_graph, before);
+  for (const geometry of [
+    { bends: [{ x: Infinity, y: 1 }] }, { bends: [{ x: 100001, y: 0 }] },
+    { bends: Array(25).fill({ x: 1, y: 2 }) }, { bends: {} }, { labelOffset: { x: 0, y: NaN } },
+    { target: 'different-checkout' }, null, [],
+  ]) assert.throws(() => validateFunnelLayout({ positions: {}, connectors: { [key]: geometry } }, input.graph), /Invalid/);
+  assert.throws(() => validateFunnelLayout({ positions: {}, connectors: { unknown: {} } }, input.graph), /Invalid connector/);
+  assert.throws(() => validateFunnelLayout({ positions: {}, connectors: [] }, input.graph), /Invalid connector/);
+});
 test('condition names survive save and preview and invalid names fail before persistence', async () => {
   const input = save();
   input.graph.nodes[0].accept = 'branch';

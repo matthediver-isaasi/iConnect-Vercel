@@ -2,6 +2,7 @@ import { validateFunnelGraph, evaluateFunnelRoute, FunnelGraphError } from '../.
 import { funnelSimpleTickets } from '../../shared/eventFunnelCatalog.mjs';
 import { isFutureFunnelEvent } from '../../shared/eventFunnelAuthoring.mjs';
 import { buildFunnelPublicationSnapshot } from './eventFunnelPublication.js';
+import { funnelConnectorKeys, isFunnelLayoutPoint } from '../../shared/eventFunnelEditorLayout.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -27,7 +28,22 @@ export function validateFunnelLayout(layout, graph) {
       || Math.abs(position.x) > 100000 || Math.abs(position.y) > 100000) fail('Invalid node position.');
     Object.defineProperty(positions, id, { value: { x: position.x, y: position.y }, enumerable: true });
   }
-  return { positions };
+  if (layout.connectors === undefined) return { positions };
+  if (!layout.connectors || typeof layout.connectors !== 'object' || Array.isArray(layout.connectors)) fail('Invalid connector layout.');
+  const keys = funnelConnectorKeys(graph);
+  const connectors = {};
+  for (const [key, value] of Object.entries(layout.connectors)) {
+    if (!keys.has(key) || !value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).some(field => !['bends', 'labelOffset'].includes(field))) fail('Invalid connector reference.');
+    if (value.bends !== undefined && (!Array.isArray(value.bends) || value.bends.length > 24
+      || !value.bends.every(isFunnelLayoutPoint))) fail('Invalid connector bends.');
+    if (value.labelOffset !== undefined && !isFunnelLayoutPoint(value.labelOffset)) fail('Invalid connector label position.');
+    Object.defineProperty(connectors, key, { enumerable: true, value: {
+      ...(value.bends !== undefined ? { bends: value.bends.map(({ x, y }) => ({ x, y })) } : {}),
+      ...(value.labelOffset !== undefined ? { labelOffset: { x: value.labelOffset.x, y: value.labelOffset.y } } : {}),
+    } });
+  }
+  return { positions, connectors };
 }
 export async function validateFunnelReferences(db, tenantId, graph) {
   validateFunnelGraph(graph);

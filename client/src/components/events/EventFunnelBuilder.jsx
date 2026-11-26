@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType } from '@xyflow/react';
+import EventFunnelConnector from './EventFunnelConnector';
+import { funnelConnectorKey, isFunnelLayoutPoint, pruneFunnelEditorLayout } from '../../../../shared/eventFunnelEditorLayout.mjs';
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
@@ -78,6 +80,7 @@ function FunnelNode({ data, selected }) {
   </div>;
 }
 const nodeTypes = { funnel: FunnelNode };
+const edgeTypes = { funnelConnector: EventFunnelConnector };
 
 function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
   const tiers = useContext(TiersContext);
@@ -237,6 +240,9 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
   const [baseline, setBaseline] = useState('');
   const [localDefinitions, setLocalDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedConnector, setSelectedConnector] = useState(null);
+  const [editingLocked, setEditingLocked] = useState(false);
+  const editGuard = useRef(false);
   // React Flow's mini-map reads dimensions from the controlled user nodes.
   // Keep measurements in view state, never in the saved purchase graph/layout.
   const [nodeMeasurements, setNodeMeasurements] = useState({});
@@ -257,8 +263,10 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     const frame = requestAnimationFrame(() => flowRef.current?.fitView({ padding: .25, duration: 200 }));
     return () => cancelAnimationFrame(frame);
   }, [draft?.layout]);
-  const locked = busy || !!operation;
-  const blocked = locked || !!unavailable;
+  const operationBusy = busy || !!operation;
+  const locked = operationBusy || editingLocked;
+  editGuard.current = locked;
+  const blocked = operationBusy || !!unavailable;
   const availableDefinitions = [...localDefinitions, ...definitions.filter(item => !localDefinitions.some(local => local.id === item.id))];
   const graph = draft?.graph;
   const graphNodes = graph?.nodes || [];
@@ -299,7 +307,17 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     setServerPreview(null); setPreviewError(null);
   }
   function changeDraft(fn) {
-    invalidatePreview(); setMessage(null); setDraft(current => fn(current));
+    if (editGuard.current) return;
+    invalidatePreview(); setMessage(null); setDraft(current => {
+      const next = fn(current);
+      return { ...next, layout: pruneFunnelEditorLayout(next.layout, next.graph) };
+    });
+  }
+  function updateConnector(key, value) {
+    if (editGuard.current || (value.bends && (value.bends.length > 24 || !value.bends.every(isFunnelLayoutPoint)))
+      || (value.labelOffset && !isFunnelLayoutPoint(value.labelOffset))) return;
+    setDraft(current => ({ ...current, layout: { ...current.layout,
+      connectors: { ...current.layout?.connectors, [key]: value } } }));
   }
   function updateNode(patch) {
     changeDraft(current => ({ ...current, graph: { ...current.graph, nodes: current.graph.nodes.map(node => node.id === selectedId ? { ...node, ...patch } : node) } }));
@@ -310,7 +328,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     next.layout = next.layout || { positions: {} };
     if (next.id !== draft?.id) setNodeMeasurements({});
     setDraft(next); setBaseline(isNew ? '' : draftFingerprint(next)); setSelectedId(next.graph?.entry || null);
-    setSamples({}); setCheckoutNow(false); setConfirmDelete(false); setMessage(null); invalidatePreview();
+    setSamples({}); setCheckoutNow(false); setConfirmDelete(false); setSelectedConnector(null); setMessage(null); invalidatePreview();
     requestAnimationFrame(() => flowRef.current?.fitView({ padding: .25 }));
   }
   function setDestination(nodeId, handle, target) {
@@ -344,12 +362,12 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     changeDraft(current => ({
       ...current,
       graph: { ...current.graph, nodes: [...current.graph.nodes.map(item => item.id !== anchor?.id ? item : item.type === 'condition' ? { ...item, fallback: id } : { ...item, accept: id }), node] },
-      layout: { positions: { ...(current.layout?.positions || {}), [id]: { x: 370 + (graphNodes.length % 2) * 50, y: 80 + (graphNodes.length - 2) * 150 } } },
+      layout: { ...current.layout, positions: { ...(current.layout?.positions || {}), [id]: { x: 370 + (graphNodes.length % 2) * 50, y: 80 + (graphNodes.length - 2) * 150 } } },
     }));
     setSelectedId(id); setConfirmDelete(false);
   }
   async function save() {
-    if (blocked || !draft || problems.length || operationLock.current || !onSave) return;
+    if (locked || blocked || !draft || problems.length || operationLock.current || !onSave) return;
     operationLock.current = true; setOperation('save'); setMessage(null);
     const submitted = clone(draft), fingerprint = draftFingerprint(draft);
     try {
@@ -365,7 +383,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     finally { setOperation(null); operationLock.current = false; }
   }
   async function publish() {
-    if (blocked || !draft || dirty || !draft.revision || problems.length || operationLock.current || !onPublish) return;
+    if (locked || blocked || !draft || dirty || !draft.revision || problems.length || operationLock.current || !onPublish) return;
     operationLock.current = true; setOperation('publish'); setMessage(null);
     try {
       const result = await onPublish({ id: draft.id, expectedRevision: draft.revision });
@@ -397,8 +415,8 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     try {
       const positions = autoLayoutFunnel(graph, flowRef.current?.getNodes() || []);
       fitAfterLayout.current = true;
-      setDraft(current => ({ ...current, layout: { ...current.layout, positions } }));
-      setMessage({ kind: 'success', text: 'Layout arranged. You can still drag steps to adjust them. Save the draft to keep this layout.' });
+      setDraft(current => ({ ...current, layout: { ...current.layout, positions, connectors: {} } }));
+      setMessage({ kind: 'success', text: 'Layout arranged; custom connector bends and label positions were reset. You can still drag steps and connectors. Save the draft to keep this layout.' });
     } catch {
       setMessage({ kind: 'error', text: 'Could not arrange this funnel. Your existing layout and edits are unchanged.' });
     }
@@ -417,8 +435,12 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       inRoute: routeResult?.route?.includes(node.id),
     },
   }));
-  const flowEdges = connections.filter(edge => graphNodes.some(node => node.id === edge.target)).map((edge, index) => ({
-    ...edge, id: `${edge.source}-${edge.sourceHandle}-${index}`, type: 'smoothstep', deletable: false, reconnectable: false,
+  const flowEdges = connections.filter(edge => graphNodes.some(node => node.id === edge.target)).map(edge => ({
+    ...edge, id: funnelConnectorKey(edge), type: 'funnelConnector', deletable: false, reconnectable: false,
+    selected: selectedConnector === funnelConnectorKey(edge),
+    data: { locked, layout: draft?.layout?.connectors?.[funnelConnectorKey(edge)],
+      onSelect: key => { setSelectedConnector(key); setSelectedId(null); },
+      onChange: value => updateConnector(funnelConnectorKey(edge), value) },
     markerEnd: { type: MarkerType.ArrowClosed, color: '#72879a' },
     style: { stroke: routeResult?.route?.some((id, i, route) => id === edge.source && route[i + 1] === edge.target) ? '#43846a' : '#8a9cab', strokeWidth: 1.5 },
     labelStyle: { fontSize: 11, fill: '#42586b' }, labelBgStyle: { fill: '#f7f9fb' },
@@ -429,13 +451,13 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       <div><h3 className="efb-row"><GitBranch size={19} />Event funnels</h3><p className="efb-muted">Offer parking, lunch and further events without changing each event’s identity.</p></div>
       <div className="efb-actions">
         <Button type="button" variant="outline" size="sm" data-testid="funnel-new" disabled={locked} onClick={() => loadDefinition(createFunnelDraft(tenantId), true)}><Plus />New funnel</Button>
-        <Button type="button" size="sm" variant="outline" data-testid="funnel-save" disabled={blocked || !draft || !!problems.length || !dirty || !onSave} onClick={save}><Save />{operation === 'save' ? 'Saving…' : 'Save draft'}</Button>
-        <Button type="button" size="sm" data-testid="funnel-publish" disabled={blocked || !draft?.revision || dirty || !!problems.length || !onPublish} onClick={publish}><Upload />{operation === 'publish' ? 'Publishing…' : 'Publish saved draft'}</Button>
+        <Button type="button" size="sm" variant="outline" data-testid="funnel-save" disabled={locked || blocked || !draft || !!problems.length || !dirty || !onSave} onClick={save}><Save />{operation === 'save' ? 'Saving…' : 'Save draft'}</Button>
+        <Button type="button" size="sm" data-testid="funnel-publish" disabled={locked || blocked || !draft?.revision || dirty || !!problems.length || !onPublish} onClick={publish}><Upload />{operation === 'publish' ? 'Publishing…' : 'Publish saved draft'}</Button>
       </div>
     </div>
     {unavailable && <div role="alert" className="efb-notice efb-error" data-testid="funnel-unavailable">{describeFunnelIssue(unavailable, graph, catalog, tiers)} Saving, publishing and preview are unavailable. In-progress edits are preserved.</div>}
     {message && <div role={message.kind === 'error' ? 'alert' : 'status'} className={`efb-notice efb-${message.kind}`} data-testid="funnel-operation-message">{message.text}</div>}
-    <Field label="Saved funnel"><select data-testid="funnel-definition-choice" disabled={locked} value={draft && availableDefinitions.some(item => item.id === draft.id) ? draft.id : ''} onChange={event => {
+    <Field label="Saved funnel"><select data-testid="funnel-definition-choice" disabled={operationBusy} value={draft && availableDefinitions.some(item => item.id === draft.id) ? draft.id : ''} onChange={event => {
       const definition = availableDefinitions.find(item => item.id === event.target.value);
       if (definition) loadDefinition(definition);
     }}><option value="">{draft ? 'New unsaved funnel' : 'Select a saved funnel or create one'}</option>
@@ -472,13 +494,19 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       <div className="efb-row efb-muted"><span>{dirty ? 'Unsaved changes' : `Saved revision ${draft.revision}`}</span><span>·</span><span>{graphNodes.length} / 100 steps</span><span>·</span><span>Reservation: 60–3600 seconds</span></div>
        {problems.length > 0 ? <div className="efb-notice" data-testid="funnel-validation" role="status"><strong>Finish these details before saving or publishing</strong><ul style={{ paddingLeft: 18, marginTop: 5 }}>{problems.map(problem => <li key={problem}>{problem}</li>)}</ul></div> : <div className="efb-notice efb-success" data-testid="funnel-validation"><span className="efb-row"><CheckCircle2 size={15} />Funnel steps and event selections look good. We’ll check them again when you save or publish.</span></div>}
        <div className="efb-toolbar"><span className="efb-muted">Add after selected step</span>
+        <Button type="button" variant="outline" size="sm" data-testid="funnel-lock-editing" disabled={operationBusy}
+          aria-pressed={editingLocked} onClick={() => { setEditingLocked(value => !value); setConfirmDelete(false); }}>
+          {editingLocked ? 'Unlock editing' : 'Lock editing'}
+        </Button>
         {['event', 'addon', 'membership', 'condition'].map(type => <Button type="button" variant="outline" size="sm" key={type} disabled={locked || graphNodes.length >= 100} data-testid={`funnel-add-${type}`} onClick={() => addNode(type)}><Plus />{typeNames[type]}</Button>)}
-        <Button type="button" variant="outline" size="sm" data-testid="funnel-auto-layout" disabled={locked || !graphNodes.length} onClick={arrange} title="Arrange steps from top to bottom without changing the funnel">Auto layout</Button>
-         <span className="efb-muted">Drag steps to arrange; connect their labelled choices. Paths can rejoin.</span>
+        <Button type="button" variant="outline" size="sm" data-testid="funnel-auto-layout" disabled={locked || !graphNodes.length} onClick={arrange} title="Arrange steps from top to bottom; reset custom connector bends and label positions without changing routing">Auto layout</Button>
+         <span className="efb-muted" role="status">{editingLocked ? 'Editing locked. Select any step to inspect it; panning, zooming and route simulation remain available.' : 'Drag steps to arrange. Select a connector to move its bends or segments; drag its label independently. Arrow keys also adjust focused controls.'}</span>
       </div>
       <div className="efb-grid">
         <div className="efb-canvas" data-testid="funnel-canvas">
-          <ReactFlow key={draft.id} nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} onInit={instance => { flowRef.current = instance; }} fitView fitViewOptions={{ padding: .25 }} minZoom={.15} maxZoom={2} nodesDraggable={!locked} nodesConnectable={!locked} elementsSelectable onNodeClick={(_, node) => { setSelectedId(node.id); setConfirmDelete(false); }} onPaneClick={() => { setSelectedId(null); setConfirmDelete(false); }} onNodesChange={changes => {
+          <ReactFlow key={draft.id} nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flowRef.current = instance; }} fitView fitViewOptions={{ padding: .25 }} minZoom={.15} maxZoom={2} nodesDraggable={!locked} nodesConnectable={!locked} elementsSelectable
+           onEdgeClick={(_, edge) => { setSelectedConnector(edge.id); setSelectedId(null); }}
+           onNodeClick={(_, node) => { setSelectedId(node.id); setSelectedConnector(null); setConfirmDelete(false); }} onPaneClick={() => { setSelectedId(null); setSelectedConnector(null); setConfirmDelete(false); }} onNodesChange={changes => {
             const dimensions = changes.filter(change => change.type === 'dimensions'
               && Number.isFinite(change.dimensions?.width) && change.dimensions.width > 0
               && Number.isFinite(change.dimensions?.height) && change.dimensions.height > 0);
@@ -495,7 +523,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
             const positions = changes.filter(change => change.type === 'position' && change.position);
             const selection = changes.find(change => change.type === 'select' && change.selected);
             if (selection) setSelectedId(selection.id);
-            if (positions.length) setDraft(current => ({ ...current, layout: { positions: { ...(current.layout?.positions || {}), ...Object.fromEntries(positions.map(change => [change.id, change.position])) } } }));
+            if (positions.length) setDraft(current => ({ ...current, layout: { ...current.layout, positions: { ...(current.layout?.positions || {}), ...Object.fromEntries(positions.map(change => [change.id, change.position])) } } }));
           }} onConnect={connection => {
             if (!locked && connection.source && connection.target && connection.sourceHandle) setDestination(connection.source, connection.sourceHandle, connection.target);
            }} isValidConnection={connection => connection.source !== connection.target && graphNodes.find(node => node.id === connection.target)?.type !== 'source'} deleteKeyCode={null} proOptions={{ hideAttribution: true }} aria-label="Event funnel graph">
@@ -514,7 +542,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
               {!confirmDelete ? <Button type="button" variant="outline" size="sm" data-testid="funnel-delete-node" onClick={() => setConfirmDelete(true)}><Trash2 />Remove step</Button> : <div className="efb-notice efb-error" role="alert"><p>Remove this step? Other steps may still lead to an unavailable destination until you reconnect them.</p><div className="efb-actions" style={{ marginTop: 8 }}><Button type="button" variant="destructive" size="sm" onClick={() => {
                 changeDraft(current => {
                   const positions = { ...(current.layout?.positions || {}) }; delete positions[selectedId];
-                  return { ...current, graph: { ...current.graph, nodes: current.graph.nodes.filter(node => node.id !== selectedId) }, layout: { positions } };
+                  return { ...current, graph: { ...current.graph, nodes: current.graph.nodes.filter(node => node.id !== selectedId) }, layout: { ...current.layout, positions } };
                 });
                 setSelectedId(null); setConfirmDelete(false);
               }}>Remove</Button><Button type="button" variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button></div></div>}
@@ -524,7 +552,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       </div>
       <section className="efb-preview" aria-label="Selection-driven route preview" data-testid="funnel-preview">
         <div className="efb-header"><div><h4>Test a route</h4><p className="efb-muted">Administrator simulation only. Enter sample ticket quantities or skip answers. Zero leaves an offer unanswered. No tickets are reserved or purchased.</p></div><Button type="button" variant="outline" size="sm" data-testid="funnel-run-preview" disabled={blocked || !!problems.length || invalidSampleQuantity || !onPreview} onClick={preview}><Play />{operation === 'preview' ? 'Checking…' : 'Check preview'}</Button></div>
-        <fieldset disabled={locked}>
+        <fieldset disabled={operationBusy}>
           <label className="efb-check"><input data-testid="funnel-preview-checkout-now" type="checkbox" checked={checkoutNow} onChange={event => { invalidatePreview(); setCheckoutNow(event.target.checked); }} />Simulate checkout after source only (source selection is still required)</label>
           <div className="efb-samples">{graphNodes.filter(isPurchase).map(node => {
             const event = findEvent(catalog, node.event);

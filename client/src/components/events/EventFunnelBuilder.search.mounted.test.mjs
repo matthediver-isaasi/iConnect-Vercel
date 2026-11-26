@@ -43,6 +43,9 @@ const built = await build({
             ? `export const Position = {Top: 'top', Bottom: 'bottom'};
                export const MarkerType = {ArrowClosed: 'arrowclosed'};
                export const Handle = () => null, Background = () => null, Controls = () => null, MiniMap = () => null;
+               export const BaseEdge = () => null;
+               export const EdgeLabelRenderer = ({children}) => <>{children}</>;
+               export const useReactFlow = () => ({screenToFlowPosition: point => point});
                export function ReactFlow({children}) { return <div data-testid="flow-canvas">{children}</div>; }`
             : path === 'icons'
               ? `import React from 'react';

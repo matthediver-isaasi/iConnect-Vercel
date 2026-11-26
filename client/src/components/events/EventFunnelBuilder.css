@@ -28,6 +28,14 @@
 .efb-node strong { display: block; font-size: 13px; margin: 7px 0 4px; overflow-wrap: anywhere; }
 .efb-node-kind { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .07em; color: var(--funnel-muted); }
 .efb-node .react-flow__handle { width: 9px; height: 9px; background: #397ba1; border: 2px solid #f7f9fb; }
+.efb-connector-control { position: absolute; pointer-events: all; touch-action: none; cursor: move; z-index: 6; }
+.efb-connector-label { z-index: 8; border: 1px solid transparent; border-radius: 4px; background: #f7f9fb; padding: 2px 5px; color: #42586b; font-size: 11px; white-space: nowrap; }
+.efb-connector-label.is-selected { border-color: #397ba1; }
+.efb-connector-label:disabled { opacity: 1; cursor: default; color: #42586b; }
+.efb-connector-bend, .efb-connector-segment { width: 12px; height: 12px; padding: 0; border: 2px solid #397ba1; border-radius: 50%; background: #fff; }
+.efb-connector-segment { width: 16px; height: 8px; border-radius: 2px; background: #d8eaf4; }
+.efb-connector-tools { position: absolute; pointer-events: all; z-index: 9; display: flex; gap: 3px; padding: 4px; border: 1px solid #b8cbd8; border-radius: 5px; background: #fff; box-shadow: 0 2px 6px #24364a1a; white-space: nowrap; }
+.efb-connector-tools button { border: 1px solid #d9e2e9; border-radius: 3px; padding: 3px 5px; font-size: 10px; color: #24364a; background: #f7f9fb; }
 .efb-port { position: absolute; bottom: 3px; font-size: 9px; color: #617184; transform: translateX(-50%); white-space: nowrap; }
 .efb-notice { padding: 10px 12px; border: 1px solid #e5d3af; border-radius: 6px; background: #fcf7ed; font-size: 12px; margin: 12px 0; overflow-wrap: anywhere; }
 .efb-error { border-color: #e7b9b5; background: #fff4f1; color: #923d36; }

@@ -258,3 +258,15 @@ failure from a verified no-match, and keep existing sessions pinned. Preparing
 ticket routing does not authorize building real BNMS funnels, changing live
 settings, enabling purchasing, or installing its new migration; those require
 separate explicit instructions.
+
+The funnel builder's editing lock covers all authored funnel settings, not just
+node and connector positions. Selecting a step must still reveal its settings
+read-only; panning, zooming, mini-map navigation and route simulation remain
+available.
+
+**Why:** The owner explicitly chose all-funnel editing protection rather than
+a layout-only lock, while requiring every step to remain inspectable.
+
+**How to apply:** Keep the editing lock separate from permissions and live
+checkout activation. Do not turn inspection or simulation into an editing
+bypass, and continue retaining display measurements while editing is locked.
