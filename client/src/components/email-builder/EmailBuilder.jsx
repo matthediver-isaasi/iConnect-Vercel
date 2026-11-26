@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -43,6 +43,7 @@ const loadGoogleFonts = () => {
 export default function EmailBuilder({ 
   initialDesign, 
   onChange, 
+  immediateDesignChanges = false,
 }) {
   // When a loaded design carries duplicated dynamic tokens (from the old
   // Duplicate behaviour), repair it on open and flag it so the parent is
@@ -64,6 +65,16 @@ export default function EmailBuilder({
     }
     return normalizeEmailDesign(defaultEmailDesign);
   });
+  const publishedDesign = useRef(design);
+  const immediateChange = useRef(onChange);
+  immediateChange.current = onChange;
+  useLayoutEffect(() => {
+    if (publishedDesign.current === design) return;
+    publishedDesign.current = design;
+    // Publish before another interaction, but outside the state updater:
+    // notifying the parent during a child render is not safe in React.
+    if (immediateDesignChanges) immediateChange.current?.({ design });
+  }, [design, immediateDesignChanges]);
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedChildId, setSelectedChildId] = useState(null);
   const [selectedColumnChildId, setSelectedColumnChildId] = useState(null);

@@ -5,10 +5,11 @@ import { UNSAFE_NavigationContext } from "react-router-dom";
 // we retain the mounted editor and offer save/discard/stay. Unlike a history
 // sentinel, index-based POP restoration also handles Forward without adding
 // phantom entries or committing a cancelled route/remounting its design.
-export function usePopupUnsavedChanges({ dirty, isDirty, onSave }) {
+export function usePopupUnsavedChanges({ dirty, isDirty, onSave, busy = false }) {
   const { navigator } = useContext(UNSAFE_NavigationContext);
   const latest = useRef({});
-  latest.current = { dirty, isDirty, onSave };
+  latest.current = { dirty, isDirty, onSave, busy };
+  const saveBusy = useRef(false);
   const leaving = useRef(false);
   const pendingRef = useRef(null);
   const [pending, setPending] = useState(null);
@@ -106,13 +107,13 @@ export function usePopupUnsavedChanges({ dirty, isDirty, onSave }) {
   }, [navigator, request, checkDirty]);
 
   const stay = () => {
-    if (saving) return;
+    if (saveBusy.current || latest.current.busy) return;
     pendingRef.current = null;
     setPending(null);
     setError("");
   };
   const discard = () => {
-    if (saving) return;
+    if (saveBusy.current || latest.current.busy) return;
     const run = pendingRef.current;
     pendingRef.current = null;
     leaving.current = true;
@@ -121,24 +122,29 @@ export function usePopupUnsavedChanges({ dirty, isDirty, onSave }) {
     // A non-navigation action (e.g. close settings) keeps this hook mounted.
     leaving.current = false;
   };
-  const saveAndLeave = async () => {
-    if (saving) return;
+  const withoutBlocking = (run) => {
+    leaving.current = true;
+    try { return run(); } finally { leaving.current = false; }
+  };
+  const save = async (leave) => {
+    if (saveBusy.current || latest.current.busy) return;
+    saveBusy.current = true;
     setSaving(true);
     setError("");
     try {
-      if (await latest.current.onSave?.() !== true) {
+      if (await latest.current.onSave?.({ leave }) !== true) {
         setError("Changes were not saved. Stay here and correct the error, or retry.");
         return;
       }
       const run = pendingRef.current;
       pendingRef.current = null;
-      leaving.current = true;
       setPending(null);
-      run?.();
-      leaving.current = false;
+      if (leave) withoutBlocking(() => run?.());
     } catch (failure) {
       setError(failure.message || "Unable to save. Your changes are still here.");
-    } finally { setSaving(false); }
+    } finally { saveBusy.current = false; setSaving(false); }
   };
-  return { pending, request, stay, discard, saveAndLeave, saving, error, canSave: !!onSave };
+  return { pending, request, stay, discard, withoutBlocking,
+    saveAndLeave: () => save(true), saveAndStay: () => save(false),
+    saving: saving || busy, error, canSave: !!onSave };
 }

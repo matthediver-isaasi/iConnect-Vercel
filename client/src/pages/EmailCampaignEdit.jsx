@@ -26,6 +26,9 @@ import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign, normalizeEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
 import { applyCampaignTemplate, resolveCampaignContent } from '@/lib/campaignEmailContent';
+import { campaignEditorSnapshot } from '@/lib/campaignEditorSnapshot';
+import { usePopupUnsavedChanges } from '@/hooks/usePopupUnsavedChanges';
+import CampaignUnsavedChangesDialog from '@/components/communications/CampaignUnsavedChangesDialog';
 import TestSendDialog from '@/components/TestSendDialog';
 import { cn } from "@/lib/utils";
 import { ChevronsUpDown } from "lucide-react";
@@ -264,6 +267,57 @@ export default function EmailCampaignEdit() {
     is_test_mode: false
   });
   const [editorMode, setEditorMode] = useState('visual');
+  const savedRecordId = useRef(null);
+  const saveBusy = useRef(false);
+  const snapshot = campaignEditorSnapshot({ formData, directAudienceType, selectedAudienceIds,
+    scheduleMode, reviewSelections, reviewConfirmed });
+  const latestSnapshot = useRef(snapshot);
+  latestSnapshot.current = snapshot;
+  const baseline = useRef(isEditing ? null : snapshot);
+  const leaveGuard = usePopupUnsavedChanges({
+    isDirty: () => saveBusy.current || (baseline.current !== null && baseline.current !== latestSnapshot.current),
+    busy: saving,
+    onSave: ({ leave }) => handleSaveCampaign({ replaceCreatedRoute: !leave, forNavigation: true }),
+  });
+  // Identity changes must not reuse an earlier campaign's fields or baseline.
+  // A create -> saved URL replacement, however, retains this editor and its edits.
+  const routeIdentity = useRef(id);
+  useEffect(() => {
+    if (routeIdentity.current === id) return;
+    routeIdentity.current = id;
+    if (savedRecordId.current === id) {
+      hydratedCampaignId.current = id;
+      return;
+    }
+    savedRecordId.current = null;
+    baseline.current = null;
+    hydratedCampaignId.current = null;
+    setSelectedListIds([]);
+    setSelectedEventIds([]);
+    setSenderMember(null);
+    setShowVisualEditor(false);
+    setReviewSelections({ audience: false, category: false });
+    setReviewConfirmed(false);
+    setReviewResolved(false);
+    if (!isEditing) {
+      const emptyForm = { name: '', subject: '', from_name: '', from_email: '', reply_to: '',
+        email_template_id: '', html_content: '', design_json: null, event_survey_context: null,
+        target_audiences: [], deliver_to_inbox_when_opted_out: false,
+        communication_category_id: '', scheduled_at: '', is_test_mode: false };
+      setFormData(emptyForm);
+      baseline.current = campaignEditorSnapshot({ formData: emptyForm, directAudienceType: 'audience_list',
+        selectedAudienceIds: [], scheduleMode: 'immediate',
+        reviewSelections: { audience: false, category: false }, reviewConfirmed: false });
+      setDirectAudienceType('audience_list');
+      setScheduleMode('immediate');
+      setEditorMode('visual');
+    }
+  }, [id, isEditing]);
+  useEffect(() => {
+    if (baseline.current === null && (!isEditing || hydratedCampaignId.current === id)) {
+      baseline.current = snapshot;
+    }
+  }, [snapshot, id, isEditing]);
   const hasSurveyToken = /\{\{(?:event_(?:survey_url|survey_list|sponsors)|attendee_(?:first_name|last_name|name|email))\}\}|\[\[(?:event\.(?:survey_url|sponsors)|event_survey_list|attendee\.(?:first_name|last_name|email))\]\]/i.test(`${formData.subject}\n${formData.html_content}`);
   const { data: surveyPreview, error: surveyPreviewError } = useQuery({
     queryKey: ['campaign-event-survey-preview', formData.event_survey_context, formData.subject, formData.html_content],
@@ -314,10 +368,8 @@ export default function EmailCampaignEdit() {
       const eventAudience = audiences.find(a => ['event_attendees', 'event_waiting_list'].includes(a.type));
       setDirectAudienceType(eventAudience?.type || 'audience_list');
       setSelectedEventIds(eventAudience?.ids || []);
-      if (listAudience && listAudience.ids) {
-        setSelectedListIds(listAudience.ids);
-      }
-      setFormData({
+      setSelectedListIds(listAudience?.ids || []);
+      const hydratedForm = {
         name: campaign.name || '',
         subject: campaign.subject || '',
         from_name: campaign.from_name || '',
@@ -332,8 +384,15 @@ export default function EmailCampaignEdit() {
         communication_category_id: campaign.communication_category_id || '',
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
         is_test_mode: campaign.is_test_mode || false
-      });
+      };
+      setFormData(hydratedForm);
       setScheduleMode(campaign.scheduled_at ? 'scheduled' : 'immediate');
+      baseline.current = campaignEditorSnapshot({
+        formData: hydratedForm, directAudienceType: eventAudience?.type || 'audience_list',
+        selectedAudienceIds: eventAudience?.ids || listAudience?.ids || [],
+        scheduleMode: campaign.scheduled_at ? 'scheduled' : 'immediate',
+        reviewSelections: { audience: false, category: false }, reviewConfirmed: false,
+      });
     }
   }, [campaign, id]);
 
@@ -465,7 +524,9 @@ export default function EmailCampaignEdit() {
   const openVisualEditor = () => {
     if (formData.design_json) setShowVisualEditor(true);
     else if (hasCurrentContent) setContentReplacement({ type: 'blank' });
-    else startNewDesign();
+    // Merely opening a blank builder is a display action. Its first authored
+    // change supplies the design; do not turn an untouched new draft dirty.
+    else setShowVisualEditor(true);
   };
 
   const handleTemplateSelect = (templateId) => {
@@ -481,23 +542,26 @@ export default function EmailCampaignEdit() {
     else applyTemplate(template);
   };
 
-  const handleSaveCampaign = async () => {
+  const handleSaveCampaign = async ({ replaceCreatedRoute = true, forNavigation = false } = {}) => {
+    if (saveBusy.current) return false;
     if (!formData.name || !formData.subject) {
       toast.error('Name and subject are required');
-      return;
+      return false;
     }
 
+    saveBusy.current = true;
+    const submittedSnapshot = snapshot;
     setSaving(true);
     try {
       if (selectedAudienceIds.length === 0) {
         toast.error('Please select at least one audience list or event before saving');
         setSaving(false);
-        return;
+        return false;
       }
       if (affectedSelectedList) {
         toast.error(`Remove the affected list “${affectedSelectedList.name}” and select or create a valid replacement list before saving.`);
         setSaving(false);
-        return;
+        return false;
       }
       let saveData = { ...formData };
       saveData.target_audiences = campaignTargetAudiences;
@@ -529,12 +593,13 @@ export default function EmailCampaignEdit() {
         }
       }
 
-      const url = isEditing 
-        ? `/api/email-campaigns/${id}`
+      const recordId = savedRecordId.current || (isEditing ? id : null);
+      const url = recordId
+        ? `/api/email-campaigns/${recordId}`
         : '/api/email-campaigns';
       
       const response = await fetch(url, {
-        method: isEditing ? 'PATCH' : 'POST',
+        method: recordId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(saveData)
@@ -546,6 +611,23 @@ export default function EmailCampaignEdit() {
       }
 
       const result = await response.json();
+      if (result.success === false || (!recordId && !result.id)) {
+        throw new Error(result.error || 'The campaign save was not confirmed. Please retry.');
+      }
+      const unchangedDuringSave = latestSnapshot.current === submittedSnapshot;
+      savedRecordId.current = recordId || result.id;
+      const resolvedReview = categoryReviewRequired && categoryReviewReady && result.category_review_required !== true;
+      const savedSnapshot = campaignEditorSnapshot({
+        formData: saveData, directAudienceType, selectedAudienceIds, scheduleMode,
+        reviewSelections: resolvedReview ? { audience: false, category: false } : reviewSelections,
+        reviewConfirmed: resolvedReview ? false : reviewConfirmed,
+      });
+      baseline.current = savedSnapshot;
+      // Apply normalized content only if it cannot overwrite edits made in flight.
+      if (unchangedDuringSave) {
+        setFormData(prev => ({ ...prev, design_json: saveData.design_json, html_content: saveData.html_content }));
+        latestSnapshot.current = savedSnapshot;
+      }
       if (
         categoryReviewRequired
         && categoryReviewReady
@@ -561,12 +643,19 @@ export default function EmailCampaignEdit() {
         queryClient.invalidateQueries({ queryKey: ['email-campaign', id] });
       }
       
-      if (!isEditing && result.id) {
-        navigate(`/EmailCampaignEdit/${result.id}`, { replace: true });
+      if (!isEditing && replaceCreatedRoute) {
+        leaveGuard.withoutBlocking(() => navigate(`/EmailCampaignEdit/${savedRecordId.current}`, { replace: true }));
       }
+      if (forNavigation && !unchangedDuringSave) {
+        toast.error('Changes made while saving are still unsaved. Save again before leaving.');
+        return false;
+      }
+      return true;
     } catch (error) {
       toast.error(error.message);
+      return false;
     } finally {
+      saveBusy.current = false;
       setSaving(false);
     }
   };
@@ -1869,9 +1958,8 @@ export default function EmailCampaignEdit() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => {
-                    handleSaveCampaign();
-                    setShowVisualEditor(false);
+                  onClick={async () => {
+                    if (await handleSaveCampaign()) setShowVisualEditor(false);
                   }}
                   disabled={saving}
                   data-testid="button-save-visual-editor"
@@ -1889,6 +1977,7 @@ export default function EmailCampaignEdit() {
               }>
                 <EmailBuilder
                   initialDesign={formData.design_json}
+                  immediateDesignChanges
                   onChange={({ design, html }) => {
                     setFormData(prev => ({
                       ...prev,
@@ -1902,6 +1991,8 @@ export default function EmailCampaignEdit() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <CampaignUnsavedChangesDialog guard={leaveGuard} />
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh] p-0 gap-0 flex flex-col">
