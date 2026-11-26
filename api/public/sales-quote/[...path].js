@@ -3,7 +3,8 @@ import { hashQuoteToken } from '../../_lib/salesQuoteDelivery.js';
 import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
 import { SalesHttpError } from '../../_lib/salesAccess.js';
 import { hasSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, validateAgreementSignature,
-  agreementOtp, finalizeAndNotifySalesAgreement, downloadSalesAgreement } from '../../_lib/salesAgreement.js';
+  agreementOtp, finalizeAndNotifySalesAgreement, downloadSalesAgreement, agreementPdfContext } from '../../_lib/salesAgreement.js';
+import { loadSalesQuotePdfContext } from '../../_lib/salesQuotePdfContext.js';
 
 const buckets = new Map();
 function limited(key, maximum) {
@@ -155,7 +156,8 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
           if (hasSalesAgreement(found.version) && !envelope) throw new SalesHttpError(409, 'Agreement has not been signed by the sender');
           const pdf = action === 'agreement-download' || envelope?.customer
             ? await downloadSalesAgreement(db, envelope)
-            : envelope ? await agreementPdf(envelope) : await buildBrandedSalesQuotePdf(found);
+            : envelope ? await agreementPdf(envelope, await agreementPdfContext(db, envelope))
+              : await buildBrandedSalesQuotePdf({ ...found, context: await loadSalesQuotePdfContext(db, found.row.tenant_id, found.version) });
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="quote-${found.quote.quote_number}.pdf"`);
           res.setHeader('Cache-Control', 'private, no-store');

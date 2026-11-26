@@ -320,12 +320,12 @@ function signatureSection(layout, label, person, signature) {
  * legal snapshot and both signature records. This function has no storage,
  * database, browser or remote image dependencies.
  */
-export async function buildSalesAgreementPdf({ quote, version, tenant, sender, customer, documentHash }) {
+export async function buildSalesAgreementPdf({ quote, version, tenant, sender, customer, documentHash, context }) {
   if (!quote || !version) throw new Error('A quote and version are required to build a sales agreement.');
   const [senderSignature, customerSignature] = await Promise.all([
     prepareSignature(sender, 'Sender'), prepareSignature(customer, 'Customer'),
   ]);
-  const commercialPdf = buildSalesQuotePdf({ quote, version, tenant });
+  const commercialPdf = buildSalesQuotePdf({ quote, version, tenant, context });
   const appendix = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
   const layout = renderSalesAgreementLegal(appendix, version.terms_snapshot?.legalHtml);
   layout.gap(6);

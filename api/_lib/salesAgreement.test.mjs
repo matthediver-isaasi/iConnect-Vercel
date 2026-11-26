@@ -126,7 +126,7 @@ test('retention retries reuse immutable private artifact and downloads verify ha
   const storage = {
     download: async () => artifact ? { data: new Blob([artifact]) } : { error: { message: 'not found' } },
     upload: async (path, pdf, options) => {
-      assert.equal(path, 'tenant/envelope/final.pdf'); assert.equal(options.upsert, false);
+      assert.equal(path, 'tenant/envelope/final-proposal-layout-v2.pdf'); assert.equal(options.upsert, false);
       uploads++; artifact = pdf; return {};
     },
   };

@@ -59,7 +59,8 @@ test('server category snapshots feed public DTO, PDF and ordinary/scheduled invo
   assert.deepEqual(Object.keys(dto.lines[0].bundleComponents[0]).sort(), ['categoryName', 'name', 'quantity']);
   assert.equal(bundleProductName(dto.lines[0].bundleComponents[0]), 'Conference A — Delegate ticket');
   const pdf = buildSalesQuotePdf({ quote: { quote_number: 'Q1' }, version, tenant: { name: 'Seller' } }).toString('latin1');
-  assert.match(pdf, /Conference A/); assert.match(pdf, /Conference B/); assert.doesNotMatch(pdf, /Renamed/);
+  // Recipient PDF rows show plain component names; categories stay in invoices.
+  assert.match(pdf, /Delegate ticket/); assert.doesNotMatch(pdf, /Conference A/); assert.doesNotMatch(pdf, /Renamed/);
   const invoice = await buildInvoice(accountingDb, 'tenant', {}, version, [saved], 'xero', 'customer');
   assert.equal(invoice.lines.length, 1);
   assert.equal(invoice.netMinor, 1800);

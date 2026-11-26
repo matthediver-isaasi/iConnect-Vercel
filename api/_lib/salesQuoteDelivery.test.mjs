@@ -58,7 +58,7 @@ test('draft PDF includes the legal footer, full address and draft marking', () =
   assert.match(pdf, /W1 1AA/);
 });
 
-test('PDF logos retain wide, square and portrait proportions within the header bounds', async () => {
+test('PDF logos print 300px wide (height capped) with their original proportions', async () => {
   const sharp = (await import('sharp')).default;
   for (const [width, height] of [[400, 100], [200, 200], [100, 300]]) {
     const png = await sharp({ create: { width, height, channels: 3, background: '#5C0085' } }).png().toBuffer();
@@ -69,10 +69,10 @@ test('PDF logos retain wide, square and portrait proportions within the header b
     const image = pdf.match(/([\d.]+) 0 0 ([\d.]+) [\d.]+ [\d.]+ cm\s*\/I0 Do/);
     assert.ok(image, 'PDF must contain the logo transform');
     assert.ok(Math.abs(Number(image[1]) / Number(image[2]) - width / height) < 0.00001);
-    assert.ok(Number(image[1]) <= 45 * 72 / 25.4 + 0.001);
-    assert.ok(Number(image[2]) <= 25 * 72 / 25.4 + 0.001);
-    const tenantBlock = pdf.slice(pdf.indexOf('/F2 22 Tf'), pdf.indexOf('ET', pdf.indexOf('/F2 22 Tf')));
-    assert.match(tenantBlock, /27\.5 TL/, 'Wrapped tenant headings use font-sized line spacing');
+    const pt = mm => mm * 72 / 25.4;
+    assert.ok(Number(image[2]) <= pt(30) + 0.001, 'height is capped');
+    if (width / height >= 300 / 113) assert.ok(Math.abs(Number(image[1]) - pt(300 * 25.4 / 96)) < 0.01, 'wide logos print at 300px');
+    assert.doesNotMatch(pdf, /\/F2 22 Tf/, 'tenant name is no longer a 22pt headline');
   }
 });
 

@@ -87,10 +87,24 @@ export async function prepareSalesAgreement(db, { quote, version, tenant, actor,
   if (result.error?.code === '23505') throw new SalesHttpError(409, 'Agreement was signed concurrently. Reload before sending.');
   return checked(result);
 }
-export async function agreementPdf(envelope) {
+// `context` is render-time presentation only (terminology, organisation
+// address, logo); the signed snapshot, signatures and evidence hash are fixed.
+export async function agreementPdf(envelope, context) {
   const { buildSalesAgreementPdf } = await import('./salesAgreementDocument.js');
   return buildSalesAgreementPdf({ ...envelope.snapshot, sender: envelope.sender,
-    customer: envelope.customer, documentHash: envelope.document_hash });
+    customer: envelope.customer, documentHash: envelope.document_hash, context });
+}
+// Each commercial layout gets its own retained object so a reformatted file
+// never overwrites (or is confused with) an earlier signed artifact.
+export async function finalAgreementPdfPath(envelope) {
+  const { SALES_QUOTE_PDF_LAYOUT } = await import('./salesQuotePdf.js');
+  return `${envelope.tenant_id}/${envelope.id}/final-${SALES_QUOTE_PDF_LAYOUT}.pdf`;
+}
+export async function agreementPdfContext(db, envelope) {
+  const { loadSalesQuotePdfContext } = await import('./salesQuotePdfContext.js');
+  const snapshot = envelope?.snapshot || {};
+  return loadSalesQuotePdfContext(db, envelope.tenant_id || snapshot.quote?.tenant_id, snapshot.version,
+    { tenant: snapshot.tenant, includeLogo: true });
 }
 export async function agreementOtp(db, found, token, action, code, dependencies = {}) {
   if (!hasSalesAgreement(found.version)) throw new SalesHttpError(400, 'This quote does not require signature verification');
@@ -120,13 +134,14 @@ export async function agreementOtp(db, found, token, action, code, dependencies 
 export async function finalizeSalesAgreement(db, envelope, dependencies = {}) {
   if (!envelope?.customer) throw new SalesHttpError(409, 'Agreement has not been accepted');
   if (envelope.finalization_status === 'complete') return envelope;
-  const path = `${envelope.tenant_id}/${envelope.id}/final.pdf`;
+  const path = await finalAgreementPdfPath(envelope);
   try {
     const storage = db.storage.from('sales-agreements');
     // Never overwrite a retained artifact. A concurrent/retried worker reuses it.
     let file = await storage.download(path);
     if (file.error) {
-      const pdf = await (dependencies.buildPdf || agreementPdf)(envelope);
+      const pdf = dependencies.buildPdf ? await dependencies.buildPdf(envelope)
+        : await agreementPdf(envelope, await agreementPdfContext(db, envelope).catch(() => ({})));
       const upload = await storage.upload(path, pdf, { contentType: 'application/pdf', upsert: false });
       if (upload.error && !['409', 'Duplicate'].includes(String(upload.error.statusCode || upload.error.error))) {
         // A concurrent successful upload can also be reported as a 400.

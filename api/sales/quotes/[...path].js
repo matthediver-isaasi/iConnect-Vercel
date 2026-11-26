@@ -13,7 +13,8 @@ import {
   saveQuoteDraft, transitionQuote, loadQuoteDraftState,
 } from '../../_lib/salesQuote.js';
 import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
-import { hasSalesAgreement, prepareSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, downloadSalesAgreement, finalizeAndNotifySalesAgreement } from '../../_lib/salesAgreement.js';
+import { hasSalesAgreement, prepareSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, agreementPdfContext, downloadSalesAgreement, finalizeAndNotifySalesAgreement } from '../../_lib/salesAgreement.js';
+import { loadSalesQuotePdfContext } from '../../_lib/salesQuotePdfContext.js';
 import { listSigningRequests, requestSalesAgreementSignature, validateSigningRequest } from '../../_lib/salesAgreementSigningRequests.js';
 import { canonicalQuoteBaseUrl, sendQuote, previewQuoteEmail, validateQuoteEmail } from '../../_lib/salesQuoteDelivery.js';
 import { hasActiveQuoteLink, scopeActiveQuoteLinks } from '../../_lib/salesQuoteActiveLink.js';
@@ -180,10 +181,11 @@ export function createSalesQuotesHandler(dependencies = {}) {
         if (error) throw error;
         const envelope = hasSalesAgreement(version) ? await getSalesAgreement(db, version.id) : null;
         const pdf = envelope
-          ? envelope.customer ? await downloadSalesAgreement(db, envelope) : await agreementPdf(envelope)
+          ? envelope.customer ? await downloadSalesAgreement(db, envelope) : await agreementPdf(envelope, await agreementPdfContext(db, envelope))
           : hasSalesAgreement(version)
-            ? await agreementPdf({ snapshot: { quote, version, tenant }, sender: null, customer: null, document_hash: null })
-            : await buildBrandedSalesQuotePdf({ quote, version, tenant });
+            ? await agreementPdf({ tenant_id: actor.tenantId, snapshot: { quote, version, tenant }, sender: null, customer: null, document_hash: null },
+              await loadSalesQuotePdfContext(db, actor.tenantId, version, { tenant, includeLogo: true }))
+            : await buildBrandedSalesQuotePdf({ quote, version, tenant, context: await loadSalesQuotePdfContext(db, actor.tenantId, version) });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `${action === 'download' ? 'attachment' : 'inline'}; filename="quote-${quote.quote_number}.pdf"`);
         res.setHeader('Cache-Control', 'private, no-store');
@@ -336,7 +338,9 @@ export function createSalesQuotesHandler(dependencies = {}) {
           res.setHeader('Cache-Control', 'no-store');
           return res.status(200).json(await previewQuoteEmail(emailInput, dependencies));
         }
-        const pdf = req.body?.attachPdf === false ? null : envelope ? await agreementPdf(envelope) : await buildBrandedSalesQuotePdf({ quote, version, tenant });
+        const pdf = req.body?.attachPdf === false ? null : envelope
+          ? await agreementPdf(envelope, await agreementPdfContext(db, envelope))
+          : await buildBrandedSalesQuotePdf({ quote, version, tenant, context: await loadSalesQuotePdfContext(db, actor.tenantId, version) });
         const expiresInDays = Number(req.body?.expiresInDays);
         return res.status(200).json(await sendQuote(db, {
           quote, version, tenant, actor, recipient, sender,

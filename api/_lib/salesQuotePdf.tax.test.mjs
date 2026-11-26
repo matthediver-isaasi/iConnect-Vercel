@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { buildSalesQuotePdf } from './salesQuotePdf.js';
+import { extractPdf } from './salesQuotePdf.testUtils.mjs';
 
-test('proposal PDF shows stored net, VAT and gross for mixed-tax lines and totals', async () => {
+test('proposal PDF shows stored net, VAT and gross per line with a VAT % column and right-aligned totals', async () => {
   const bytes = buildSalesQuotePdf({
     quote: { quote_number: 'TEST' }, tenant: { name: 'Test tenant' },
     version: {
@@ -15,26 +15,27 @@ test('proposal PDF shows stored net, VAT and gross for mixed-tax lines and total
           // Deliberately different rate: PDF must not recalculate frozen totals.
           tax_rate_bps: 500, catalogue_snapshot: { tax_code: { name: 'Standard VAT' } } },
         { description: 'Exempt item', quantity: '1', net_minor: 5000,
-          tax_minor: 0, gross_minor: 5000,
+          tax_minor: 0, gross_minor: 5000, tax_rate_bps: 0,
           catalogue_snapshot: { tax_code: { name: 'Exempt Income' } } },
       ],
     },
   });
-  const pdf = await getDocument({ data: new Uint8Array(bytes), disableWorker: true }).promise;
-  try {
-    const page = await pdf.getPage(1);
-    const { items } = await page.getTextContent();
-    const text = items.map(item => item.str).join(' ');
-    for (const expected of ['Net', 'Tax/VAT', 'Gross', '£180.00', '£36.00', '£216.00',
-      '£0.00', 'Standard VAT', 'Exempt Income', 'Net: £230.00', 'Tax/VAT: £36.00', 'Gross total: £266.00']) {
-      assert.ok(text.includes(expected), `Missing ${expected}`);
-    }
-    const headers = ['Net', 'Tax/VAT', 'Gross'].map(label => items.find(item => item.str === label));
-    assert.ok(headers[0].transform[4] < headers[1].transform[4]);
-    assert.ok(headers[1].transform[4] < headers[2].transform[4]);
-    assert.ok(items.filter(item => /^£/.test(item.str)).every(item =>
-      item.transform[4] + item.width < page.view[2] - 20), 'amounts remain inside page');
-  } finally {
-    await pdf.destroy();
+  const [page] = await extractPdf(bytes);
+  for (const expected of ['Description', 'Qty', 'Unit price', 'VAT %', 'Net', 'VAT', 'Gross',
+    '£180.00', '£36.00', '£216.00', '£0.00', '5%', '0%', 'Subtotal', '£230.00', 'Total GBP', '£266.00']) {
+    assert.ok(page.items.some(item => item.str === expected), `Missing ${expected}`);
   }
+  for (const internal of ['Standard VAT', 'Exempt Income', 'Tax/VAT']) assert.ok(!page.text.includes(internal), `Shows ${internal}`);
+  const x = label => page.items.find(item => item.str === label).transform[4];
+  assert.ok(x('Qty') < x('Unit price') && x('Unit price') < x('VAT %') && x('VAT %') < x('Net') && x('Net') < x('VAT') && x('VAT') < x('Gross'));
+  const money = page.items.filter(item => /^£/.test(item.str));
+  assert.ok(money.every(item => item.transform[4] + item.width < page.width - 20), 'amounts remain inside page');
+  // Right aligned: gross column values share a right edge with the Gross header.
+  const grossEdge = x('Gross') + page.items.find(item => item.str === 'Gross').width;
+  for (const value of ['£216.00', '£50.00']) {
+    assert.ok(page.items.filter(i => i.str === value)
+      .some(item => Math.abs(item.transform[4] + item.width - grossEdge) < 0.5), `${value} right aligned`);
+  }
+  const total = page.items.find(item => item.str === '£266.00');
+  assert.ok(Math.abs(total.transform[4] + total.width - grossEdge) < 0.5, 'total right aligned');
 });
