@@ -1883,8 +1883,11 @@ export async function updateQuickBooksInvoiceLineDescription({
 // PDF fetch
 // ---------------------------------------------------------------------------
 
-async function fetchPdf(appTenantId, entity, id) {
+async function fetchPdf(appTenantId, entity, id, expectedContext) {
   const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  if (expectedContext?.companyId && String(expectedContext.companyId) !== String(realmId)) {
+    throw new Error('Original invoice accounting account is unavailable');
+  }
   const { apiBaseUrl } = getIntuitEndpoints(environment);
   const url = `${companyBase(apiBaseUrl, realmId)}/${entity}/${encodeURIComponent(id)}/pdf?minorversion=${MINOR_VERSION}`;
   const resp = await fetch(url, {
@@ -1963,8 +1966,8 @@ export async function fetchQuickBooksInvoiceStatus(invoiceId, appTenantId) {
   };
 }
 
-export async function fetchQuickBooksInvoicePdf(appTenantId, invoiceId) {
-  return fetchPdf(appTenantId, 'invoice', invoiceId);
+export async function fetchQuickBooksInvoicePdf(appTenantId, invoiceId, expectedContext) {
+  return fetchPdf(appTenantId, 'invoice', invoiceId, expectedContext);
 }
 
 export async function fetchQuickBooksCreditNotePdf(appTenantId, creditNoteId) {

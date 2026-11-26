@@ -9,11 +9,11 @@ Treat certificate browser-fixture checks as layout evidence, not proof that ever
 
 **How to apply:** When investigating blank certificate backgrounds or changing PDF.js, test an unmodified supported browser separately. Do not attribute a renderer compatibility failure to fit geometry, or ship fixture shims as an incidental layout fix.
 
-Native PDF iframes do not reliably provide an in-dialog preview in headless Chromium.
+Native PDF iframes and new-tab PDF navigation do not reliably render in headless Chromium.
 
 **Why:** A successful PDF response followed by blob-iframe navigation was treated as a download and reset the report; it initially looked like a development hot-reload problem.
 
-**How to apply:** Check browser download/navigation events before blaming reloads. Use in-dialog canvas rendering for predictable previews, and verify real rendering separately from mocked component tests.
+**How to apply:** Check browser download/navigation events before blaming reloads. A reserved new tab may stay at `about:blank` while that tab emits a real PDF download; inspect the tab's download bytes instead of requiring a committed blob URL. This proves document delivery, not built-in viewer rendering. Use in-dialog canvas rendering for predictable previews, and verify real rendering separately from mocked component tests.
 
 Validate actual rendered text widths, not only the PDF writer's wrap calculations.
 

@@ -1821,10 +1821,13 @@ function parseXeroDate(value) {
   return Number.isNaN(t) ? null : t;
 }
 
-export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
+export async function fetchXeroInvoicePdf(invoiceId, appTenantId, expectedContext) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  if (expectedContext?.companyId && String(expectedContext.companyId) !== String(tenantId)) {
+    throw new Error('Original invoice accounting account is unavailable');
+  }
   
-  const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+  const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,

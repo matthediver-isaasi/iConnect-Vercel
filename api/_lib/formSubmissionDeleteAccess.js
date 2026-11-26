@@ -1,8 +1,8 @@
 import { isResourceExcluded } from './roleVisibility.js';
 
-// Match the Form Submissions management capability used by submission editing.
-// Being authenticated in the same tenant is not deletion authority.
-export async function authorizeFormSubmissionDelete(db, context) {
+// Match the Form Submissions management capability used by the shared detail
+// screen. Same-tenant authentication alone does not grant document access.
+export async function authorizeFormSubmissionAccess(db, context) {
   if (!context.isAuthenticated || !context.tenantId) {
     return { status: 401, error: 'Authentication required' };
   }
@@ -25,3 +25,5 @@ export async function authorizeFormSubmissionDelete(db, context) {
     return denied;
   }
 }
+
+export const authorizeFormSubmissionDelete = authorizeFormSubmissionAccess;

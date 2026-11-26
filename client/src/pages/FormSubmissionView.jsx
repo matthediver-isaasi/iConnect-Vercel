@@ -20,6 +20,7 @@ import SubmissionOrganisationValue from "../components/forms/SubmissionOrganisat
 import { CustomFieldFileDisplay } from "../components/CustomFieldFileUpload";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
+import SubmissionInvoiceActions from "@/components/forms/SubmissionInvoiceActions";
 import { format } from "date-fns";
 import {
   collectRelationshipRecordIds,
@@ -643,7 +644,7 @@ export default function FormSubmissionView() {
 
               {/* Task #3483: form payment details */}
               {submission.payment_status && (
-                <div className="flex items-center gap-2" data-testid="submission-payment-details">
+                <div className={`flex items-center gap-2 ${submission.payment_provider === 'invoice' ? 'md:col-span-2 lg:col-span-4' : ''}`} data-testid="submission-payment-details">
                   <FileText className="w-4 h-4 text-slate-400" />
                   <div>
                     <p className="text-slate-500 dark:text-slate-400">Payment</p>
@@ -656,14 +657,7 @@ export default function FormSubmissionView() {
                         ? ` (${submission.payment_provider === 'invoice' ? 'Invoice' : submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'})`
                         : ''}
                     </p>
-                    {submission.payment_provider === 'invoice' && (
-                      <p className="text-sm text-slate-600">
-                        {submission.payment_meta?.invoice_result?.invoiceNumber || submission.payment_meta?.invoice_result?.invoice_number
-                          ? `Invoice ${submission.payment_meta.invoice_result.invoiceNumber || submission.payment_meta.invoice_result.invoice_number}`
-                          : 'Invoice requested — accounting processing is pending.'}
-                        {' '}The order is confirmed. Invoice creation does not mean payment has been received.
-                      </p>
-                    )}
+                    <SubmissionInvoiceActions key={submission.id} submission={submission} />
                     {submission.payment_reference && (
                       <p className="text-xs text-slate-500 font-mono">{submission.payment_reference}</p>
                     )}

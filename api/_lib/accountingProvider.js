@@ -433,8 +433,8 @@ function makeXeroProvider() {
       return xero.pushPurchaseOrderToXero(args);
     },
 
-    async fetchInvoicePdf(invoiceId, appTenantId) {
-      return xero.fetchXeroInvoicePdf(invoiceId, appTenantId);
+    async fetchInvoicePdf(invoiceId, appTenantId, expectedContext) {
+      return xero.fetchXeroInvoicePdf(invoiceId, appTenantId, expectedContext);
     },
 
     async fetchInvoiceStatus(invoiceId, appTenantId) {
@@ -557,8 +557,8 @@ function makeQuickBooksProvider() {
       return qbo.pushPurchaseOrderToQuickBooksInvoice(args);
     },
 
-    async fetchInvoicePdf(invoiceId, appTenantId) {
-      return qbo.fetchQuickBooksInvoicePdf(appTenantId, invoiceId);
+    async fetchInvoicePdf(invoiceId, appTenantId, expectedContext) {
+      return qbo.fetchQuickBooksInvoicePdf(appTenantId, invoiceId, expectedContext);
     },
 
     async fetchInvoiceStatus(invoiceId, appTenantId) {
