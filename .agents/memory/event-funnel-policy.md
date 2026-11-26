@@ -42,6 +42,18 @@ Retain migration compatibility checks, transactional rollback where possible,
 and explicit treatment of bookings/payments made after deployment. Keep
 automatic migrations disabled.
 
+The owner has authorised proceeding with controlled live-checkout activation,
+not merely another readiness inspection.
+
+**Why:** On 2026-11-26, after the disabled rollout was explained, the owner said
+"we need to get this live".
+
+**How to apply:** Complete the release checks and enable workers/purchasing in
+order once their requirements are satisfied; do not ask again for general
+activation permission. This is not a waiver of an unperformed checkout
+rehearsal, permission to fabricate evidence, or permission to publish their
+draft funnels or run test purchases against live member payment arrangements.
+
 The owner reports Supabase point-in-time recovery with changes logged every two
 minutes and up to seven days of retention.
 

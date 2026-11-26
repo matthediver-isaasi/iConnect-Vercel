@@ -11,6 +11,28 @@ Matching application deployment and an authenticated checkout rehearsal remain
 separate release requirements. No real booking, payment, email, accounting or
 Zoom operation was performed during implementation.
 
+### Activation progress — 26 November 2026
+
+The owner has requested go-live. The READY production deployment matches the
+workspace release `1e06d6b14c72e6a7f85e1e4c6cc02759e04b4d65` and includes both
+minute-by-minute funnel schedules. Both endpoints reject unauthenticated calls.
+Production `CRON_SECRET` configuration was confirmed without exposing its value.
+
+The rollout now pins that deployed release with reader/worker versions `1`.
+Both switches remain false and `verification_evidence` remains empty: no
+authenticated checkout result has been invented. The actual production schedules
+reported matching heartbeats at `2026-11-26T21:04:38Z` (recovery) and
+`2026-11-26T21:04:49Z` (reversals), while provider work remained disabled.
+These timestamps are historical evidence, not a claim of continued health.
+
+The existing browser checkout suite uses fixture APIs; it is not an authenticated
+sandbox-provider checkout rehearsal. The only tenant named as a temporary test
+tenant has no Stripe integration, while BNMS event payments are configured live.
+Do not switch BNMS to test mode, treat that temporary tenant as an approved
+sandbox, or claim the remaining rehearsal passed. The production membership
+entitlement feature flag was not present in the environment configuration check;
+membership-stage publication needs that separate setting as documented below.
+
 ## Changes
 
 - Publication now uses the saved, tenant-scoped definition and revision, validates
@@ -78,7 +100,8 @@ step or generic source-directory push is permitted.
   roles, two new history columns, and all 45 original base versions retained.
 - Readiness: `schemaReady=true`, `activationVersion=1`, `authoring=true`,
   `purchasing=false`, `workersEnabled=false`, `workersHealthy=false`.
-  Reader/worker versions remain zero and no application release is marked verified.
+  Reader/worker versions were zero and no application release was marked verified
+  at installation; the later activation progress above supersedes that state.
 - Zero entitlements, consumptions, reservations, worker heartbeats, funnel orders
   or definitions. No customer/provider operations were run.
 - Authenticated PostgREST discovery passed for readiness, membership readiness
