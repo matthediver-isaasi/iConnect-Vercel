@@ -78,8 +78,8 @@ export function createFunnelDraft(tenantId) {
   const source = crypto.randomUUID(), checkout = crypto.randomUUID();
   return {
     id: crypto.randomUUID(), name: 'Untitled event funnel', revision: 0,
-    graph: { version: 1, tenantId, reservationSeconds: 900, invoiceMode: 'per_event', entry: source, nodes: [
-      { id: source, type: 'source', event: null, ticketIds: [], requires: [], accept: checkout },
+    graph: { version: 1, tenantId, entryMode: 'ticket_single', reservationSeconds: 900, invoiceMode: 'per_event', entry: source, nodes: [
+      { id: source, type: 'source', selectionMode: 'single', event: null, ticketIds: [], requires: [], accept: checkout },
       { id: checkout, type: 'checkout' },
     ] },
     layout: { positions: { [source]: { x: 100, y: 70 }, [checkout]: { x: 100, y: 350 } } },

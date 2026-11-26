@@ -19,7 +19,7 @@ export function createFunnelGuestCapability(id) {
     cookie: `${cookieName(id)}=${token}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax`,
   };
 }
-function readCapability(req, id) {
+export function readCapability(req, id) {
   const cookie = req.headers?.cookie;
   if (cookie == null) return null;
   if (typeof cookie !== 'string' || cookie.length > 16384) unavailable();

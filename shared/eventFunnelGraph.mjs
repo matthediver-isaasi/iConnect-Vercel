@@ -44,6 +44,7 @@ const destinations = node => node.type === 'checkout' ? []
 
 export function validateFunnelGraph(graph) {
   if (!graph || graph.version !== 1 || !identifier(graph.tenantId)) fail('Invalid graph version or tenant');
+  if (graph.entryMode !== undefined && graph.entryMode !== 'ticket_single') fail('Invalid entry mode');
   if (!Number.isInteger(graph.reservationSeconds) || graph.reservationSeconds < 60 || graph.reservationSeconds > 3600) {
     fail('Reservation duration must be between 60 and 3600 seconds');
   }
@@ -56,6 +57,10 @@ export function validateFunnelGraph(graph) {
     nodes.set(node.id, node);
     if (node.type === 'membership') validateMembershipStage(node);
     if (purchasing(node)) {
+      if (node.selectionMode !== undefined && !['single', 'multiple'].includes(node.selectionMode)) fail('Invalid ticket selection mode');
+      if (graph.entryMode === 'ticket_single' && node.type === 'source' && node.selectionMode !== 'single') {
+        fail('Ticket-routed funnels require a single-choice source');
+      }
       if (!isEvent(node.event) || node.event.tenantId !== graph.tenantId) fail('Invalid or cross-tenant event');
       if (!Array.isArray(node.ticketIds) || !node.ticketIds.length || node.ticketIds.length > 100
         || node.ticketIds.some(id => !identifier(id)) || new Set(node.ticketIds).size !== node.ticketIds.length) {
@@ -145,7 +150,20 @@ export function validateFunnelGraph(graph) {
         })) fail('Conditions may reference only earlier offered selections');
       }
     }
-    for (const [next, established] of edgeFacts(node, known)) {
+    // Positive tests imply exclusions only when exactly one earlier offer can
+    // account for the tested ticket, and no other earlier offer could hold the
+    // excluded ticket. This deliberately loses information at unsafe joins.
+    const implied = test => {
+      if (!test.selected || !test.ticketId) return new Map();
+      const offers = [...prior].map(id => nodes.get(id)).filter(previous =>
+        purchasing(previous) && key(previous.event) === key(test.event));
+      const origins = offers.filter(previous => previous.ticketIds.includes(test.ticketId));
+      if (origins.length !== 1 || origins[0].selectionMode !== 'single') return new Map();
+      return new Map(origins[0].ticketIds.filter(ticket => ticket !== test.ticketId
+        && !offers.some(other => other.id !== origins[0].id && other.ticketIds.includes(ticket)))
+        .map(ticket => [factKey(test.event, ticket), new Set([node.id])]));
+    };
+    for (const [next, established] of edgeFacts(node, known, implied)) {
       const target = ancestors.get(next);
       target.add(id);
       for (const previous of prior) target.add(previous);
@@ -178,21 +196,22 @@ function intersectFacts(...sets) {
 }
 // A test establishes exclusion when it requires "not selected" and holds, or
 // requires "selected" and is known to have failed.
-const testFacts = (test, holds, origin) => test.selected !== holds
-  ? new Map([[factKey(test.event, test.ticketId), new Set([origin])]]) : new Map();
-const ruleMatched = (rule, origin) => rule.match === 'all'
-  ? unionFacts(...rule.tests.map(test => testFacts(test, true, origin)))
-  : intersectFacts(...rule.tests.map(test => testFacts(test, true, origin)));
-const ruleFailed = (rule, origin) => rule.match === 'all'
-  ? intersectFacts(...rule.tests.map(test => testFacts(test, false, origin)))
-  : unionFacts(...rule.tests.map(test => testFacts(test, false, origin)));
-function edgeFacts(node, known) {
+const testFacts = (test, holds, origin, implied) => test.selected !== holds
+  ? new Map([[factKey(test.event, test.ticketId), new Set([origin])]])
+  : holds && test.selected ? implied(test) : new Map();
+const ruleMatched = (rule, origin, implied) => rule.match === 'all'
+  ? unionFacts(...rule.tests.map(test => testFacts(test, true, origin, implied)))
+  : intersectFacts(...rule.tests.map(test => testFacts(test, true, origin, implied)));
+const ruleFailed = (rule, origin, implied) => rule.match === 'all'
+  ? intersectFacts(...rule.tests.map(test => testFacts(test, false, origin, implied)))
+  : unionFacts(...rule.tests.map(test => testFacts(test, false, origin, implied)));
+function edgeFacts(node, known, implied) {
   if (node.type === 'checkout') return [];
   if (node.type === 'condition') {
     const sorted = [...node.rules].sort((a, b) => a.priority - b.priority);
-    const edges = sorted.map((rule, index) => [rule.to, unionFacts(known, ruleMatched(rule, node.id),
-      ...sorted.slice(0, index).map(earlier => ruleFailed(earlier, node.id)))]);
-    return [...edges, [node.fallback, unionFacts(known, ...sorted.map(rule => ruleFailed(rule, node.id)))]];
+    const edges = sorted.map((rule, index) => [rule.to, unionFacts(known, ruleMatched(rule, node.id, implied),
+      ...sorted.slice(0, index).map(earlier => ruleFailed(earlier, node.id, implied)))]);
+    return [...edges, [node.fallback, unionFacts(known, ...sorted.map(rule => ruleFailed(rule, node.id, implied)))]];
   }
   if (node.type === 'membership') return [[node.accept, known], [node.skip, known]];
   // Accepting an offer may retain any of its tickets; skipping retains none.
@@ -227,6 +246,7 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
     const node = nodes.get(selection?.nodeId);
     if (!node || !purchasing(node) || selected.has(node.id)) fail('Unknown or duplicate purchase selection');
     if (!Array.isArray(selection.tickets) || !selection.tickets.length
+      || node.selectionMode === 'single' && selection.tickets.length !== 1
       || new Set(selection.tickets.map(ticket => ticket?.id)).size !== selection.tickets.length
       || selection.tickets.some(ticket => !ticket || !node.ticketIds.includes(ticket.id)
         || !Number.isSafeInteger(ticket.quantity) || ticket.quantity <= 0)) fail('Invalid selected tickets');

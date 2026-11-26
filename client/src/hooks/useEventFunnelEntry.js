@@ -19,8 +19,7 @@ export function useEventFunnelEntry({ eventId, eventKind, viewerKey = 'guest', e
   });
 }
 
-export const startEventFunnel = ({ eventId, eventKind }) =>
-  jsonRequest('/api/event-funnels/start', { eventId, eventKind });
+export const startEventFunnel = input => jsonRequest('/api/event-funnels/start', input);
 
 export const changeEventFunnel = (sessionId, command) =>
   jsonRequest('/api/event-funnels/journey', { action: 'change', sessionId, command });

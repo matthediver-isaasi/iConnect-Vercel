@@ -546,6 +546,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const ownedReservation = useOwnedEventReservation();
   const reservationViewerKey = useTicketViewerKey(memberInfo);
   const reservation = useEventReservation({ eventId: event.id, eventKind: 'complex', viewerKey: reservationViewerKey,
+    selectedTicketIds: Object.entries(cart).filter(([, item]) => item.attendees.length > 0).map(([id]) => id),
     enabled: !editorMode && !allocationContext && event.waiting_list_enabled !== true });
   const waitingListEnabled = event?.waiting_list_enabled === true;
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
@@ -765,6 +766,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const handleAddAttendee = useCallback((attendee) => {
     if (!modalTicketClassId) return;
+    if (reservation.singleChoice && Object.entries(cart).some(([id, item]) => id !== modalTicketClassId && item.attendees.length > 0)) {
+      toast.error('Choose one ticket class for this step. Remove the other class first; additional classes can be offered later.');
+      return;
+    }
     const ticket = availableTicketClasses.find(tc => tc.id === modalTicketClassId);
     if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) {
       toast.error(ticket ? ticketReleaseMessage(ticket) || 'This ticket is no longer available' : 'This ticket is no longer available');
@@ -782,7 +787,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         }
       };
     });
-  }, [modalTicketClassId, ticketClasses, availableTicketClasses, isReleaseBlocked, isTicketSoldOut]);
+  }, [modalTicketClassId, ticketClasses, availableTicketClasses, isReleaseBlocked, isTicketSoldOut, reservation.singleChoice, cart]);
 
   const handleUpdateAttendee = useCallback((ticketClassId, attendeeIndex, patch) => {
     setCart(prev => {

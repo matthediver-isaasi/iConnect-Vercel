@@ -98,10 +98,15 @@ export function planFunnelJourneyChange(snapshot, command) {
       set(journey.decisions, node.id, 'skip');
     } else {
       if (!Array.isArray(command.tickets) || !command.tickets.length || command.tickets.length > 100
+        || node.selectionMode === 'single' && command.tickets.length !== 1
         || command.tickets.some(ticket => !fields(ticket, ['id', 'quantity'])
           || !node.ticketIds.includes(ticket.id) || !Number.isSafeInteger(ticket.quantity)
           || ticket.quantity < 1 || ticket.quantity > 10000)
         || new Set(command.tickets.map(ticket => ticket.id)).size !== command.tickets.length) reject('Choose valid ticket quantities.');
+      if (node.type === 'source' && snapshot.session.source_ticket_id
+        && command.tickets[0]?.id !== snapshot.session.source_ticket_id) {
+        reject('Use Change initial ticket to start the correct journey.', 'SOURCE_RESTART_REQUIRED', 409);
+      }
       // A ticket already retained earlier for the same event can never be
       // reserved again, whatever the stored definition allows.
       const earlier = before.retainedNodeIds.filter(id => id !== node.id && before.route.indexOf(id) < index
@@ -151,6 +156,9 @@ export function assertFunnelCheckoutSelections(journey) {
       reject('Your selection changed. Review it before checking out.', 'REVISION_CONFLICT', 409);
     }
     const node = journey.nodes.get(selection.nodeId);
+    if (node.selectionMode === 'single' && selection.tickets.length !== 1) {
+      reject('Choose one ticket class for this step.', 'INVALID_SELECTION', 400);
+    }
     for (const ticket of selection.tickets) {
       const ticketKey = JSON.stringify([node.event.kind, node.event.id, ticket.id]);
       if (seen.has(ticketKey)) reject('A ticket appears twice in your selection. Review it before checking out.', 'DUPLICATE_TICKET', 409);

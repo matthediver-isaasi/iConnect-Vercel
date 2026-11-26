@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
+import EventFunnelSettings from "@/components/events/EventFunnelSettings";
 import { EVENT_CODE_OF_CONDUCT_KEY, parseEventCodeOfConduct, hasCodeOfConductContent } from "@/lib/eventCodeOfConduct.mjs";
 import { base44 as base44Api } from "@/api/base44Client";
 import { createEventSettingsWriter, createSettingsCollector, saveCollectedSettings, EVENT_SETTINGS_SAVE_KEYS } from "@/lib/eventSettingsSaving";
@@ -1881,13 +1882,7 @@ export default function EventSettingsPage() {
           </Button>
         </div>
 
-        <Card className="mb-8">
-          <CardHeader><CardTitle>Event funnels</CardTitle></CardHeader>
-          <CardContent>
-            <p className="mb-3 text-sm text-muted-foreground">Event funnels now have a dedicated workspace.</p>
-            <Link to="/EventFunnels" className="text-primary underline">Open event funnels</Link>
-          </CardContent>
-        </Card>
+        <EventFunnelSettings />
         {/* Configuration Section */}
         <Card className="border-slate-200 shadow-sm mb-8">
           <CardHeader className="border-b border-slate-200">

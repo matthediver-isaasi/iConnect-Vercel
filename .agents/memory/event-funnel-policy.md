@@ -244,3 +244,17 @@ could double-reserve or fail at the database constraint.
 
 **How to apply:** Keep the path-aware guard, the evaluator/pending dedupe, the
 planner rejection and the checkout assertion together; never relax only one.
+
+Ticket-based event routing is administrator-controlled. The owner explicitly
+approved normal registration and checkout when a selected initial class has no
+published matching funnel. Single-choice means one ticket class, not one unit
+or attendee; it must not globally restrict legacy complex-event journeys.
+
+**Why:** One event may need many small day-ticket funnels rather than one large
+branching graph, while existing multi-class purchases remain valid.
+
+**How to apply:** Preserve full eligible initial choices, distinguish lookup
+failure from a verified no-match, and keep existing sessions pinned. Preparing
+ticket routing does not authorize building real BNMS funnels, changing live
+settings, enabling purchasing, or installing its new migration; those require
+separate explicit instructions.

@@ -512,7 +512,7 @@ export function EventDetailsExperience({
     return { ...authorized, pricing_config: { ...pricing, ticket_classes: ownedReservation.offer.tickets,
       ticket_classes_configured: true } };
   }, [fetchedEvent, ownedReservation?.offer]);
-  const reservation = useEventReservation({ eventId, eventKind: 'simple', viewerKey,
+  const reservation = useEventReservation({ eventId, eventKind: 'simple', viewerKey, selectedTicketIds: selectedTicketClassId ? [selectedTicketClassId] : ['default'],
     enabled: authResolved && !!event && !editorMode && !allocationToken && event.waiting_list_enabled !== true });
   const unifiedCapability = useUnifiedBookingCapability({ eventId, viewerId: currentMemberInfo?.id,
     tenantId: currentMemberInfo?.tenant_id || event?.tenant_id,

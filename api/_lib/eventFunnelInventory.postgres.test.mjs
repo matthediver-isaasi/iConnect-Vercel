@@ -49,6 +49,7 @@ import { exerciseFunnelCancellationApproval } from './eventFunnelCancellationApp
 import { exerciseFunnelCancelledDelivery } from './eventFunnelCancelledDelivery.postgres.scenarios.mjs';
 import { exerciseFunnelFinalGaps } from './eventFunnelFinalGaps.postgres.scenarios.mjs';
 import { exerciseFunnelCreditEmails } from './eventFunnelCreditEmails.postgres.scenarios.mjs';
+import { exerciseFunnelTicketRouting } from './eventFunnelTicketRouting.postgres.scenarios.mjs';
 
 test('shared funnel holds serialize ordinary/commercial stock, preserve failed edits and pin uncertain payment stock', { timeout: 60000 }, async () => {
   const h = await createLocalPostgresHarness('funnel-stock-'), clients = [];
@@ -259,6 +260,7 @@ test('shared funnel holds serialize ordinary/commercial stock, preserve failed e
       assert.equal(complexResult.error,null);assert.deepEqual(complexResult.data,[]);
     }
     await exerciseFunnelActivation({db,sql});
+    await exerciseFunnelTicketRouting({db,connect,uuid,tenant,member,sql});
   } finally {
     if(gateway)await gateway.stop();
     await Promise.all(clients.map(c=>c.end()));

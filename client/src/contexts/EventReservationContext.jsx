@@ -1,6 +1,6 @@
 import { createContext, useContext, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useEventFunnelEntry, startEventFunnel, changeEventFunnel } from '@/hooks/useEventFunnelEntry';
+import { useEventFunnelEntry, startEventFunnel } from '@/hooks/useEventFunnelEntry';
 import { isGuestOwnedReservation } from '@/lib/eventReservationSelection.mjs';
 
 // This context is supplied only after the journey shell verifies ownership.
@@ -9,44 +9,48 @@ const EventReservationContext = createContext(null);
 export const EventReservationProvider = EventReservationContext.Provider;
 export const useOwnedEventReservation = () => useContext(EventReservationContext);
 
-export function useEventReservation({ eventId, eventKind, viewerKey, enabled = true }) {
+export function useEventReservation({ eventId, eventKind, viewerKey, selectedTicketIds = [], enabled = true }) {
   const owned = useOwnedEventReservation();
+  const journeyOwned = owned && !owned.normalCheckout ? owned : null;
   const navigate = useNavigate();
-  const entry = useEventFunnelEntry({ eventId, eventKind, viewerKey, enabled: enabled && !owned });
+  const entry = useEventFunnelEntry({ eventId, eventKind, viewerKey, enabled: enabled && !journeyOwned });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const draft = useRef(null);
   const busy = useRef(false);
+  const request = useRef(null);
+  const [normal, setNormal] = useState(null);
+  const selectionKey = JSON.stringify([...selectedTicketIds].sort());
   const identity = JSON.stringify([eventId, eventKind, viewerKey]);
   const owner = useRef(identity);
   owner.current = identity;
   // Never reuse a draft after an event or viewer change.
   if (draft.current?.identity !== identity) draft.current = null;
-  const validEntry = entry.data?.active === true && typeof entry.data.versionId === 'string'
-    && typeof entry.data.sourceNodeId === 'string';
-  const active = Boolean(owned || (enabled && validEntry));
-  const malformed = !owned && enabled && entry.data && entry.data.active !== false && !validEntry;
-  const intercept = Boolean(owned || (enabled && (entry.data?.active !== false || entry.isError || entry.isFetching)));
+  const validEntry = entry.data?.active === true && (entry.data.routing === 'ticket'
+    || typeof entry.data.versionId === 'string' && typeof entry.data.sourceNodeId === 'string');
+  const normalSelected = normal?.identity === identity && normal?.key === selectionKey
+    || owned?.normalCheckout && selectionKey === JSON.stringify((owned.offer.selectedTickets || []).map(ticket => ticket.id).sort());
+  const active = Boolean(journeyOwned || (enabled && validEntry && !normalSelected));
+  const malformed = !journeyOwned && enabled && entry.data && entry.data.active !== false && !validEntry;
+  const intercept = Boolean(journeyOwned || (enabled && !normalSelected && (entry.data?.active !== false || entry.isError || entry.isFetching)));
 
   async function submit({ tickets, answers }) {
-    if (busy.current || !active || (!owned && (entry.isError || entry.isFetching))) return null;
+    if (busy.current || !active || (!journeyOwned && (entry.isError || entry.isFetching))) return null;
     busy.current = true;
     setPending(true);
     setError(null);
     const startedFor = identity;
     try {
-      if (owned) return await owned.select({ tickets, answers });
-      let snapshot = draft.current?.snapshot;
-      if (!snapshot) {
-        snapshot = await startEventFunnel({ eventId, eventKind });
-        if (owner.current !== startedFor) return null;
-        draft.current = { identity, snapshot };
-      }
-      const result = await changeEventFunnel(snapshot.session.id, {
-        type: 'select', nodeId: entry.data.sourceNodeId,
-        expectedRevision: snapshot.session.revision, tickets, answers,
-      });
+      if (journeyOwned) return await journeyOwned.select({ tickets, answers });
+      if (entry.data.routing === 'ticket' && tickets.length !== 1) throw new Error('Choose one ticket class. You can add other classes at later steps.');
+      const fingerprint = JSON.stringify([identity, tickets, answers]);
+      if (request.current?.fingerprint !== fingerprint) request.current = { fingerprint, id: crypto.randomUUID() };
+      const result = await startEventFunnel({ eventId, eventKind, requestId: request.current.id, tickets, answers });
       if (owner.current !== startedFor) return null;
+      if (result.outcome === 'normal' && result.active === false) {
+        setNormal({ identity, key: JSON.stringify(tickets.map(ticket => ticket.id).sort()) });
+        return result;
+      }
       draft.current = { identity, snapshot: result };
       navigate(`/EventReservation?sessionId=${encodeURIComponent(result.session.id)}`);
       return result;
@@ -59,11 +63,13 @@ export function useEventReservation({ eventId, eventKind, viewerKey, enabled = t
     }
   }
   return { active, intercept, pending: pending || owned?.pending,
+    singleChoice: journeyOwned ? journeyOwned.offer?.selectionMode === 'single' : enabled && entry.data?.routing === 'ticket',
+    normalCheckout: normalSelected,
     error: error || entry.error || (malformed ? new Error('Registration information could not be verified. Please retry.') : null),
-    loading: !owned && enabled && (!entry.data || entry.isFetching) && !entry.isError,
-    retry: () => entry.refetch(), submit, initialAnswers: owned?.offer?.draft?.answers,
+    loading: !journeyOwned && !normalSelected && enabled && (!entry.data || entry.isFetching) && !entry.isError,
+    retry: () => { setNormal(null); return entry.refetch(); }, submit, initialAnswers: owned?.offer?.draft?.answers,
     purchaser: owned?.snapshot?.purchaser || null,
     ownedGuest: isGuestOwnedReservation(owned?.snapshot),
     resume: draft.current?.snapshot ? () => navigate(`/EventReservation?sessionId=${encodeURIComponent(draft.current.snapshot.session.id)}`) : null,
-    owned: Boolean(owned) };
+    owned: Boolean(owned && !owned.normalCheckout) };
 }

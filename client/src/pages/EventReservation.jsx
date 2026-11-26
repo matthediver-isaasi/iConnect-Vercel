@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import EventFunnelMembershipOffer, { AcceptedMembershipSummary } from '@/components/booking/EventFunnelMembershipOffer';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { readEventFunnelOffer } from '@/hooks/useEventFunnelEntry';
+import { readEventFunnelOffer, startEventFunnel } from '@/hooks/useEventFunnelEntry';
 import { EventReservationProvider } from '@/contexts/EventReservationContext';
 import EventFunnelJourneyFrame from '@/components/booking/EventFunnelJourneyFrame';
 import EventFunnelCheckoutSlot from '@/components/booking/EventFunnelCheckoutSlot';
@@ -11,7 +11,12 @@ import { EventDetailsExperience } from './EventDetails';
 import { ComplexEventDetailExperience } from './ComplexEventDetail';
 import '@/components/booking/EventReservationIntegration.css';
 
-function ReservationOffer({ snapshot, change, pending, nodeId, onSaved }) {
+export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, onNormal }) {
+  const navigate = useNavigate();
+  const request = useRef(null);
+  const switching = useRef(false);
+  const [switchPending, setSwitchPending] = useState(false);
+  const [switchError, setSwitchError] = useState(null);
   const offerQuery = useQuery({
     queryKey: ['owned-event-reservation-offer', snapshot.session.id, nodeId, snapshot.session.revision],
     queryFn: () => readEventFunnelOffer(snapshot.session.id, nodeId),
@@ -35,19 +40,38 @@ function ReservationOffer({ snapshot, change, pending, nodeId, onSaved }) {
     </div>;
   }
   async function select({ tickets, answers }) {
+    if (offer.sourceSwitch && tickets[0]?.id !== snapshot.session.source_ticket_id) {
+      if (switching.current) return null;
+      switching.current = true; setSwitchPending(true); setSwitchError(null);
+      try {
+        if (tickets.length !== 1) throw new Error('Choose one initial ticket class.');
+        const fingerprint = JSON.stringify([tickets, answers, snapshot.session.revision]);
+        if (request.current?.fingerprint !== fingerprint) request.current = { fingerprint, id: crypto.randomUUID() };
+        const result = await startEventFunnel({ eventId: offer.eventId, eventKind: offer.eventKind,
+          requestId: request.current.id, tickets, answers, previousSessionId: snapshot.session.id,
+          expectedRevision: snapshot.session.revision });
+        if (result.outcome === 'normal') onNormal({ offer: { ...offer, selectedTickets: tickets,
+          draft: { answers } }, snapshot: { ...snapshot, holds: [], purchaser: snapshot.purchaser }, normalCheckout: true });
+        else navigate(`/EventReservation?sessionId=${encodeURIComponent(result.session.id)}`, { replace: true });
+        return result;
+      } catch (error) { setSwitchError(error.message); return null; }
+      finally { switching.current = false; setSwitchPending(false); }
+    }
     const result = await change({ type: 'select', nodeId, tickets, answers });
     if (result) onSaved();
     return result;
   }
   const Experience = offer.eventKind === 'complex' ? ComplexEventDetailExperience : EventDetailsExperience;
-  return <EventReservationProvider value={{ snapshot, offer, pending, select }}>
+  return <EventReservationProvider value={{ snapshot, offer, pending: pending || switchPending, select }}>
+    {offer.sourceSwitch && <p className="event-reservation-notice">Changing the initial class restarts routing and releases all previous optional selections only after the new choice succeeds. The reservation deadline is not extended.</p>}
+    {switchError && <p role="alert">{switchError} Your previous reservation has been kept.</p>}
     <div className="event-reservation-reveal">
       <Experience key={`${snapshot.session.id}:${nodeId}`} eventId={offer.eventId} embedded />
     </div>
   </EventReservationProvider>;
 }
 
-function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibility, renderEventFields }) {
+function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibility, renderEventFields, onNormal }) {
   // Navigation changes the display only. It never mutates the route or sends
   // a client-selected destination; the server recomputes after every selection.
   const [displayed, setDisplayed] = useState(null);
@@ -81,7 +105,7 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
       offer={snapshot.membershipOffers?.[membershipNode.id]} change={change} pending={pending} />}
     {!checkout && !membershipNode && (reachable.some(node => node.id === currentId)
         ? <ReservationOffer key={currentId} snapshot={snapshot} change={change} pending={pending}
-          nodeId={currentId} onSaved={() => setDisplayed(null)} />
+          nodeId={currentId} onSaved={() => setDisplayed(null)} onNormal={onNormal} />
         : <div className="event-reservation-notice" role="status">
           <h3>No event is available at this step</h3>
           <p>Check your reservation to load the latest available choices.</p>
@@ -97,8 +121,17 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
 export default function EventReservation() {
   const { search } = useLocation();
   const sessionId = new URLSearchParams(search).get('sessionId') || '';
+  const [normal, setNormal] = useState(null);
+  if (normal?.originalSession === sessionId) {
+    const Experience = normal.offer.eventKind === 'complex' ? ComplexEventDetailExperience : EventDetailsExperience;
+    return <EventReservationProvider value={normal}>
+      <p role="status" className="event-reservation-notice">Your previous reservation and optional holds were released. This ticket uses normal checkout. No booking or payment has been made.</p>
+      <Experience key="normal-checkout" eventId={normal.offer.eventId} embedded />
+    </EventReservationProvider>;
+  }
   return <div className="event-reservation-page">
     <h1 className="mb-6 text-2xl font-semibold">Your event reservation</h1>
-    <EventFunnelJourneyFrame sessionId={sessionId} renderBody={journey => <ReservationBody {...journey} />} />
+    <EventFunnelJourneyFrame sessionId={sessionId} renderBody={journey => <ReservationBody {...journey}
+      onNormal={value => setNormal({ ...value, originalSession: sessionId })} />} />
   </div>;
 }

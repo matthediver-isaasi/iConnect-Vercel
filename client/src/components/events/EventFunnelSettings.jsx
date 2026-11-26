@@ -21,8 +21,10 @@ async function request(body) {
 }
 export default function EventFunnelSettings({ standalone = false }) {
   const { memberInfo, isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
-  const [opened, setOpened] = useState(standalone);
+  const [opened, setOpened] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [settingError, setSettingError] = useState(null);
   const queryClient = useQueryClient();
   const allowed = isAccessReady && isAdmin && !isFeatureExcluded('events.browse-events.create');
   const queryKey = ['event-funnel-definitions', memberInfo?.tenant_id, memberInfo?.id];
@@ -43,11 +45,13 @@ export default function EventFunnelSettings({ standalone = false }) {
         ...simple.filter(event => event.tenant_id === tenant && !event.is_complex).map(event => ({
           id: event.id, kind: 'simple', title: event.title, status: event.event_state || event.status,
           start_date: event.start_date, end_date: event.end_date, selectable: isFutureFunnelEvent(event),
+          supported: !event.waiting_list_enabled && !event.program_tag,
           tickets: funnelSimpleTickets(event).map(ticket => ({ id: String(ticket.id), name: ticket.name })),
         })),
         ...complex.filter(event => event.tenant_id === tenant).map(event => ({
           id: event.id, kind: 'complex', title: event.title, status: event.status,
           start_date: event.start_date, end_date: event.end_date, selectable: isFutureFunnelEvent(event),
+          supported: !event.waiting_list_enabled,
           tickets: tickets.filter(ticket => ticket.complex_event_id === event.id && ticket.tenant_id === tenant)
             .map(ticket => ({ id: String(ticket.id), name: ticket.name })),
         })),
@@ -56,12 +60,40 @@ export default function EventFunnelSettings({ standalone = false }) {
   });
   if (!isAccessReady) return <p role="status">Checking access…</p>;
   if (!allowed) return <p role="alert">You do not have permission to manage event funnels.</p>;
-  if (!standalone) return <Link to="/EventFunnels">Open event funnels</Link>;
+  const chosen = catalog.data?.find(event => `${event.kind}:${event.id}` === selectedEvent);
+  const setting = state.data?.eventSettings?.find(row => row.event_kind === chosen?.kind && row.event_id === chosen?.id);
   const error = state.error || catalog.error;
   return <Card className="mb-8" data-testid="event-funnel-settings">
     <CardHeader><CardTitle className="flex items-center gap-2"><GitBranch className="h-5 w-5" />Event ticket sales funnels</CardTitle></CardHeader>
     <CardContent className="space-y-4">
       <p className="text-sm text-muted-foreground">Build optional event and ticket offers that lead to one checkout. Each event keeps its own registrations.</p>
+      {catalog.data && <fieldset disabled={saving} className="space-y-3">
+        <label className="block">Event
+          <select aria-label="Event for ticket funnels" value={selectedEvent} className="block w-full rounded border p-2"
+            onChange={event => { setSelectedEvent(event.target.value); setSettingError(null); }}>
+            <option value="">Choose an event</option>
+            {catalog.data.filter(event => event.supported !== false).map(event =>
+              <option key={`${event.kind}:${event.id}`} value={`${event.kind}:${event.id}`}>{event.title} ({event.kind})</option>)}
+          </select>
+        </label>
+        {chosen && <label className="flex items-center gap-2">
+          <input type="checkbox" checked={setting?.enabled === true} onChange={async event => {
+            const enabled = event.target.checked;
+            setSaving(true); setSettingError(null);
+            try {
+              const saved = await request({ action: 'set_enabled', eventId: chosen.id, eventKind: chosen.kind,
+                enabled, expectedRevision: setting?.revision || 0 });
+              queryClient.setQueryData(queryKey, current => ({ ...current, eventSettings: [
+                ...(current.eventSettings || []).filter(row => row.event_kind !== chosen.kind || row.event_id !== chosen.id), saved,
+              ] }));
+              queryClient.invalidateQueries({ queryKey: ['event-funnel-entry'] });
+            } catch (error) { setSettingError(error.message); } finally { setSaving(false); }
+          }} />Use ticket funnels
+        </label>}
+        <p className="text-sm text-muted-foreground">Registrants choose from normal eligible tickets first. Tickets without a published matching funnel use normal checkout. This setting does not activate purchasing or change existing reservations.</p>
+        {settingError && <p role="alert">{settingError}</p>}
+      </fieldset>}
+      {!standalone && <Link to="/EventFunnels">Open event funnels and source-ticket mappings</Link>}
       {!opened ? <Button type="button" variant="outline" onClick={() => setOpened(true)}>Open funnel builder</Button> : <>
         {error && <div role="alert" className="text-sm text-destructive">
           <p>{error.message}</p>
@@ -72,7 +104,7 @@ export default function EventFunnelSettings({ standalone = false }) {
             {!state.data.readiness?.purchasing && <p role="status" className="rounded-md border p-3 text-sm">
               Draft authoring is available. {state.data.readiness?.reason || 'Customer purchasing is not activated.'}
             </p>}
-            <EventFunnelBuilder key={state.data.tenantId} tenantId={state.data.tenantId}
+            {standalone && <EventFunnelBuilder key={state.data.tenantId} tenantId={state.data.tenantId}
               definitions={state.data.definitions} catalog={catalog.data} membershipTiers={state.data.membershipTiers || []} busy={saving}
               unavailable={error?.message || null}
               onSave={async input => {
@@ -87,7 +119,7 @@ export default function EventFunnelSettings({ standalone = false }) {
               }}
               onPreview={input => request({ action: 'preview', ...input })}
               onPublish={input => request({ action: 'publish', ...input })}
-            />
+            />}
           </Suspense>}
       </>}
     </CardContent>

@@ -466,7 +466,7 @@ export default function PaymentOptions(props) {
   }
   return props.event?.waiting_list_enabled === true
     ? <WaitingListCheckout key={`${props.event.id}:${props.memberInfo?.tenant_id}:${props.memberInfo?.id}`} {...props} />
-    : <NormalPaymentOptions key={props.reservation?.active ? 'reservation' : 'standalone'} {...checkoutProps} />;
+    : <NormalPaymentOptions key={props.reservation?.owned ? 'reservation' : 'registration'} {...checkoutProps} />;
 }
 
 function NormalPaymentOptions({
@@ -2052,7 +2052,8 @@ function NormalPaymentOptions({
         conduct: codeOfConduct, thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent : undefined,
       });
       if (!selection.tickets.length) return;
-      await reservation.submit(selection);
+      const routed = await reservation.submit(selection);
+      if (routed?.outcome === 'normal') toast.info('No additional journey applies to this ticket. Continue with normal checkout below.');
       return;
     }
     if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {

@@ -1,3 +1,12 @@
+# Ticket-scoped routing release
+
+The additive ticket-routing contract, legacy migration policy, single-choice
+semantics, deployment ordering and rollback limits are specified in
+[event-funnel-ticket-routing-rollout.md](event-funnel-ticket-routing-rollout.md).
+That release prepares a new migration only; earlier installation approval does
+not authorize applying it. Event toggles, publication mappings and checkout
+activation are distinct authorities.
+
 # Event ticket funnel orchestration contract
 
 **Migration hold:** No migrations may be applied to Supabase DEST. The SQL is

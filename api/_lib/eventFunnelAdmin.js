@@ -9,7 +9,8 @@ function check(result) {
   if (result.error) {
     if (['42P01', '42883', 'PGRST202', 'PGRST205'].includes(result.error.code)) fail('Funnel authoring schema is not installed.', 503);
     if (result.error.code === 'PT404') fail('This funnel is no longer available.', 404);
-    if (result.error.code === 'PT409') fail('This definition changed. Reload it before saving.', 409);
+    if (result.error.code === 'PT409') fail(result.error.message?.startsWith('Another published funnel already routes ticket ')
+      ? result.error.message : 'This definition or event setting changed. Reload it before saving.', 409);
     if (['22023', '22P02'].includes(result.error.code)) fail('An event or ticket reference is no longer valid.', 400);
     fail('Funnel data could not be loaded or saved.', 503);
   }
@@ -112,10 +113,27 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
           .eq('tenant_id', context.tenantId).order('updated_at', { ascending: false }).limit(101));
         if (definitions.length > 100) fail('This tenant has more than 100 funnel definitions; paginated authoring is required.', 409);
         const membershipTiers = await listFunnelMembershipTiers(db, context.tenantId);
-        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness, membershipTiers });
+        const eventSettings = check(await db.from('event_funnel_event_setting')
+          .select('event_kind,event_id,enabled,revision').eq('tenant_id', context.tenantId).limit(1000));
+        if (eventSettings.length >= 1000) fail('Too many event settings to load safely.', 409);
+        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness, membershipTiers, eventSettings });
       }
       const body = req.body;
       if (!body || typeof body !== 'object' || Array.isArray(body) || JSON.stringify(body).length > 350000) fail('Invalid request.');
+      if (body.action === 'set_enabled') {
+        if (!UUID.test(body.eventId || '') || !['simple', 'complex'].includes(body.eventKind)
+          || typeof body.enabled !== 'boolean' || !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) fail('Invalid event setting.');
+        const event = check(await db.from(body.eventKind === 'simple' ? 'event' : 'complex_event').select('*')
+          .eq('tenant_id', context.tenantId).eq('id', body.eventId).maybeSingle());
+        if (!event) fail('Event not found.', 404);
+        if (body.enabled && (event.waiting_list_enabled === true || body.eventKind === 'simple' && (event.program_tag || event.is_complex === true))) {
+          fail('Waiting lists and programme entitlements use their existing registration process.');
+        }
+        return res.status(200).json(check(await db.rpc('event_funnel_set_enabled', {
+          p_tenant: context.tenantId, p_kind: body.eventKind, p_event: body.eventId, p_enabled: body.enabled,
+          p_revision: body.expectedRevision, p_actor: actor,
+        })));
+      }
       if (body.action === 'publish') {
         if (!UUID.test(body.id || '') || !Number.isInteger(body.expectedRevision) || body.expectedRevision < 1) {
           fail('Save the funnel before publishing.');

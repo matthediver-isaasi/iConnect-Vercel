@@ -17,6 +17,7 @@ function fixture({ readiness={version:1,activationVersion:1,purchasing:true}, re
       calls.push([name,args]);
       if(name==='event_funnel_consume_limit')return {data:true};
       if(name==='event_funnel_readiness')return {data:readiness};
+       if(name==='event_funnel_set_enabled')return {data:{event_id:args.p_event,event_kind:args.p_kind,enabled:args.p_enabled,revision:1},error};
       assert.equal(name,'event_funnel_publish');
       return {data:{published:true,versionId:version,revision:1},error};
     },
@@ -85,4 +86,14 @@ test('publication cannot advertise membership offers while their application rol
     graph:{nodes:[{type:'membership'}]},references:new Map(),membershipEnabled:()=>false,
     loadAuthority:async()=>{loaded=true;return {};}}),/Membership offers are not enabled/);
   assert.equal(loaded,false);
+});
+test('event toggles use server tenant and actor authority and reject forged revisions',async()=>{
+  const f=fixture(),res=await f.invoke({action:'set_enabled',eventId:event,eventKind:'simple',enabled:true,expectedRevision:0,tenantId:'forged'});
+  assert.equal(res.code,200);
+  assert.deepEqual(f.calls.find(call=>call[0]==='event_funnel_set_enabled')[1],{
+    p_tenant:tenant,p_kind:'simple',p_event:event,p_enabled:true,p_revision:0,p_actor:`user:${id}`,
+  });
+  assert.equal((await f.invoke({action:'set_enabled',eventId:event,eventKind:'simple',enabled:'true',expectedRevision:0})).code,400);
+  const denied=fixture({hasAdminAccess:async()=>false});
+  assert.equal((await denied.invoke({action:'set_enabled',eventId:event,eventKind:'simple',enabled:true,expectedRevision:0})).code,403);
 });

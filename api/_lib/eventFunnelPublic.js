@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { FunnelJourneyError } from '../../shared/eventFunnelJourney.mjs';
 import { createEventFunnelJourneyService } from './eventFunnelJourney.js';
 import {
   createFunnelGuestCapability, publicFunnelSnapshot, requireSameOriginJson, requireFunnelOwner, requireFunnelTenant,
+  readCapability,
 } from './eventFunnelJourneyHandler.js';
 import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
@@ -13,6 +13,7 @@ import { isTicketAccessibleToMember } from './ticketAccess.js';
 import { isTicketVisibleToUser } from './complexEventPricing.js';
 import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import { suppressImmediateSchedule } from '../../shared/eventTiming.js';
+import { createFunnelSelectionResolver } from './eventFunnelCommercial.js';
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const fail = (message, code, status = 400) => { throw new FunnelJourneyError(message, code, status); };
@@ -39,13 +40,12 @@ const TICKET_FIELDS = `id name description price currency is_free visibility_mod
  bulk_discount_threshold bulk_discount_percentage is_default available_count is_unlimited_tickets
  linked_track_ids all_tracks display_order`.split(/\s+/);
 
-export async function findFunnelEntry(db, tenantId, kind, eventId) {
-  const readiness = await db.rpc('event_funnel_readiness');
-  if (readiness.error && ['42883', 'PGRST202'].includes(readiness.error.code)) return { active: false };
-  const ready = check(readiness);
-  if (ready.version !== 1 || ready.purchasing !== true) return { active: false };
-  const entry = check(await db.rpc('event_funnel_find_entry', { p_tenant: tenantId, p_event_kind: kind, p_event_id: eventId }));
-  if (entry.active === false) return entry;
+export async function findFunnelEntry(db, tenantId, kind, eventId, ticketId = null) {
+  const entry = check(await db.rpc('event_funnel_resolve_entry', {
+    p_tenant: tenantId, p_event_kind: kind, p_event_id: eventId, p_ticket: ticketId,
+  }));
+  if (entry.active === false && entry.outcome === 'normal' && ['disabled', 'no_match'].includes(entry.reason)) return entry;
+  if (entry.active === true && entry.routing === 'ticket' && ticketId === null && !entry.versionId) return entry;
   if (entry.active !== true || !uuid(entry.versionId) || typeof entry.sourceNodeId !== 'string') {
     fail('The event registration route could not be verified.', 'JOURNEY_UNAVAILABLE', 503);
   }
@@ -75,18 +75,22 @@ export async function loadFunnelOffer(db, owner, snapshot, nodeId) {
     fail('Your reservation changed. Reload this event.', 'REVISION_CONFLICT', 409);
   }
   const saved = snapshot.holds.filter(hold => hold.node_id === nodeId);
-  const tickets = filterViewerTickets(catalog.filter(ticket => node.ticketIds.includes(String(ticket.id))), viewer, owner.tenantId)
+  const sourceSwitch = node.type === 'source' && snapshot.session.source_ticket_id;
+  const tickets = filterViewerTickets(catalog.filter(ticket => sourceSwitch || node.ticketIds.includes(String(ticket.id))), viewer, owner.tenantId)
     .filter(ticket => (isPrivateTicket(ticket) || isTicketVisibleToUser(ticket, !!member))
       && isTicketAccessibleToMember({ ticketClass: ticket, memberRoleId: member?.role_id, memberGroupIds: groups,
         memberId: member?.id, tenantId: owner.tenantId, ticketTenantId: owner.tenantId, organizationTypeViewer: viewer }))
     .map(ticket => {
       const remaining = capacity.tickets.find(row => row.ticketId === String(ticket.id));
-      if (!remaining) fail('Ticket availability could not be verified.', 'JOURNEY_UNAVAILABLE', 503);
+      if (!remaining && !sourceSwitch) fail('Ticket availability could not be verified.', 'JOURNEY_UNAVAILABLE', 503);
+      // Other initial classes are choices for a new authoritative route. Stock
+      // is checked transactionally by the switch, never borrowed from this node.
+      const left = remaining?.remaining ?? (sourceSwitch && !remaining ? null : remaining?.remaining);
       const frozen = saved.find(hold => hold.ticket_id === String(ticket.id))?.price_snapshot;
       return {
         ...pick(ticket, TICKET_FIELDS), ...publicTicketMemberPolicy(ticket),
-        true_available: remaining.remaining, remaining: remaining.remaining,
-        is_sold_out: remaining.remaining !== null && remaining.remaining <= 0,
+        true_available: left, remaining: left,
+        is_sold_out: left !== null && left <= 0,
         ...(frozen?.version === 1 ? {
           price: frozen.unitAmount ?? frozen.unitMinor / 100, is_free: frozen.unitMinor === 0,
           currency: frozen.currency, early_bird_enabled: false,
@@ -105,14 +109,16 @@ export async function loadFunnelOffer(db, owner, snapshot, nodeId) {
     is_unlimited_registration: capacity.eventRemaining === null,
     pricing_config: { ticket_classes: tickets, ticket_classes_configured: true },
   };
-  return { nodeId, eventId: event.id, eventKind: node.event.kind,
+  return { nodeId, eventId: event.id, eventKind: node.event.kind, selectionMode: node.selectionMode || 'multiple',
+    sourceSwitch: Boolean(sourceSwitch),
     event: node.event.kind === 'simple' ? suppressImmediateSchedule(publicEvent) : publicEvent,
     tickets, draft: { answers: snapshot.drafts[nodeId] || {} },
     selectedTickets: saved.map(hold => ({ id: hold.ticket_id, quantity: hold.quantity })) };
 }
 
-export function createFunnelPublicHandler(action, { db, resolveTenant, loadViewer, loadOffer = loadFunnelOffer }) {
-  const service = createEventFunnelJourneyService({ db });
+export function createFunnelPublicHandler(action, { db, resolveTenant, loadViewer, loadOffer = loadFunnelOffer,
+  resolveSelection = createFunnelSelectionResolver({ db }) }) {
+  const service = createEventFunnelJourneyService({ db, resolveSelection });
   return async (req, res) => {
     for (const [key, value] of Object.entries({
       'Cache-Control': 'private, no-store, max-age=0', 'CDN-Cache-Control': 'no-store', 'Vercel-CDN-Cache-Control': 'no-store',
@@ -123,8 +129,9 @@ export function createFunnelPublicHandler(action, { db, resolveTenant, loadViewe
       if (req.method !== method) { res.setHeader('Allow', method); fail('Method not allowed.', 'METHOD_NOT_ALLOWED', 405); }
       if (method === 'POST') requireSameOriginJson(req);
       const input = method === 'GET' ? req.query : req.body;
-      const allowed = action === 'offer' ? ['sessionId', 'nodeId'] : ['eventId', 'eventKind'];
-      if (!input || typeof input !== 'object' || Array.isArray(input) || JSON.stringify(input).length > 2000
+      const allowed = action === 'offer' ? ['sessionId', 'nodeId'] : action === 'entry'
+        ? ['eventId', 'eventKind'] : ['eventId', 'eventKind', 'requestId', 'tickets', 'answers', 'previousSessionId', 'expectedRevision'];
+      if (!input || typeof input !== 'object' || Array.isArray(input) || JSON.stringify(input).length > 75000
         || Object.keys(input).some(key => !allowed.includes(key))) fail('Invalid registration request.', 'INVALID_REQUEST');
       if (action === 'offer') {
         if (!uuid(input.sessionId) || typeof input.nodeId !== 'string') fail('Invalid offer.', 'INVALID_REQUEST');
@@ -134,22 +141,87 @@ export function createFunnelPublicHandler(action, { db, resolveTenant, loadViewe
       if (!uuid(input.eventId) || !['simple', 'complex'].includes(input.eventKind)) fail('Invalid event.', 'INVALID_REQUEST');
       const tenant = await resolveTenant(req);
       if (!uuid(tenant?.id)) fail('Event not found.', 'EVENT_NOT_FOUND', 404);
-      const entry = await findFunnelEntry(db, tenant.id, input.eventKind, input.eventId);
-      if (action === 'entry') return res.status(200).json(entry);
-      if (!entry.active) fail('This event does not have an active reservation journey.', 'ENTRY_UNAVAILABLE', 409);
+      if (action === 'entry') return res.status(200).json(await findFunnelEntry(db, tenant.id, input.eventKind, input.eventId));
+      if (!uuid(input.requestId) || !Array.isArray(input.tickets) || !input.tickets.length
+        || input.tickets.length > 100 || input.tickets.some(ticket => !ticket || typeof ticket.id !== 'string'
+          || !/^[a-zA-Z0-9_-]{1,100}$/.test(ticket.id) || !Number.isSafeInteger(ticket.quantity)
+          || ticket.quantity < 1 || ticket.quantity > 10000)
+        || new Set(input.tickets.map(ticket => ticket.id)).size !== input.tickets.length) fail('Choose valid tickets.', 'INVALID_SELECTION');
       await requireFunnelTenant({ req, res, db, resolveTenant: async () => tenant });
-      const viewer = await loadViewer(req, tenant.id, db);
+      if (input.previousSessionId && !uuid(input.previousSessionId)) fail('Invalid source change.', 'INVALID_SELECTION');
+      const previousOwner = input.previousSessionId
+        ? await requireFunnelOwner({ req, res, db, resolveTenant, loadViewer, sessionId: input.previousSessionId }) : null;
+      const existingHash = readCapability(req, input.requestId);
+      // An owned guest journey stays a guest journey even if this browser has
+      // since signed in. Never silently replace its original purchaser.
+      const viewer = previousOwner?.capabilityHash || existingHash ? null : await loadViewer(req, tenant.id, db);
       if (viewer && (viewer.tenantId !== tenant.id || !uuid(viewer.memberId))) fail('Purchaser identity could not be verified.', 'JOURNEY_UNAVAILABLE', 403);
-      const sessionId = randomUUID();
-      const capability = viewer ? null : createFunnelGuestCapability(sessionId);
-      check(await db.rpc('event_funnel_create_session', {
-        p_tenant: tenant.id, p_id: sessionId, p_version: entry.versionId,
-        p_member: viewer?.memberId || null, p_capability_hash: capability?.hash || null,
-      }));
-      const owner = { tenantId: tenant.id, sessionId, memberId: viewer?.memberId || null, capabilityHash: capability?.hash || null };
-      const snapshot = publicFunnelSnapshot(await service.read(owner));
+      const sessionId = input.requestId;
+      const capability = viewer || existingHash ? null : createFunnelGuestCapability(sessionId);
+      const owner = { tenantId: tenant.id, sessionId, memberId: viewer?.memberId || null, capabilityHash: existingHash || capability?.hash || null };
       if (capability) res.setHeader('Set-Cookie', capability.cookie);
-      return res.status(201).json(snapshot);
+      let entry;
+      const ticket = input.tickets.length === 1 ? input.tickets[0].id : null;
+      if (input.previousSessionId) {
+        if (!uuid(input.previousSessionId) || !Number.isSafeInteger(input.expectedRevision) || !ticket) fail('Invalid source change.', 'INVALID_SELECTION');
+        const replay = check(await db.rpc('event_funnel_replay_source_switch', {
+          p_tenant: tenant.id, p_id: sessionId, p_old: input.previousSessionId, p_member: owner.memberId,
+          p_capability: owner.capabilityHash, p_kind: input.eventKind, p_event: input.eventId, p_ticket: ticket,
+        }));
+        if (replay.found === true) {
+          if (replay.outcome?.outcome === 'normal') return res.status(200).json(replay.outcome);
+          return res.status(200).json({ ...publicFunnelSnapshot(await service.read(owner)), outcome: 'funnel' });
+        }
+        if (replay.found !== false) fail('Registration route could not be verified.', 'JOURNEY_UNAVAILABLE', 503);
+        const previous = await service.read(previousOwner);
+        const oldSource = previous.graph.nodes.find(node => node.id === previous.graph.entry);
+        if (!previous.session.source_ticket_id || oldSource.event.kind !== input.eventKind || oldSource.event.id !== input.eventId) {
+          fail('This source cannot be restarted.', 'INVALID_SELECTION', 409);
+        }
+        const purchaser = previous.holds.find(hold => hold.node_id === previous.graph.entry)?.price_snapshot?.purchaser;
+        const purchaserFields = value => JSON.stringify(['first_name', 'last_name', 'email', 'organization']
+          .map(field => String(value?.[field] || '').trim()));
+        if (purchaser && !viewer && purchaserFields(input.answers?.purchaser) !== purchaserFields(purchaser)) {
+          fail('Keep the original purchaser when changing the initial ticket.', 'INVALID_SELECTION', 409);
+        }
+        const candidate = await findFunnelEntry(db, tenant.id, input.eventKind, input.eventId, ticket);
+        const version = candidate.active ? check(await db.from('event_funnel_version').select('graph')
+          .eq('tenant_id', tenant.id).eq('id', candidate.versionId).maybeSingle()).graph : {
+            ...previous.graph, entry: 'source', nodes: [{ ...oldSource, id: 'source', ticketIds: [ticket], accept: 'checkout' }, { id: 'checkout', type: 'checkout' }],
+          };
+        const source = version.nodes.find(node => node.id === version.entry);
+        const resolved = await resolveSelection({ owner, node: source, tickets: input.tickets,
+          answers: input.answers, previousHolds: [], selections: [{ nodeId: source.id, tickets: input.tickets }],
+          snapshot: { graph: version, holds: [], drafts: { [source.id]: { purchaser } } }, rereserve: false });
+        entry = check(await db.rpc('event_funnel_switch_source', {
+          p_tenant: tenant.id, p_old: previousOwner.sessionId, p_member: owner.memberId,
+          p_old_capability: previousOwner.capabilityHash || null, p_revision: input.expectedRevision,
+          p_id: sessionId, p_capability: owner.capabilityHash, p_kind: input.eventKind, p_event: input.eventId,
+          p_ticket: ticket, p_version: candidate.versionId || null,
+          p_lines: resolved.lines.map(line => ({ nodeId: source.id, ticketId: line.ticketId,
+            quantity: input.tickets.find(t => t.id === line.ticketId).quantity, priceSnapshot: line.priceSnapshot })),
+          p_answers: resolved.answers,
+        }));
+      } else {
+        entry = check(await db.rpc('event_funnel_start_routed', {
+          p_tenant: tenant.id, p_id: sessionId, p_kind: input.eventKind, p_event: input.eventId,
+          p_ticket: ticket, p_member: owner.memberId, p_capability_hash: owner.capabilityHash,
+        }));
+      }
+      if (entry.active === false && entry.outcome === 'normal') return res.status(200).json(entry);
+      if (entry.active !== true || !uuid(entry.versionId) || !entry.sourceNodeId) fail('Registration route could not be verified.', 'JOURNEY_UNAVAILABLE', 503);
+      let snapshot = await service.read(owner);
+      if (!input.previousSessionId && snapshot.holds.length === 0) {
+        snapshot = await service.change(owner, { type: 'select', nodeId: entry.sourceNodeId,
+          expectedRevision: snapshot.session.revision, tickets: input.tickets, answers: input.answers });
+      } else if (!input.previousSessionId) {
+        const saved = snapshot.holds.filter(hold => hold.node_id === entry.sourceNodeId);
+        if (saved.length !== input.tickets.length || input.tickets.some(ticket =>
+          !saved.some(hold => hold.ticket_id === ticket.id && hold.quantity === ticket.quantity))) {
+          fail('This request already reserved a different selection. Open the saved reservation.', 'REVISION_CONFLICT', 409);
+        }
+      }
+      return res.status(201).json({ ...publicFunnelSnapshot(snapshot), outcome: 'funnel' });
     } catch (error) {
       const known = error instanceof FunnelJourneyError;
       return res.status(known ? error.status : 503).json({

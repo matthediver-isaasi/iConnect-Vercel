@@ -93,6 +93,16 @@ function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
   const guardNotes = node.type === 'addon' && graph ? reofferNotes(graph, node.id, catalog) : [];
   return <>
     <EventChoice value={node.event} catalog={catalog} tenantId={tenantId} onChange={value => update({ event: value, ticketIds: [] })} label="Offered event" />
+    {node.type === 'source' && graph.entryMode === 'ticket_single' && <p className="efb-notice">
+      Source-ticket mappings: each checked class starts this funnel after normal registration.
+      A class can belong to only one published funnel for this event.
+    </p>}
+    <Field label="Ticket choice at this step"><select aria-label="Ticket choice at this step"
+      value={node.selectionMode || 'multiple'} disabled={node.type === 'source' && graph.entryMode === 'ticket_single'}
+      onChange={event => update({ selectionMode: event.target.value })}>
+      <option value="multiple">Multiple classes (legacy compatible)</option>
+      <option value="single">One class; quantities and group tickets allowed</option>
+    </select></Field>
     <div className="efb-field"><span>Offered ticket classes</span>
       <p className="efb-muted">Only these tickets are offered here. Event details remain unchanged.</p>
       {!tickets.length && <p className="efb-notice">Choose an event with ticket classes.</p>}
@@ -323,7 +333,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       ? { id, type, ...membershipStagePatch({}, firstTier), requires: [], accept: next, skip: next }
       : type === 'condition'
       ? { id, type, rules: [{ priority: 0, match: 'all', tests: [{ event: conditionEvent, selected: true }], to: next }], fallback: next }
-      : { id, type, event: eventReference(choice, tenantId), ticketIds: firstTicket ? [firstTicket.id] : [], requires: type === 'addon' && owner ? [owner.id] : [], accept: next, skip: next };
+      : { id, type, selectionMode: graph.entryMode === 'ticket_single' ? 'single' : 'multiple', event: eventReference(choice, tenantId), ticketIds: firstTicket ? [firstTicket.id] : [], requires: type === 'addon' && owner ? [owner.id] : [], accept: next, skip: next };
     changeDraft(current => ({
       ...current,
       graph: { ...current.graph, nodes: [...current.graph.nodes.map(item => item.id !== anchor?.id ? item : item.type === 'condition' ? { ...item, fallback: id } : { ...item, accept: id }), node] },
@@ -421,11 +431,28 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       const definition = availableDefinitions.find(item => item.id === event.target.value);
       if (definition) loadDefinition(definition);
     }}><option value="">{draft ? 'New unsaved funnel' : 'Select a saved funnel or create one'}</option>
-      {availableDefinitions.map(item => <option key={item.id} value={item.id}>{item.name} · revision {item.revision}{item.published_version_id ? ' · published' : ' · draft'}</option>)}
+      {availableDefinitions.map(item => {
+        const source = item.graph?.nodes?.find(node => node.id === item.graph.entry);
+        const event = findEvent(catalog, source?.event);
+        const labels = source?.ticketIds?.map(id => event?.tickets?.find(ticket => ticket.id === id)?.name || 'Unavailable ticket').join(', ');
+        return <option key={item.id} value={item.id}>{item.name} · {event?.title || 'Choose source event'} · {labels} · revision {item.revision}{item.published_version_id ? ' · published' : ' · draft'}</option>;
+      })}
     </select></Field>
     {!draft ? busy ? <div className="efb-skeleton" role="status" aria-label="Loading event funnels" /> : <div className="efb-empty"><GitBranch size={28} style={{ margin: '0 auto 10px' }} /><h3>No funnel selected</h3><p className="efb-muted">Start with a source event and one checkout, then connect additional offers and conditions.</p><Button type="button" variant="outline" size="sm" style={{ marginTop: 12 }} onClick={() => loadDefinition(createFunnelDraft(tenantId), true)}>Create a funnel</Button></div> : <>
       <fieldset disabled={locked}>
         <div className="efb-settings">
+          <Field label="Entry routing"><select aria-label="Entry routing" value={graph.entryMode || 'legacy'}
+            onChange={event => changeDraft(current => {
+              const next = { ...current.graph };
+              if (event.target.value === 'ticket_single') {
+                next.entryMode = 'ticket_single';
+                next.nodes = next.nodes.map(node => node.type === 'source' ? { ...node, selectionMode: 'single' } : node);
+              } else delete next.entryMode;
+              return { ...current, graph: next };
+            })}>
+            <option value="legacy">Legacy event-wide entry</option>
+            <option value="ticket_single">Route by one initial ticket class</option>
+          </select><p className="efb-muted">Changing this affects only a newly published version. Active reservations keep their original choices and expiry. Convert legacy entry explicitly before publishing other funnels for the same event.</p></Field>
           <Field label="Funnel name"><input data-testid="funnel-name" maxLength={120} value={draft.name || ''} onChange={event => changeDraft(current => ({ ...current, name: event.target.value }))} /></Field>
           <Field label="Reservation duration (seconds)"><input data-testid="funnel-reservation" type="number" min="60" max="3600" step="1" value={graph.reservationSeconds ?? ''} onChange={event => changeDraft(current => ({ ...current, graph: { ...current.graph, reservationSeconds: event.target.value === '' ? null : Number(event.target.value) } }))} /></Field>
           <Field label="Invoice mode"><select data-testid="funnel-invoice-mode" value={graph.invoiceMode || ''} onChange={event => changeDraft(current => ({ ...current, graph: { ...current.graph, invoiceMode: event.target.value } }))}>
@@ -486,7 +513,8 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
               <strong>{nodeTitle(node, catalog, tiers)}</strong><p className="efb-muted">{typeNames[node.type]}</p>
               {(node.ticketIds || []).map(id => <label className="efb-quantity" key={id}><span>{event?.tickets?.find(ticket => ticket.id === id)?.name || 'Previously selected ticket unavailable'}</span><input aria-label={`Sample quantity for ${nodeTitle(node, catalog, tiers)} — ${event?.tickets?.find(ticket => ticket.id === id)?.name || 'unavailable ticket'}`} data-testid={`funnel-quantity-${node.id}-${id}`} type="number" min="0" step="1" disabled={sample.skip} value={sample.quantities?.[id] ?? 0} onChange={change => {
                 const quantity = change.target.value;
-                invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { ...current[node.id], quantities: { ...current[node.id]?.quantities, [id]: quantity } } }));
+                invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { ...current[node.id],
+                  quantities: { ...(node.selectionMode === 'single' && Number(quantity) > 0 ? {} : current[node.id]?.quantities), [id]: quantity } } }));
               }} /></label>)}
               {node.type !== 'source' && <label className="efb-check"><input data-testid={`funnel-skip-${node.id}`} type="checkbox" checked={!!sample.skip} onChange={change => {
                 const skip = change.target.checked;
