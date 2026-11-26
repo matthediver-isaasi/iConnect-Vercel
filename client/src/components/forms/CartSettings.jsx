@@ -38,13 +38,13 @@ export default function CartSettings({ field, fields = [], onChange }) {
       <label className="block text-sm">Purchase order field
         <select aria-label="Purchase order field" className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
           value={field.purchase_order_field_id || ''} onChange={event => onChange({ purchase_order_field_id: event.target.value })}>
-          <option value="">No field — use TBC</option>
+          <option value="">No additional field — use checkout PO</option>
           {field.purchase_order_field_id && !poFields.some(source => source.id === field.purchase_order_field_id)
             && <option value={field.purchase_order_field_id}>Previously selected field is unavailable — choose another</option>}
           {poFields.map(source => <option key={source.id} value={source.id}>{source.label || source.title || 'Untitled text field'}</option>)}
         </select>
       </label>
-      <p className="text-xs text-slate-500">Choose a Text field from this form. Its answer becomes the invoice reference. If no field is selected or the answer is blank, the reference is exactly TBC so it appears on the purchase order report.</p>
+      <p className="text-xs text-slate-500">The optional PO number entered in the Payment field at checkout becomes the invoice reference. You can also select a separate Text field to supply the PO when the checkout PO is blank. If both contain PO numbers, they must match. If neither supplies a PO, the reference is TBC so it appears on the purchase order report.</p>
     </section>
     <label className="block text-sm">Bundle label<Input maxLength={120} value={field.bundle_label ?? ''} placeholder="Bundle" onChange={event => onChange({ bundle_label: event.target.value })} /></label>
     <label className="block text-sm">Bundle category label<Input maxLength={120} value={field.bundle_category_label ?? ''} placeholder="Bundle category" onChange={event => onChange({ bundle_category_label: event.target.value })} /></label>
