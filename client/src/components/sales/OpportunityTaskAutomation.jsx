@@ -23,14 +23,14 @@ export default function OpportunityTaskAutomation({ opportunityId }) {
   const projectPending = pending.some((request) => request.task_mode === "project");
   return <Card><CardContent className="space-y-4 p-5">
     <div><h3 className="font-semibold">Accepted {naming.singular.toLowerCase()} task automation</h3>
-      <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Enabled catalogue products create one task per product {naming.singular.toLowerCase()} line or enabled bundle component, including quantity—not one task per unit. Task settings are fixed with the issued {naming.singular.toLowerCase()}. There is no past {naming.singular.toLowerCase()} backfill and no task migration when the opportunity’s mode changes.</p>
+      <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Enabled catalogue products create one task per product {naming.singular.toLowerCase()} line or enabled bundle component, including quantity—not one task per unit. Task settings are fixed with the issued {naming.singular.toLowerCase()}. There is no past {naming.singular.toLowerCase()} backfill.</p>
       <p className="mt-1 text-xs text-muted-foreground">This only creates tasks. It does not send emails or perform financial actions.</p>
     </div>
     {query.isLoading ? <TaskLoading /> : query.error ? <TaskError error={query.error} onRetry={() => query.refetch()} /> : data && <>
       <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
         <p className="text-sm font-medium">{data.taskMode === "project" ? "Current mode: Project tasks" : "Current mode: Standard tasks"}</p>
-        {data.taskMode === "standard" && <p className="text-sm text-muted-foreground">Standard tasks need no board configuration. You can configure the linked board below for project-mode requests.</p>}
-        {!data.boardId ? <p className="text-sm text-amber-700">No project board linked. Link or create a board above and choose a list before project-mode requests can create tasks.</p>
+        {data.taskMode === "standard" && <p className="text-sm text-muted-foreground">Standard tasks need no board configuration.</p>}
+        {!data.boardId ? <p className="text-sm text-amber-700">No project board linked. Project-mode requests stay pending until a board is available.</p>
           : <p className="text-sm text-muted-foreground">Cards are added to “{data.quoteTaskListName || "Quote tasks"}” on the linked board. This list is created automatically if needed. Its name can be changed in Sales settings.</p>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">

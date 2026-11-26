@@ -19,6 +19,7 @@ function fixture(overrides = {}) {
     organization: [{ id: id(10), tenant_id: id(1), name: 'Customer' }],
     opportunity_stage: [{ id: id(11), tenant_id: id(1), name: 'Open', is_active: true }],
     opportunity_loss_reason: [],
+    sales_opportunity_board_attachment: [],
   };
   const db = {
     from(table) {
@@ -61,6 +62,9 @@ test('default mode is preserved; server supplies permissions and identity, not c
   assert.equal(res.body.taskMode, 'standard');
   assert.equal(res.body.board, null);
   assert.equal(res.body.permissions.canManage, true);
+  assert.equal(res.body.needsBoard, false);
+  f.rows.opportunity[0].task_mode = 'project';
+  assert.equal((await f.request({ opportunityId: id(5) })).body.needsBoard, true);
   const update = await f.request({}, { opportunityId: id(5), expectedVersion: 2, action: 'create',
     p_admin: true, p_identity: id(999), tenantId: id(999) });
   assert.equal(update.statusCode, 200);
@@ -146,6 +150,7 @@ test('opportunity ownership, tenant scope, create-board permission and Board Vie
     const f = fixture({ hasFeatureAccess: async (role, key) => key !== deny });
     if (deny === 'ownership') f.rows.opportunity[0].owner_id = id(9);
     if (deny === 'tenant') f.rows.opportunity[0].tenant_id = id(9);
+    f.rows.opportunity[0].task_mode = 'project';
     const res = await f.request({}, { opportunityId: id(5), expectedVersion: 2, action: 'create' });
     assert.equal(res.statusCode, ['ownership', 'tenant'].includes(deny) ? 404 : 403);
     assert.equal(f.calls.some(c => c[0] === 'rpc'), false);
@@ -181,7 +186,7 @@ test('board panel checks board membership AND opportunity permissions; projects 
   assert.equal(res.body.opportunity.tenant_id, undefined);
 });
 
-test('inaccessible linked board is redacted, can be unlinked without deleting board or tasks', async () => {
+test('inaccessible linked board is redacted and cannot be unlinked after creation', async () => {
   const f = fixture();
   f.rows.sales_opportunity_project = [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }];
   f.rows.project_board_member = [];
@@ -189,15 +194,15 @@ test('inaccessible linked board is redacted, can be unlinked without deleting bo
   assert.equal(res.body.board, null);
   assert.equal(res.body.boardUnavailable, true);
   const unlink = await f.request({}, { opportunityId: id(5), action: 'unlink', expectedVersion: 2 });
-  assert.equal(unlink.statusCode, 200);
-  assert.equal(f.calls.find(c => c[0] === 'rpc')[2].p_action, 'unlink');
+  assert.equal(unlink.statusCode, 409);
+  assert.equal(f.calls.some(c => c[0] === 'rpc'), false);
 });
 
 test('standard tasks do not require Projects access; project tasks do', async () => {
   const f = fixture({ hasFeatureAccess: async (role, feature) => !feature.startsWith('projects.') });
   assert.equal((await f.request({ view: 'tasks', source: 'standard' })).statusCode, 200);
   assert.equal((await f.request({ view: 'tasks', source: 'project' })).statusCode, 403);
-  assert.equal((await f.request({}, { opportunityId: id(5), action: 'mode', taskMode: 'standard', expectedVersion: 2 })).statusCode, 200);
+  assert.equal((await f.request({}, { opportunityId: id(5), action: 'mode', taskMode: 'standard', expectedVersion: 2 })).statusCode, 409);
 });
 
 test('legacy non-UUID identity cannot enter UUID-backed Projects, standard tasks remain usable', async () => {
@@ -252,4 +257,83 @@ test('linked-board task endpoints enforce Projects role/capabilities and tenant 
     assert.equal(allowed, ['allowed', 'ordinary'].includes(scenario), scenario);
     if (!allowed) assert.equal(response.statusCode, scenario === 'anonymous' ? 401 : 403, scenario);
   }
+});
+
+test('task settings are locked after creation; only legacy project mode without a board may create/link once', async () => {
+  const cases = [
+    ['standard', [], { action: 'mode', taskMode: 'project' }], ['standard', [], { action: 'create' }],
+    ['standard', [], { action: 'link', boardId: id(6) }], ['standard', [], { action: 'unlink' }],
+    ['project', [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }], { action: 'unlink' }],
+    ['project', [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }], { action: 'create' }],
+    ['project', [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }], { action: 'mode', taskMode: 'standard' }],
+    ['project', [], { action: 'mode', taskMode: 'standard' }], ['project', [], { action: 'unlink' }],
+  ];
+  for (const [mode, links, body] of cases) {
+    const f = fixture();
+    f.rows.opportunity[0].task_mode = mode;
+    f.rows.sales_opportunity_project = links;
+    const res = await f.request({}, { opportunityId: id(5), expectedVersion: 2, ...body });
+    assert.equal(res.statusCode, 409, JSON.stringify([mode, links.length, body]));
+    assert.match(res.body.error, /fixed when the opportunity is created/);
+    assert.equal(f.calls.some(c => c[0] === 'rpc'), false);
+  }
+  for (const body of [{ action: 'create' }, { action: 'link', boardId: id(6) }]) {
+    const f = fixture();
+    f.rows.opportunity[0].task_mode = 'project';
+    const res = await f.request({}, { opportunityId: id(5), expectedVersion: 2, ...body });
+    assert.equal(res.statusCode, 200);
+    assert.equal(f.calls.find(c => c[0] === 'rpc')[2].p_action, body.action);
+  }
+});
+
+test('eligible boards and create options are available before an opportunity exists, with the same access rules', async () => {
+  const f = fixture();
+  const boards = await f.request({ view: 'boards', search: 'Shared', page: '2' });
+  assert.equal(boards.statusCode, 200);
+  const rpc = f.calls.find(c => c[0] === 'rpc');
+  assert.equal(rpc[1], 'list_sales_project_boards');
+  assert.deepEqual(rpc[2], { p_tenant: id(1), p_identity: id(4), p_search: 'Shared', p_page: 2, p_size: 25 });
+  assert.deepEqual((await f.request({ view: 'create-options' })).body, { canLinkBoard: true, canCreateBoard: true });
+  for (const [denied, expected] of [
+    ['projects.board-view', { canLinkBoard: false, canCreateBoard: false }],
+    ['projects.boards.create', { canLinkBoard: true, canCreateBoard: false }],
+  ]) {
+    const g = fixture({ hasFeatureAccess: async (role, key) => key !== denied });
+    assert.deepEqual((await g.request({ view: 'create-options' })).body, expected, denied);
+    assert.equal((await g.request({ view: 'boards' })).statusCode, denied === 'projects.board-view' ? 403 : 200);
+  }
+  const manage = fixture({ hasFeatureAccess: async (role, key) => key !== 'sales.opportunities.manage' });
+  assert.equal((await manage.request({ view: 'boards' })).statusCode, 403);
+  assert.equal((await manage.request({ view: 'create-options' })).statusCode, 403);
+  assert.equal(manage.calls.some(c => c[0] === 'rpc'), false);
+  const legacy = fixture();
+  legacy.rows.member[0].identity_id = 'legacy-identity';
+  assert.equal((await legacy.request({ view: 'boards' })).statusCode, 403);
+});
+
+test('deleting a linked board never reopens board setup; the legacy exception is used once', async () => {
+  // Board deleted (link cascaded away) but an attachment was recorded.
+  const f = fixture();
+  f.rows.opportunity[0].task_mode = 'project';
+  f.rows.sales_opportunity_board_attachment = [{ tenant_id: id(1), opportunity_id: id(5) }];
+  assert.equal((await f.request({ opportunityId: id(5) })).body.needsBoard, false);
+  for (const body of [{ action: 'create' }, { action: 'link', boardId: id(6) }]) {
+    const res = await f.request({}, { opportunityId: id(5), expectedVersion: 2, ...body });
+    assert.equal(res.statusCode, 409);
+  }
+  assert.equal(f.calls.some(c => c[0] === 'rpc' && c[1] === 'change_sales_project'), false);
+  // Attachment record from another tenant does not count.
+  const other = fixture();
+  other.rows.opportunity[0].task_mode = 'project';
+  other.rows.sales_opportunity_board_attachment = [{ tenant_id: id(9), opportunity_id: id(5) }];
+  assert.equal((await other.request({ opportunityId: id(5) })).body.needsBoard, true);
+  // Before the attachment record exists in the database, fail closed.
+  const missing = fixture();
+  missing.rows.opportunity[0].task_mode = 'project';
+  const from = missing.db.from.bind(missing.db);
+  missing.db.from = table => table !== 'sales_opportunity_board_attachment' ? from(table) : {
+    select() { return this; }, eq() { return this; },
+    maybeSingle: async () => ({ data: null, error: { code: 'PGRST205', message: 'missing' } }) };
+  assert.equal((await missing.request({ opportunityId: id(5) })).body.needsBoard, false);
+  assert.equal((await missing.request({}, { opportunityId: id(5), expectedVersion: 2, action: 'create' })).statusCode, 409);
 });

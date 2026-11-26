@@ -21,7 +21,7 @@ export function createSalesProjectTasksHandler(dependencies = {}) {
       return res.status(200).json(data);
     } catch (error) {
       const status = error.status || ({ '40001': 409, '23505': 409, '23503': 409,
-        '23514': 400, '22023': 400, '42501': 403 }[error.code]) || 500;
+        '23514': 400, '22023': 400, '42501': 403, '55000': 409 }[error.code]) || 500;
       const message = error.code === '23505' ? 'This opportunity or board already has a link. Refresh before trying again.'
         : error.code === '23503' ? 'The opportunity or board is no longer available in this tenant.'
           : status === 500 ? 'Unable to load or update Sales project tasks' : error.message;

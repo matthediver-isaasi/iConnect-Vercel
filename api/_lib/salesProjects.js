@@ -101,6 +101,50 @@ export async function boardOpportunity(db, context, boardId, dependencies = {}) 
     permissions: { canEdit } }, stages, lossReasons };
 }
 
+export const TASK_SETTINGS_LOCKED = 'Task settings are fixed when the opportunity is created';
+// A legacy opportunity is in project mode, has no linked board, and has never
+// had one attached. The permanent attachment record (not the link, which a
+// board deletion cascades away) decides this, so the exception is used once.
+async function everAttached(db, context, opportunityId) {
+  const { data, error } = await db.from('sales_opportunity_board_attachment').select('opportunity_id')
+    .eq('tenant_id', context.tenantId).eq('opportunity_id', opportunityId).maybeSingle();
+  if (error) {
+    // Fail closed until the attachment record exists in the database.
+    if (['42P01', 'PGRST205'].includes(error.code)) return null;
+    throw error;
+  }
+  return Boolean(data);
+}
+async function legacyUnlinked(db, context, opportunity, link) {
+  if (opportunity.task_mode !== 'project' || link) return false;
+  return await everAttached(db, context, opportunity.id) === false;
+}
+async function listEligibleBoards(db, context, actor, query) {
+  const { page, pageSize } = parsePagination(query);
+  if (query.search && (typeof query.search !== 'string' || query.search.length > 200)) fail(400, 'Search is too long');
+  return result(db.rpc('list_sales_project_boards', { p_tenant: context.tenantId,
+    p_identity: actor.p_identity, p_search: query.search || '', p_page: page, p_size: pageSize }));
+}
+
+export const OPPORTUNITY_TASK_CHOICES = ['standard', 'create', 'link'];
+// Validates the New opportunity task choice and the caller's Projects access.
+// Returns the RPC arguments for the atomic create, or null for standard tasks.
+export async function resolveOpportunityTaskChoice(db, context, body, dependencies = {}) {
+  const choice = body.taskChoice === undefined || body.taskChoice === null ? 'standard' : body.taskChoice;
+  if (!OPPORTUNITY_TASK_CHOICES.includes(choice)) fail(400, 'Invalid task choice');
+  if (choice === 'standard') return null;
+  const boardId = choice === 'link' ? projectUuid(body.boardId, 'Board') : null;
+  const actor = await projectActor(db, context, dependencies);
+  if (!actor.p_identity || !await projectFeature(context, 'projects.board-view', dependencies)) {
+    fail(403, 'Project board access is required');
+  }
+  if (choice === 'create' && !await projectFeature(context, 'projects.boards.create', dependencies)) {
+    fail(403, 'Create Boards permission is required');
+  }
+  return { p_tenant: actor.p_tenant, p_kind: actor.p_kind, p_actor: actor.p_actor,
+    p_identity: actor.p_identity, p_action: choice, p_board: boardId };
+}
+
 export async function salesProjectRequest(db, context, method, query, body, dependencies = {}) {
   if (method === 'GET' && query.boardId) return boardOpportunity(db, context, query.boardId, dependencies);
   await requireSalesContext(context, method === 'GET' ? SALES_CAPABILITIES.VIEW : SALES_CAPABILITIES.MANAGE_OPPORTUNITIES, dependencies);
@@ -110,6 +154,19 @@ export async function salesProjectRequest(db, context, method, query, body, depe
     const options = projectTaskOptions(query);
     if (options.source === 'project' && (!canViewProjects || !actor.p_identity)) fail(403, 'Project board access is required');
     return result(db.rpc('list_sales_project_tasks', { ...actor, p_options: options }));
+  }
+  if (method === 'GET' && query.view === 'create-options') {
+    // Used by the New opportunity dialog before an opportunity exists.
+    await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_OPPORTUNITIES, dependencies);
+    const canLinkBoard = Boolean(canViewProjects && actor.p_identity);
+    return { canLinkBoard, canCreateBoard: canLinkBoard
+      && await projectFeature(context, 'projects.boards.create', dependencies) };
+  }
+  if (method === 'GET' && query.view === 'boards' && !query.opportunityId) {
+    // Eligible-board picker for a new opportunity; same eligibility rules.
+    await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_OPPORTUNITIES, dependencies);
+    if (!canViewProjects || !actor.p_identity) fail(403, 'Project board access is required');
+    return listEligibleBoards(db, context, actor, query);
   }
   const opportunityId = projectUuid(method === 'GET' ? query.opportunityId : body.opportunityId, 'Opportunity');
   const access = await loadOpportunityAccess(db, context, opportunityId, dependencies.hasAdminAccess);
@@ -122,19 +179,23 @@ export async function salesProjectRequest(db, context, method, query, body, depe
   if (method === 'GET' && query.view === 'boards') {
     await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_OPPORTUNITIES, dependencies);
     if (!access.permissions.canEdit || !canViewProjects || !actor.p_identity) fail(403, 'Opportunity and board management access required');
-    const { page, pageSize } = parsePagination(query);
-    if (query.search && (typeof query.search !== 'string' || query.search.length > 200)) fail(400, 'Search is too long');
-    return result(db.rpc('list_sales_project_boards', { p_tenant: context.tenantId,
-      p_identity: actor.p_identity, p_search: query.search || '', p_page: page, p_size: pageSize }));
+    return listEligibleBoards(db, context, actor, query);
   }
   if (method === 'POST') {
     if (!access.permissions.canEdit) fail(403, 'Opportunity edit access required');
     if (!Number.isInteger(body.expectedVersion) || body.expectedVersion < 1) fail(400, 'expectedVersion is required');
     if (!['mode', 'create', 'link', 'unlink'].includes(body.action)) fail(400, 'Invalid project action');
     if (body.action === 'mode' && !['standard', 'project'].includes(body.taskMode)) fail(400, 'Invalid task mode');
+    if (body.action === 'link') projectUuid(body.boardId, 'Board');
+    // Task settings are fixed at creation. Only a legacy project-mode
+    // opportunity with no linked board may create or link a board once.
+    const currentLink = await result(db.from('sales_opportunity_project').select('board_id')
+      .eq('tenant_id', context.tenantId).eq('opportunity_id', opportunityId).maybeSingle());
+    if (!['create', 'link'].includes(body.action) || !await legacyUnlinked(db, context, access.opportunity, currentLink)) {
+      fail(409, TASK_SETTINGS_LOCKED);
+    }
     if (['create', 'link'].includes(body.action) && (!canViewProjects || !actor.p_identity)) fail(403, 'Project board access is required');
     if (body.action === 'create' && !await projectFeature(context, 'projects.boards.create', dependencies)) fail(403, 'Create Boards permission is required');
-    if (body.action === 'link') projectUuid(body.boardId, 'Board');
     return result(db.rpc('change_sales_project', {
       ...actor, p_opportunity: opportunityId, p_expected_version: body.expectedVersion,
       p_action: body.action, p_mode: body.action === 'mode' ? body.taskMode : null,
@@ -164,6 +225,8 @@ export async function salesProjectRequest(db, context, method, query, body, depe
     } }))).summary : { total: 0, outstanding: 0, completed: 0, overdue: 0 };
   return {
     taskMode: access.opportunity.task_mode || 'standard', expectedVersion: access.opportunity.version,
+    // Legacy project-mode opportunity with no board: may create/link once.
+    needsBoard: await legacyUnlinked(db, context, access.opportunity, link),
     board, boardUnavailable: Boolean(link && !board),
     permissions: { canManage, canCreateBoard: canManage && canViewProjects && Boolean(actor.p_identity)
       && await projectFeature(context, 'projects.boards.create', dependencies),

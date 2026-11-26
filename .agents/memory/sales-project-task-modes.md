@@ -37,3 +37,9 @@ Project-mode acceptance tasks automatically create/reuse the tenant-named list (
 **Why:** The user explicitly replaced the manual list prerequisite with automatic creation and a Sales-settings name. This authorizes server automation on an already linked board, not arbitrary boards.
 
 **How to apply:** Preserve tenant/link/current board-manager boundaries and serialized creation. A renamed setting only affects future creation/retries; do not move old cards or rewrite issued snapshots.
+
+The task choice (standard / create a board now / link an existing board) is made in the New opportunity dialog and then locked; mode change, relink and unlink are rejected afterwards. The owner deliberately dropped a "create board when won" option.
+
+**Why:** Owner direction: boards must exist from creation so manual tasks can be added before any quote is accepted, and acceptance tasks always have a destination.
+
+**How to apply:** Do not reintroduce mode switching or deferred board creation without new approval. The only post-creation exception is a legacy project-mode opportunity with no linked board, which may create/link once. Opportunity + board/link must be one transaction.

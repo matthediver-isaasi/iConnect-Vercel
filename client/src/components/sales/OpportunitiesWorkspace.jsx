@@ -36,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import OpportunityProjectTasksPanel from "@/components/sales/OpportunityProjectTasksPanel";
+import OpportunityTaskChoice, { DEFAULT_TASK_CHOICE, taskChoiceReady, useOpportunityTaskOptions } from "@/components/sales/OpportunityTaskChoice";
 import CollaboratorPicker from "@/components/sales/CollaboratorPicker";
 import { showOpportunitySettingsError } from "./opportunitySettingsFeedback";
 
@@ -85,6 +86,7 @@ function LossReasonDialog({ open, onOpenChange, reasons, onConfirm }) {
 
 export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [form, setForm] = useState({ name: "", organizationId: "", contactId: "", contactRole: "Primary contact", stageId: "", value: "", currency: "GBP", priority: "medium", expectedCloseDate: "" });
   const [organizations, setOrganizations] = useState([]);
   const [contactOptions, setContactOptions] = useState({ organizationId: "", items: [], loading: false, error: null });
@@ -96,6 +98,10 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [organizationsError, setOrganizationsError] = useState(null);
   const [organizationsRetry, setOrganizationsRetry] = useState(0);
+  const [taskChoice, setTaskChoice] = useState(DEFAULT_TASK_CHOICE);
+  const [taskBoard, setTaskBoard] = useState(null);
+  const taskOptions = useOpportunityTaskOptions(open);
+  useEffect(() => { if (open) { setTaskChoice(DEFAULT_TASK_CHOICE); setTaskBoard(null); } }, [open]);
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -131,6 +137,7 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       valueMinor: form.value === "" ? null : Math.round(Number(form.value) * 100),
       organization_id: form.organizationId, contactId: form.contactId || null, contactRole: form.contactRole, role: form.contactRole, stage_id: form.stageId, priority: form.priority,
       expected_close_date: form.expectedCloseDate || null,
+      taskChoice, boardId: taskChoice === "link" ? taskBoard?.id || null : null,
     }) }),
     onSuccess: (result) => {
       toast({ title: "Opportunity created" });
@@ -138,9 +145,18 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       setForm({ name: "", organizationId: "", contactId: "", contactRole: "Primary contact", stageId: idOf(stages[0]) || "", value: "", currency: "GBP", priority: "medium", expectedCloseDate: "" });
       onCreated(result?.opportunity || result);
     },
-    onError: (error) => toast({ title: "Could not create opportunity", description: error.message, variant: "destructive" }),
+    onError: (error) => {
+      toast({ title: "Could not create opportunity", description: error.message, variant: "destructive" });
+      // A board may have just been linked elsewhere: refresh the picker.
+      if (taskChoice === "link" && [403, 409].includes(error.status)) {
+        setTaskBoard(null);
+        queryClient.invalidateQueries({ queryKey: ["sales-project-tasks"] });
+      }
+    },
   });
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl">
+  const resetCreate = create.reset;
+  useEffect(() => { if (open) resetCreate(); }, [open, resetCreate]);
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
     <DialogHeader><DialogTitle>New opportunity</DialogTitle><DialogDescription>Create an opportunity against an existing organisation and, optionally, one of its contacts.</DialogDescription></DialogHeader>
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><Label htmlFor="opp-name">Name</Label><Input id="opp-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -157,8 +173,10 @@ export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       <div><Label>Priority</Label><Select value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Value</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
       <div><Label>Expected close</Label><Input type="date" value={form.expectedCloseDate} onChange={(e) => setForm({ ...form, expectedCloseDate: e.target.value })} /></div>
+      <div className="sm:col-span-2"><OpportunityTaskChoice open={open} choice={taskChoice} onChoice={setTaskChoice} board={taskBoard} onBoard={setTaskBoard} options={taskOptions} /></div>
     </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || loadingOptions || Boolean(organizationsError) || !organizations.some(item => idOf(item) === form.organizationId) || contactsLoading || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
+    {create.error && <p role="alert" className="text-sm text-destructive">{create.error.message}</p>}
+    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || loadingOptions || Boolean(organizationsError) || !organizations.some(item => idOf(item) === form.organizationId) || contactsLoading || !taskChoiceReady(taskChoice, taskBoard, taskOptions) || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
 

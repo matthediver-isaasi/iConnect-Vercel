@@ -8,6 +8,25 @@ import {
 import {
   actorFields, enrichOpportunities, sendOpportunityError, validatePrincipal, validateTenantRecord,
 } from '../_lib/opportunityService.js';
+import { resolveOpportunityTaskChoice } from '../_lib/salesProjects.js';
+
+// Clear, non-internal messages for the atomic create-with-board RPC.
+function projectCreateError(error) {
+  if (error instanceof OpportunityHttpError) return error;
+  const messages = {
+    '23505': [409, 'That project board is already linked to another opportunity. Choose another board and try again.'],
+    '42501': [403, 'That project board is not available to link. Only live boards you own or administer can be linked.'],
+    '22023': [400, 'Invalid task choice'],
+  };
+  const known = messages[error?.code];
+  if (known) return new OpportunityHttpError(known[0], known[1]);
+  if (error?.code === '23514') return new OpportunityHttpError(409, error.message);
+  // Schema not yet installed: fail clearly rather than with a generic error.
+  if (['PGRST202', '42883'].includes(error?.code)) {
+    return new OpportunityHttpError(503, 'Project boards cannot be set up during creation yet. Choose standard tasks or try again later.');
+  }
+  return error;
+}
 
 export function createOpportunitiesHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
@@ -100,6 +119,7 @@ export function createOpportunitiesHandler(dependencies = {}) {
       const owner = body.owner || principal;
       await validatePrincipal(db, context.tenantId, owner);
       const priority = body.priority === undefined ? 'medium' : validatePriority(body.priority);
+      const projectChoice = await resolveOpportunityTaskChoice(db, context, body, dependencies);
       const row = {
         tenant_id: context.tenantId,
         organization_id: body.organizationId,
@@ -117,6 +137,16 @@ export function createOpportunitiesHandler(dependencies = {}) {
         priority,
         ...actorFields(principal, 'created_by'),
       };
+      if (projectChoice) {
+        // Opportunity, board and link are created in one transaction: any
+        // board failure leaves no opportunity behind.
+        const { tenant_id: _tenant, created_by_kind: _kind, created_by_id: _id, ...details } = row;
+        const { data, error } = await db.rpc('create_sales_opportunity_with_project', {
+          ...projectChoice, p_opportunity: details,
+        });
+        if (error) throw projectCreateError(error);
+        return res.status(201).json(data);
+      }
       const { data, error } = await db.from('opportunity').insert(row).select('*').single();
       if (error) throw error;
       return res.status(201).json(data);
