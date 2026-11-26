@@ -1,5 +1,6 @@
 import { SalesHttpError } from './salesAccess.js';
 import { mergeTicketCommercialCapacity } from './eventCommercialCapacity.js';
+import { buildSalesActivity } from './salesDashboardActivity.js';
 
 export const SALES_REPORT_MAX_SCAN = 50000;
 export const SALES_REPORT_MAX_PAGE_SIZE = 100;
@@ -472,11 +473,7 @@ export function buildSalesDashboard(data, result, filters = {}) {
   const primary = byCurrency.length === 1 ? byCurrency[0] : null;
   const recentWins = stable(result.prepared.sales).sort((a, b) => dateValue(b.date) - dateValue(a.date)).slice(0, 8)
     .map((row) => ({ ...row, title: row.quoteNumber || 'Commercial sale', value: row.grossMinor }));
-  const recentActivity = (data.activities || []).slice().sort((a, b) =>
-    dateValue(b.created_at) - dateValue(a.created_at)).slice(0, 8).map((row) => ({
-    id: row.id, title: row.summary, description: row.action, opportunityId: row.opportunity_id,
-    date: row.created_at,
-  }));
+  const recentActivity = data.recentActivity || buildSalesActivity(data).map(({ _actorKind, _actorId, ...row }) => row);
   const matchingCloses = result.details && result.summary.pipeline
     ? stable(result.prepared.opportunities.filter((row) => !row.archived_at && !row.stage?.is_won && !row.stage?.is_lost
       && row.expected_close_date
@@ -626,7 +623,7 @@ export async function loadSalesReportData(db, tenantId, filters = {}) {
   const commercial = ['quotes', 'versions', 'lines', 'sales', 'invoices', 'allocations'];
   const needed = new Set(core);
   if (filters.mode === 'dashboard') {
-    [...commercial, 'tasks', 'activities'].forEach((key) => needed.add(key));
+    [...commercial, 'tasks'].forEach((key) => needed.add(key));
   } else if (filters.mode === 'organisation' || filters.mode === 'organization') {
     commercial.forEach((key) => needed.add(key));
   } else if (filters.mode === 'event' || filters.report === 'events') {

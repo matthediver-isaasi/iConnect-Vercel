@@ -16,6 +16,7 @@ import { formatSalesMoney } from "@/lib/salesMoney";
 import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { quotePath } from "@shared/salesNaming.js";
 import { dashboardReportParams, formatDashboardDate, validateExpectedCloseRange } from "./dashboardDates.mjs";
+import { SalesRecentActivity } from "./SalesRecentActivity";
 
 const REPORTS = [
   ["pipeline", "Pipeline"], ["owners", "Owners"], ["products", "Products"],
@@ -124,7 +125,7 @@ export function SalesDashboard() {
       const max = Math.max(...currencyRows.map((item) => Number(item.value ?? item.amount ?? item.total ?? 0)), 1);
        return <div key={row.currency || index}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{row.currency || "Unspecified"}</span><span>{currency(amount, row.currency, true)}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(2, amount / max * 100)}%` }} /></div></div>;
     })}</CardContent></Card>}
-    <div className="grid gap-5 xl:grid-cols-2"><div className="space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><ActivityList title="Recent activity" rows={data.recentActivity} emptyText="No recent activity." /></div><div className="space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
+    <div className="grid gap-5 xl:grid-cols-2"><div className="space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><SalesRecentActivity rows={data.recentActivity} query={query} /></div><div className="space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
     {list(data.outstandingQuotes).length > 0 && <ActivityList title={`Outstanding ${naming.plural}`} rows={data.outstandingQuotes} emptyText={`No outstanding ${naming.plural}.`} quoteRows />}
   </div>;
 }

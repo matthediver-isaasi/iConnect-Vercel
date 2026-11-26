@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalQuoteBaseUrl, hashQuoteToken, quotePublicUrl } from './salesQuoteDelivery.js';
+import { canonicalQuoteBaseUrl, hashQuoteToken, quotePublicUrl, sendQuote } from './salesQuoteDelivery.js';
+import { buildSalesActivity } from './salesDashboardActivity.js';
 import { buildSalesQuotePdf, buildBrandedSalesQuotePdf } from './salesQuotePdf.js';
 
 test('quote tokens are one-way hashed and URL encoded', () => {
@@ -21,6 +22,38 @@ test('quote delivery origins are canonical tenant hosts only', () => {
   assert.throws(() => canonicalQuoteBaseUrl({ slug: 'seller/path' }), /safe public quote domain/);
   assert.throws(() => quotePublicUrl('token-value', 'https://safe.example/path'), /safe tenant base URL/);
   assert.throws(() => quotePublicUrl('token-value', 'https://safe.example@attacker.example'), /safe tenant base URL/);
+});
+
+test('timeline uses real provider outcomes, not send attempts or status-transition failures', async () => {
+  for (const success of [true, false]) {
+    const audits = [];
+    const db = {
+      from(table) {
+        return {
+          insert(row) {
+            if (table === 'sales_quote_delivery_audit') {
+              audits.push({ ...row, id: `audit-${audits.length}`, created_at: new Date().toISOString() });
+              return Promise.resolve({ error: null });
+            }
+            return { select() { return { single: async () => ({ data: { id: 'token-id' } }) }; } };
+          },
+          update() { return { eq() { return { is: async () => ({ error: null }) }; } }; },
+        };
+      },
+      rpc: async () => ({ error: { message: 'Concurrent quote change' } }),
+    };
+    const input = { quote: { id: 'q', tenant_id: 't', quote_number: 'P-1', row_version: 1 },
+      version: { id: 'v', status: 'issued' }, actor: { actorId: 'user', actorType: 'tenant_user' },
+      recipient: 'fixture@example.test', expiresInDays: 7, attachPdf: false,
+      baseUrl: 'https://fixture.example.test',
+      sendEmail: async () => ({ success, error: success ? null : 'Provider rejected', messageId: 'private-message-id' }) };
+    if (success) assert.equal((await sendQuote(db, input)).transitionFailed, true);
+    else await assert.rejects(sendQuote(db, input), /email failed/);
+    const timeline = buildSalesActivity({ quotes: [{ id: 'q' }], deliveries: audits });
+    assert.equal(timeline.length, success ? 1 : 0);
+    assert.doesNotMatch(JSON.stringify(timeline), /fixture@example|private-message-id|token-id|send_transition_failed/);
+    assert.ok(audits.some(row => row.event_type === (success ? 'send_transition_failed' : 'send_failed')));
+  }
 });
 
 test('quote PDF renders immutable snapshot lines totals bundles and terms', () => {

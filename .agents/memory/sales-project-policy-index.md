@@ -7,6 +7,7 @@ description: Task modes, collaborator scope, board responsiveness and dashboard 
 - [Project board responsiveness](project-board-responsiveness.md) — saved changes must be visible when completion feedback appears.
 - [Project discussion policy](project-discussion-policy.md) — preserve surviving replies; explicit mentions only, with no administrator author override.
 - [Sales dashboard dates](sales-dashboard-dates.md) — day-first dates and expected-close filter scope.
+- [Sales activity evidence](sales-activity-evidence-policy.md) — commercial milestones require historical evidence; delivery, decisions and confirmation have distinct meanings.
 - [Grouped billing](sales-grouped-billing-policy.md) — issue timing and time to pay are separate; deposits allocate existing bundle price, with no retroactive or unapproved live invoicing.
 - [Unified Sales agreement](sales-unified-agreement.md) — requested quote + rich legal content + two-party signatures; investigation is not implementation approval.
 - [Sales quote naming](sales-quote-naming-scope.md) — internal terminology is independent of public documents, financial identifiers and task-list names.

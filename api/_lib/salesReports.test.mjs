@@ -89,6 +89,7 @@ test('dashboard sorts and filters the full expected-close set before limiting, w
   data.opportunities.push({ ...data.opportunities[0], id: 'lost-close', stage_id: 'lost' });
   const handler = createSalesReportsHandler({
     loadSalesReportData: async () => data,
+    loadSalesDashboardActivity: async () => [],
     getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'user-a' }),
   });
   async function dashboard(query) {

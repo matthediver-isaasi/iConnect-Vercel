@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../../shared/salesContracts.js';
+import { loadSalesDashboardActivity } from '../../_lib/salesDashboardActivity.js';
 import {
   buildEventCommercial, buildOrganisationCommercial, buildSalesDashboard, buildSalesReport,
   loadSalesReportData, paginateSalesReport, parseSalesReportQuery, reportColumns, reportTotals,
@@ -25,6 +26,12 @@ export function createSalesReportsHandler(dependencies = {}) {
       const capability = filters.mode === 'dashboard' ? 'sales.dashboard' : SALES_CAPABILITIES.VIEW_REPORTS;
       const actor = await requireSalesContext(context, capability, dependencies);
       const data = await load(db, actor.tenantId, filters);
+      if (filters.mode === 'dashboard') {
+        data.recentActivity = await (dependencies.loadSalesDashboardActivity || loadSalesDashboardActivity)(
+          db, context, data, dependencies,
+        );
+        res.setHeader('Cache-Control', 'private, no-store');
+      }
       const result = build(data, filters);
       const base = {
         definitions: salesReportDefinitions,

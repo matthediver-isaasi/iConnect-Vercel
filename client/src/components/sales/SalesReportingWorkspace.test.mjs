@@ -54,13 +54,15 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
   const { QueryClient, QueryClientProvider } = mod.require("@tanstack/react-query");
   const requests = [];
   let fail = false;
+  let emptyActivity = false;
   globalThis.fetch = async (url) => {
     requests.push(new URL(url, "http://localhost").searchParams);
     return { ok: !fail, status: fail ? 503 : 200, json: async () => fail ? { message: "Reporting unavailable" } : {
       summary: { currency: "GBP", pipelineValue: 1234 },
       expectedCloses: requests.length === 1 ? [{ id: "close-1", name: "Training renewal", expectedCloseDate: "2026-01-02" }] : [],
       expectedClosesTotal: requests.length === 1 ? 13 : 0,
-      recentActivity: [{ id: "activity-1", name: "Quote issued", createdAt: "2026-01-01T00:00:00Z" }],
+      recentActivity: emptyActivity ? [] : [{ id: "activity-1", description: "Proposal sent", quoteId: "quote/19", quoteNumber: "P-19", opportunityName: "Training renewal", organizationName: "Example Organisation", actorName: "Alex Smith", date: "2026-01-01T00:00:00Z" },
+        { id: "activity-2", description: "Stage moved: Open → Won", opportunityId: "opp/2", opportunityName: "Renewal", actorName: "Name unavailable", date: "2025-12-31T00:00:00Z" }],
       outstandingQuotes: [{ id: "quote/18", name: "Authored Quote title", opportunityId: "opportunity-1" }],
     } };
   };
@@ -80,7 +82,13 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
     assert.match(document.body.textContent, /02\/01\/2026/);
     assert.match(document.body.textContent, /01\/01\/2026/);
     assert.match(document.body.textContent, /Outstanding Training Proposals/);
-    assert.match(document.body.textContent, /Quote issued/);
+    assert.match(document.body.textContent, /Training Proposal sent/);
+    const activityLink = [...document.querySelectorAll("a")].find(node => node.textContent.includes("Training Proposal sent"));
+    assert.equal(activityLink.getAttribute("href"), "/sales/training-proposals/quote%2F19");
+    for (const value of ["P-19", "Example Organisation", "Recorded by: Alex Smith", "Training renewal", "01/01/2026"]) assert.ok(activityLink.textContent.includes(value), value);
+    const stageLink = [...document.querySelectorAll("a")].find(node => node.textContent.includes("Stage moved"));
+    assert.equal(stageLink.getAttribute("href"), "/sales/opportunities/opp%2F2");
+    assert.match(stageLink.textContent, /Name unavailable/);
     const quoteLink = [...document.querySelectorAll("a")].find(node => node.textContent.includes("Authored Quote title"));
     assert.equal(quoteLink.getAttribute("href"), "/sales/training-proposals/quote%2F18");
     assert.ok(document.body.textContent.indexOf("Expected closes") < document.body.textContent.indexOf("Recent activity"));
@@ -113,12 +121,16 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
     assert.equal(requests.at(-1).has("expectedCloseTo"), false);
     assert.equal(requests.at(-1).get("expectedCloseSort"), "desc");
     assert.match(document.body.textContent, /Reporting unavailable/);
+    assert.match(document.body.textContent, /Retry activity/);
     assert.equal(document.getElementById("expected-close-from").value, "");
     fail = false;
+    emptyActivity = true;
     await settle(() => click("Retry"));
     await settle();
     assert.doesNotMatch(document.body.textContent, /Reporting unavailable/);
     assert.match(document.body.textContent, /Applied range: Today onwards/);
+    assert.match(document.body.textContent, /No sales milestones yet/);
+    assert.match(document.body.textContent, /sent training proposals and recorded outcomes/);
   } finally {
     await act(async () => root.unmount());
     cache.clear();
