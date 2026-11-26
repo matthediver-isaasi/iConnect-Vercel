@@ -10,6 +10,8 @@ test('only known outer transaction boundaries are removed', () => {
 test('all 45 source files are pinned and can form one atomic release', async () => {
   const result = await releaseFiles();
   assert.equal(result.files.length, 45);
+  assert.equal(result.hash, 'ea07ea80966f064028e6ad5aa0555b2953791ab558d8e2781bcf3f4439306527',
+    'The installed base release must stay byte-for-byte unchanged');
   assert.match(result.hash, /^[a-f0-9]{64}$/);
   assert.equal(result.hash, (await releaseFiles()).hash);
   assert.ok(result.files.every(f => f.body.length > 0));

@@ -1,12 +1,14 @@
 import { validateFunnelGraph, evaluateFunnelRoute, FunnelGraphError } from '../../shared/eventFunnelGraph.mjs';
 import { funnelSimpleTickets } from '../../shared/eventFunnelCatalog.mjs';
 import { isFutureFunnelEvent } from '../../shared/eventFunnelAuthoring.mjs';
+import { buildFunnelPublicationSnapshot } from './eventFunnelPublication.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function check(result) {
   if (result.error) {
     if (['42P01', '42883', 'PGRST202', 'PGRST205'].includes(result.error.code)) fail('Funnel authoring schema is not installed.', 503);
+    if (result.error.code === 'PT404') fail('This funnel is no longer available.', 404);
     if (result.error.code === 'PT409') fail('This definition changed. Reload it before saving.', 409);
     if (['22023', '22P02'].includes(result.error.code)) fail('An event or ticket reference is no longer valid.', 400);
     fail('Funnel data could not be loaded or saved.', 503);
@@ -45,7 +47,7 @@ export async function validateFunnelReferences(db, tenantId, graph) {
       if (!event) fail('An event is no longer available.', 404);
       if (!isFutureFunnelEvent(event)) fail('Choose a future event that has not been completed or cancelled.');
       const tickets = node.event.kind === 'simple' ? funnelSimpleTickets(event)
-        : check(await db.from('complex_event_ticket_class').select('id,name')
+        : check(await db.from('complex_event_ticket_class').select('*')
           .eq('tenant_id', tenantId).eq('complex_event_id', node.event.id));
       references.set(reference, { event, tickets });
     }
@@ -76,7 +78,8 @@ export async function validateMembershipReferences(db, tenantId, graph) {
     if (membershipTierScope(tier) !== node.membership.scope) fail('A membership stage no longer matches its tier type. Choose the tier again.');
   }
 }
-export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, hasFeatureAccess }) {
+export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, hasFeatureAccess,
+  loadPublicationSnapshot = buildFunnelPublicationSnapshot }) {
   return async function handler(req, res) {
     res.setHeader('Cache-Control', 'private, no-store');
     try {
@@ -114,9 +117,30 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
       const body = req.body;
       if (!body || typeof body !== 'object' || Array.isArray(body) || JSON.stringify(body).length > 350000) fail('Invalid request.');
       if (body.action === 'publish') {
-        // No unsafe publish toggle: the endpoint stays unavailable until all
-        // transactional consumers exist, even if somebody edits a readiness row.
-        fail('Publishing is unavailable until shared inventory and checkout activation are ready.', 409);
+        if (!UUID.test(body.id || '') || !Number.isInteger(body.expectedRevision) || body.expectedRevision < 1) {
+          fail('Save the funnel before publishing.');
+        }
+        const readiness = check(await db.rpc('event_funnel_readiness'));
+        if (readiness?.version !== 1 || readiness.activationVersion !== 1 || readiness.purchasing !== true) {
+          fail('Publishing is unavailable until the application and recovery workers have been verified for live checkout.', 409);
+        }
+        // Never publish a client-supplied graph, actor, commercial snapshot,
+        // price or tenant. Revalidate the saved revision before the atomic RPC.
+        const definition = check(await db.from('event_funnel_definition').select('id,revision,graph')
+          .eq('tenant_id', context.tenantId).eq('id', body.id).maybeSingle());
+        if (!definition) fail('This funnel is no longer available.', 404);
+        if (definition.revision !== body.expectedRevision) fail('This definition changed. Reload it before publishing.', 409);
+        const references = await validateFunnelReferences(db, context.tenantId, definition.graph);
+        const commercial = await loadPublicationSnapshot({
+          db, tenantId: context.tenantId, graph: definition.graph, references,
+        });
+        const published = check(await db.rpc('event_funnel_publish', {
+          p_tenant: context.tenantId, p_definition: body.id, p_expected_revision: body.expectedRevision,
+          p_actor: actor, p_commercial: commercial,
+        }));
+        if (published?.published !== true || !UUID.test(published.versionId || '')
+          || published.revision !== body.expectedRevision) fail('Publication could not be confirmed. Reload before retrying.', 503);
+        return res.status(200).json({ ...published, published_version_id: published.versionId });
       }
       if (!['save', 'preview'].includes(body.action)) fail('Unknown action.');
       await validateFunnelReferences(db, context.tenantId, body.graph);

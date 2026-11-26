@@ -3,13 +3,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-import { inspectManifest, deploymentManifest } from './event-funnel-recovery-readiness.mjs';
+import { inspectManifest, deploymentManifest, followUpDeploymentManifest } from './event-funnel-recovery-readiness.mjs';
 
-export async function packageFunnelMigrations(output) {
+export async function packageFunnelMigrations(output, { release = 'base' } = {}) {
   if (!output) throw new Error('An explicit new output directory is required');
   const source = new URL('../supabase/migrations/', import.meta.url);
-  const manifest = deploymentManifest(await inspectManifest(source));
-  if (manifest.length !== 45) throw new Error('The reviewed batch must contain exactly 45 migrations');
+  const entries = await inspectManifest(source, release);
+  const manifest = release === 'base' ? deploymentManifest(entries) : followUpDeploymentManifest(entries, release);
+  if (release === 'base' && manifest.length !== 45) throw new Error('The reviewed batch must contain exactly 45 migrations');
   // Read and validate everything before writing. Never overwrite an older package.
   const files = await Promise.all(manifest.map(async entry => {
     const sql = await readFile(new URL(entry.file, source));
@@ -25,6 +26,7 @@ export async function packageFunnelMigrations(output) {
   }
   const receipt = {
     formatVersion: 1,
+    release,
     notice: 'Offline package only. Requires live history checks, baseline rehearsal, recovery evidence and explicit activation. Never push the source migration directory.',
     migrations: manifest.map(({ file, deploymentFile, deploymentVersion, sha256 }) =>
       ({ sourceFile: file, file: deploymentFile, version: deploymentVersion, sha256 })),
@@ -34,9 +36,10 @@ export async function packageFunnelMigrations(output) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.argv.length !== 3 || process.argv[2].startsWith('--')) {
-    throw new Error('Usage: node scripts/package-event-funnel-migrations.mjs <new-output-directory>');
+  if (![3, 4].includes(process.argv.length) || process.argv[2].startsWith('--')
+    || (process.argv[3] && !/^--release=[a-z]+$/.test(process.argv[3]))) {
+    throw new Error('Usage: node scripts/package-event-funnel-migrations.mjs <new-output-directory> [--release=membership|activation]');
   }
-  const receipt = await packageFunnelMigrations(process.argv[2]);
+  const receipt = await packageFunnelMigrations(process.argv[2], { release: process.argv[3]?.split('=')[1] || 'base' });
   console.log(JSON.stringify({ count: receipt.migrations.length, notice: receipt.notice }));
 }

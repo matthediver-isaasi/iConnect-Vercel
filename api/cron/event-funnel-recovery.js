@@ -5,11 +5,12 @@ import { deliverFunnelInvoices } from '../_lib/eventFunnelInvoiceDelivery.js';
 import { deliverFunnelConfirmations } from '../_lib/eventFunnelConfirmations.js';
 import { pruneFunnelConfirmations } from '../_lib/eventFunnelConfirmationRetention.js';
 import { deliverFunnelIntegrations } from '../_lib/eventFunnelIntegrations.js';
+import { withFunnelWorkerActivation } from '../_lib/eventFunnelActivation.js';
 
 export const config={maxDuration:60};
-// Scheduling remains part of staged activation; no live provider operation is
-// authorized merely by installing these files.
-export default createEventFunnelRecoveryHandler({
+// Scheduling alone cannot start provider work; admission is service-only,
+// production-only and pinned to the operator-verified release.
+const handler = createEventFunnelRecoveryHandler({
   db:supabase,
   getSecret:()=>process.env.CRON_SECRET,
   paymentFor:tenantId=>createFunnelRecoveryPaymentAdapter({db:supabase,tenantId}),
@@ -24,3 +25,4 @@ export default createEventFunnelRecoveryHandler({
     budgetMs:Math.min(10000,overall-Date.now()-1000),
     deliver:(job,{deadlineAt})=>deliverFunnelConfirmations({db:supabase,job,deadlineAt:Math.min(deadlineAt,overall)})}),
 });
+export default withFunnelWorkerActivation({ db:supabase, worker:'recovery', handler });

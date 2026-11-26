@@ -85,6 +85,18 @@ through an insert-on-conflict preparation path, not just a read.
 Allow immutable replay without creating another purchase; do not grandfather
 arbitrary client order IDs, historical source purchases, or new ticket choices.
 
+Pause admission of new funnel purchases independently of recovering existing
+orders. A worker heartbeat is deployment/reachability evidence, not proof of a
+successful provider payment, invoice, email or registration.
+
+**Why:** External operations already admitted can finish after new purchasing
+is paused. Stopping their reconciliation or treating a heartbeat as delivery
+evidence can strand paid purchases or duplicate provider operations.
+
+**How to apply:** Keep a separate recovery authority and retain its immutable
+receipts during rollout/backout. Require actual provider outcome evidence for
+delivery and reconciliation; never infer it from scheduler health.
+
 Shared invoices require original-purchaser or tenant-administrator authority;
 ordinary attendee or same-organisation invoice access must not automatically
 extend to the combined document.

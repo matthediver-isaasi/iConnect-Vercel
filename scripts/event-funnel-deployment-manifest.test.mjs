@@ -4,7 +4,7 @@ import { readdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { inspectManifest, deploymentManifest } from './event-funnel-recovery-readiness.mjs';
+import { inspectManifest, deploymentManifest, followUpDeploymentManifest } from './event-funnel-recovery-readiness.mjs';
 import { packageFunnelMigrations } from './package-event-funnel-migrations.mjs';
 
 test('deployment identities are unique without changing source hashes or dependency order', async () => {
@@ -28,6 +28,30 @@ test('unknown and duplicate source identities fail closed', () => {
   assert.throws(() => deploymentManifest([{file:'202701230001_unrelated.sql'}]), /Unreviewed/);
   const entry = {file:'202701230001_event_funnel_definitions.sql'};
   assert.throws(() => deploymentManifest([entry,entry]), /Duplicate/);
+});
+
+test('membership additions are packaged separately and cannot replay the installed base', async () => {
+  const base = await inspectManifest();
+  const membership = await inspectManifest(undefined, 'membership');
+  assert.equal(base.length, 45);
+  assert.equal(membership.length, 1);
+  assert.ok(!base.some(entry => entry.file === membership[0].file));
+  const deployment = followUpDeploymentManifest(membership, 'membership');
+  assert.equal(deployment[0].deploymentVersion, '20270127120001');
+  const activation = await inspectManifest(undefined, 'activation');
+  assert.equal(activation.length, 1);
+  assert.equal(followUpDeploymentManifest(activation, 'activation')[0].deploymentVersion, '20270204120001');
+  assert.throws(() => followUpDeploymentManifest(base, 'membership'), /Unreviewed/);
+  assert.throws(() => followUpDeploymentManifest(membership, 'unknown'), /Unreviewed/);
+  await assert.rejects(inspectManifest(undefined, 'unknown'), /Unknown/);
+  const root = await mkdtemp(path.join(tmpdir(), 'funnel-membership-package-'));
+  try {
+    const receipt = await packageFunnelMigrations(path.join(root, 'membership'), { release: 'membership' });
+    assert.equal(receipt.release, 'membership');
+    assert.equal(receipt.migrations.length, 1);
+    assert.deepEqual(await readFile(path.join(root, 'membership', receipt.migrations[0].file)),
+      await readFile(new URL(`../supabase/migrations/${membership[0].file}`, import.meta.url)));
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('offline package preserves SQL bytes, records identities and refuses overwrite', async () => {

@@ -81,6 +81,8 @@
     }
   },
   "crons": [
+    { "path": "/api/cron/event-funnel-recovery", "schedule": "* * * * *" },
+    { "path": "/api/cron/event-funnel-reversals", "schedule": "* * * * *" },
     {
       "path": "/api/cron/member-lifecycle",
       "schedule": "* * * * *"

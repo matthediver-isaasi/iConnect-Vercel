@@ -34,6 +34,17 @@ test('reordered files invalidate the reviewed manifest', () => {
   const evidence = { ...complete(), manifest: [second, entries[0]] };
   assert.equal(evaluateRecoveryEvidence([entries[0], second], evidence).readyForOperatorReview, false);
 });
+test('an explicit owner waiver replaces only restore-rehearsal evidence, never actual recovery coverage', () => {
+  const evidence = { ...complete(), isolatedRestoreReport: undefined, measuredRestoreMinutes: undefined,
+    restoreRehearsalWaiver: { approvedByOwner:true, approvedAt:'2026-11-23T12:00:00Z',
+      reason:'Owner explicitly waived a restore rehearsal' } };
+  assert.equal(evaluateRecoveryEvidence(entries,evidence).readyForOperatorReview,true);
+  assert.equal(evaluateRecoveryEvidence(entries,{...evidence,backupRestorePoint:undefined}).readyForOperatorReview,false);
+  assert.equal(evaluateRecoveryEvidence(entries,{...evidence,restoreWindowVerifiedAt:undefined}).readyForOperatorReview,false);
+  for(const waiver of [{approvedByOwner:false},{approvedByOwner:true,reason:'',approvedAt:'invalid'}]) {
+    assert.equal(evaluateRecoveryEvidence(entries,{...evidence,restoreRehearsalWaiver:waiver}).readyForOperatorReview,false);
+  }
+});
 test('actual saved batch is inventoried with checksums and known collisions', async () => {
   const manifest = await inspectManifest();
   assert.equal(manifest.length, 45);

@@ -3,9 +3,26 @@ import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-export async function inspectManifest(directory = new URL('../supabase/migrations/', import.meta.url)) {
+export const FUNNEL_FOLLOW_UP_RELEASES = Object.freeze({
+  membership: ['202701270001_event_funnel_membership_entitlements.sql'],
+  activation: ['202702040001_event_funnel_controlled_activation.sql'],
+});
+
+export async function inspectManifest(directory = new URL('../supabase/migrations/', import.meta.url), release = 'base') {
   const names = await readdir(directory);
-  const files = names.filter(name => /^\d+_event_funnel_.*\.sql$/.test(name)).sort();
+  const all = names.filter(name => /^\d+_event_funnel_.*\.sql$/.test(name)).sort();
+  const followUps = new Set(Object.values(FUNNEL_FOLLOW_UP_RELEASES).flat());
+  if (all.some(name => !/^20270123\d{4}_/.test(name) && !followUps.has(name))) {
+    throw new Error('Unreviewed funnel migration source');
+  }
+  if (release !== 'base' && !Object.hasOwn(FUNNEL_FOLLOW_UP_RELEASES, release)) {
+    throw new Error('Unknown funnel release');
+  }
+  // The installed base release is immutable. New features must never be
+  // appended to the batch whose installer intentionally refuses a replay.
+  const files = release === 'base' ? all.filter(name => /^20270123\d{4}_/.test(name))
+    : FUNNEL_FOLLOW_UP_RELEASES[release];
+  if (files.some(name => !names.includes(name))) throw new Error('A reviewed funnel migration is missing');
   if (!files.length) throw new Error('No event funnel migrations found');
   const entries = [];
   for (const file of files) {
@@ -36,6 +53,19 @@ export function deploymentManifest(entries) {
   });
 }
 
+export function followUpDeploymentManifest(entries, release) {
+  const expected = FUNNEL_FOLLOW_UP_RELEASES[release];
+  if (!expected || entries.length !== expected.length ||
+    entries.some((entry, index) => entry.file !== expected[index])) {
+    throw new Error('Unreviewed follow-up release');
+  }
+  return entries.map(entry => {
+    const [version, ...rest] = entry.file.split('_');
+    const deploymentVersion = `${version.slice(0, 8)}12${version.slice(8)}`;
+    return { ...entry, deploymentVersion, deploymentFile: `${deploymentVersion}_${rest.join('_')}` };
+  });
+}
+
 export function evaluateRecoveryEvidence(entries, evidence = {}) {
   const blockers = [];
   const requireEvidence = (ok, label) => { if (!ok) blockers.push(label); };
@@ -46,7 +76,7 @@ export function evaluateRecoveryEvidence(entries, evidence = {}) {
       evidence.manifest[index]?.sha256 === entry.sha256), 'Evidence does not match the exact ordered migration files and hashes');
   const required = [
     'targetIdentity', 'backupRestorePoint', 'restoreWindowVerifiedAt',
-    'isolatedRestoreReport', 'preChangeSchemaEvidence', 'partialBackoutReport',
+    'preChangeSchemaEvidence', 'partialBackoutReport',
     'fullBaselineMigrationReport', 'standaloneRegressionReport', 'signedReceiptRecoveryReport',
     'paymentReconciliationProcedure', 'operator', 'maintenanceWindow',
     'previousApplicationRevision',
@@ -55,8 +85,16 @@ export function evaluateRecoveryEvidence(entries, evidence = {}) {
   for (const key of ['implementationComplete', 'purchasingDisabled', 'workersControlled', 'recoveryApproved']) {
     requireEvidence(evidence[key] === true, `Not confirmed: ${key}`);
   }
-  requireEvidence(Number.isFinite(evidence.measuredRestoreMinutes) && evidence.measuredRestoreMinutes > 0,
-    'Missing measured restore duration');
+  const waiver = evidence.restoreRehearsalWaiver;
+  const restoreWaived = waiver?.approvedByOwner === true && typeof waiver.reason === 'string'
+    && waiver.reason.trim().length > 0 && typeof waiver.approvedAt === 'string'
+    && /^\d{4}-\d{2}-\d{2}T/.test(waiver.approvedAt) && Number.isFinite(Date.parse(waiver.approvedAt));
+  if (!restoreWaived) {
+    requireEvidence(typeof evidence.isolatedRestoreReport === 'string' && evidence.isolatedRestoreReport.trim().length > 0,
+      'Missing isolatedRestoreReport');
+    requireEvidence(Number.isFinite(evidence.measuredRestoreMinutes) && evidence.measuredRestoreMinutes > 0,
+      'Missing measured restore duration');
+  }
   requireEvidence(Number.isFinite(evidence.acceptedDataLossMinutes) && evidence.acceptedDataLossMinutes >= 0,
     'Missing approved data-loss tolerance');
   return { readyForOperatorReview: blockers.length === 0, blockers };

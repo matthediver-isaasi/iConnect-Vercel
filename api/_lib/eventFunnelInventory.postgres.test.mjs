@@ -17,6 +17,7 @@ import { exerciseFunnelMaintenance } from './eventFunnelMaintenance.postgres.sce
 import { exerciseFunnelDiscovery } from './eventFunnelDiscovery.postgres.scenarios.mjs';
 import { startAwardsPostgrest } from '../../scripts/test-support/awards-postgrest.mjs';
 import { scopeEventFunnelDiscovery } from './eventFunnelDiscovery.js';
+import { exerciseFunnelActivation } from './eventFunnelActivation.postgres.scenarios.mjs';
 import { exerciseFunnelPurchasePolicy } from './eventFunnelPurchasePolicy.postgres.scenarios.mjs';
 import { assertStandaloneEventOffer } from './eventFunnelPurchasePolicy.js';
 import { exerciseFunnelLegacyIntent } from './eventFunnelLegacyIntent.postgres.scenarios.mjs';
@@ -257,6 +258,7 @@ test('shared funnel holds serialize ordinary/commercial stock, preserve failed e
         .eq('event_funnel_discoverable',true);
       assert.equal(complexResult.error,null);assert.deepEqual(complexResult.data,[]);
     }
+    await exerciseFunnelActivation({db,sql});
   } finally {
     if(gateway)await gateway.stop();
     await Promise.all(clients.map(c=>c.end()));

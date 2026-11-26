@@ -34,6 +34,7 @@ async function invoke(name, { ticketError = null, eventError = null, missing = f
   ];
   globalThis.eventLoadingFixture = { viewer, db: {
     async rpc(name) {
+      if (name === 'event_funnel_discovery_ready') return { data: true, error: null };
       assert.equal(name, 'event_funnel_inventory_projection');
       return { data: [], error: null };
     },
