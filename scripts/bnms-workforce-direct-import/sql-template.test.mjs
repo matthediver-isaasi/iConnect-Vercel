@@ -30,6 +30,7 @@ test('optional omitted fields are not rejected by type validation', () => {
 });
 test('provenance is bound to its exact run and cannot be inserted by service role', () => {
   assert.match(sql, /FOREIGN KEY \(tenant_id, row_object_id, source_sha256\)\s+REFERENCES public\.bnms_workforce_direct_import_runs/);
+  assert.match(sql, /REVOKE ALL ON TABLE public\.bnms_workforce_direct_import_runs,\s+public\.bnms_workforce_direct_import_occurrences FROM PUBLIC, anon, authenticated, service_role/);
   assert.match(sql, /GRANT SELECT ON TABLE public\.bnms_workforce_direct_import_runs/);
   assert.doesNotMatch(sql, /GRANT SELECT, INSERT ON TABLE/);
   assert.match(sql, /row_object_id=v_row_object\)<>\s*1242/);

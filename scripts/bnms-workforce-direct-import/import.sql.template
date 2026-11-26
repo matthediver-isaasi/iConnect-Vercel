@@ -36,7 +36,7 @@ CREATE POLICY bnms_workforce_direct_runs_service_role ON public.bnms_workforce_d
 CREATE POLICY bnms_workforce_direct_occurrences_service_role ON public.bnms_workforce_direct_import_occurrences
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 REVOKE ALL ON TABLE public.bnms_workforce_direct_import_runs,
-  public.bnms_workforce_direct_import_occurrences FROM PUBLIC, anon, authenticated;
+  public.bnms_workforce_direct_import_occurrences FROM PUBLIC, anon, authenticated, service_role;
 -- Only the SECURITY DEFINER function owner writes provenance.  service_role
 -- may inspect it but cannot create partial/cross-run ledger entries directly.
 GRANT SELECT ON TABLE public.bnms_workforce_direct_import_runs,

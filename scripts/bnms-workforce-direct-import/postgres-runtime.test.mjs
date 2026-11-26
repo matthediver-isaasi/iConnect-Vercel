@@ -54,6 +54,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
 END $$;
+-- Match destination defaults: a later SELECT grant alone cannot remove these.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 CREATE TABLE public.tenant (id uuid PRIMARY KEY, name text, slug text);
 CREATE TABLE public.custom_object_definition (
   id uuid PRIMARY KEY, tenant_id uuid NOT NULL, object_key text, singular_label text, plural_label text,
@@ -143,6 +145,18 @@ SELECT public.import_bnms_workforce_direct_occurrences() AS replay;
 SELECT count(*) AS imported_rows FROM public.custom_object_record WHERE custom_object_id=${quote(manifest.rowObjectId)} AND id NOT IN
   (SELECT (x->>'id')::uuid FROM jsonb_array_elements(${quote(JSON.stringify(manifest))}::jsonb#>'{baseline,records}') x);
 SELECT has_table_privilege('service_role','public.bnms_workforce_direct_import_occurrences','INSERT') AS service_can_insert;
+DO $ledger_acl$
+DECLARE ledger text;
+BEGIN
+  FOREACH ledger IN ARRAY ARRAY['public.bnms_workforce_direct_import_runs','public.bnms_workforce_direct_import_occurrences'] LOOP
+    IF NOT has_table_privilege('service_role',ledger,'SELECT')
+      OR has_table_privilege('service_role',ledger,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      OR has_table_privilege('anon',ledger,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      OR has_table_privilege('authenticated',ledger,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+      RAISE EXCEPTION 'Unexpected import ledger permissions: %', ledger;
+    END IF;
+  END LOOP;
+END $ledger_acl$;
 `);
     const output = psql(psqlPath, environment, invoke).stdout;
     assert.match(output, /"rowsCreated"\s*:\s*1242/);
