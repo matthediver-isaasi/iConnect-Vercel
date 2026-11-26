@@ -12,7 +12,7 @@ const graph = () => ({
     { id: 'checkout', type: 'checkout' },
   ],
 });
-function harness(overrides = {}) {
+function harness(overrides = {}, eventRow = { id: eventId, start_date: '2099-01-01T12:00:00Z', pricing_config: { ticket_classes: [{ id: 'standard' }] } }) {
   const calls = [];
   const context = { isAuthenticated: true, tenantId, tenantUserId: id };
   const db = {
@@ -28,7 +28,7 @@ function harness(overrides = {}) {
       for (const method of ['select', 'eq', 'order', 'limit']) chain[method] = (...args) => {
         calls.push([method, ...args]); return chain;
       };
-      chain.maybeSingle = async () => ({ data: { id: eventId, start_date: '2099-01-01T12:00:00Z', pricing_config: { ticket_classes: [{ id: 'standard' }] } } });
+      chain.maybeSingle = async () => ({ data: eventRow });
       chain.then = resolve => resolve({ data: [] });
       return chain;
     },
@@ -118,4 +118,29 @@ test('layout cannot smuggle unknown nodes or non-finite coordinates', () => {
   assert.throws(() => validateFunnelLayout({ positions: { forged: { x: 1, y: 2 } } }, graph()));
   assert.throws(() => validateFunnelLayout({ positions: { source: { x: NaN, y: 2 } } }, graph()));
   assert.deepEqual(validateFunnelLayout({ positions: { source: { x: 1, y: 2, routing: 'forged' } } }, graph()), { positions: { source: { x: 1, y: 2 } } });
+});
+
+test('saves a guarded day re-offer and rejects the same add-on without its guard', async () => {
+  const event = { id: eventId, kind: 'simple', tenantId };
+  const day = (ticketId, selected) => ({ event, ticketId, selected });
+  const dayGraph = () => ({ version: 1, tenantId, reservationSeconds: 900, invoiceMode: 'per_event', entry: 'source', nodes: [
+    { id: 'source', type: 'source', event, ticketIds: ['three-day', 'mon', 'tue'], requires: [], accept: 'days' },
+    { id: 'days', type: 'condition', rules: [
+      { priority: 0, match: 'all', tests: [day('mon', true), day('tue', false)], to: 'add-tue' },
+      { priority: 1, match: 'all', tests: [day('tue', true)], to: 'add-wed' },
+    ], fallback: 'checkout' },
+    { id: 'add-tue', type: 'addon', event, ticketIds: ['tue'], requires: ['source'], accept: 'add-wed', skip: 'add-wed' },
+    { id: 'add-wed', type: 'addon', event, ticketIds: ['wed'], requires: ['source'], accept: 'checkout', skip: 'checkout' },
+    { id: 'checkout', type: 'checkout' },
+  ] });
+  const row = { id: eventId, start_date: '2099-01-01T12:00:00Z',
+    pricing_config: { ticket_classes: ['three-day', 'mon', 'tue', 'wed'].map(id => ({ id })) } };
+  const h = harness({}, row);
+  const ok = await h.invoke({ ...save(), graph: dayGraph() });
+  assert.equal(ok.code, 200);
+  const unguarded = dayGraph(); unguarded.nodes[1].rules[0].tests.pop();
+  const rejected = await h.invoke({ ...save(), graph: unguarded });
+  assert.equal(rejected.code, 400);
+  assert.match(rejected.body.error, /not selected/);
+  assert.equal(h.calls.filter(([name]) => name === 'event_funnel_save_definition').length, 1);
 });

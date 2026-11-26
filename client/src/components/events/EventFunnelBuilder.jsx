@@ -3,7 +3,7 @@ import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType 
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
-import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue, findMembershipTier, membershipStagePatch } from './eventFunnelBuilderModel.mjs';
+import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, reofferNotes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue, findMembershipTier, membershipStagePatch } from './eventFunnelBuilderModel.mjs';
 import '@xyflow/react/dist/style.css';
 import './EventFunnelBuilder.css';
 import { autoLayoutFunnel } from './eventFunnelLayout.mjs';
@@ -79,7 +79,7 @@ function FunnelNode({ data, selected }) {
 }
 const nodeTypes = { funnel: FunnelNode };
 
-function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
+function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
   const tiers = useContext(TiersContext);
   const event = findEvent(catalog, node.event);
   const tickets = event?.tickets || [];
@@ -90,6 +90,7 @@ function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
   const earlierPurchases = earlierPurchaseNodes(nodes, node.id);
   const unavailablePrerequisites = prerequisites.filter(id => !earlierPurchases.some(other => other.id === id));
   const visibilityIssues = purchaseVisibilityIssues(node, nodes);
+  const guardNotes = node.type === 'addon' && graph ? reofferNotes(graph, node.id, catalog) : [];
   return <>
     <EventChoice value={node.event} catalog={catalog} tenantId={tenantId} onChange={value => update({ event: value, ticketIds: [] })} label="Offered event" />
     <div className="efb-field"><span>Offered ticket classes</span>
@@ -97,6 +98,7 @@ function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
       {!tickets.length && <p className="efb-notice">Choose an event with ticket classes.</p>}
       {tickets.map(ticket => <label className="efb-check" key={ticket.id}><input type="checkbox" checked={ticketIds.includes(ticket.id)} onChange={() => toggleTicket(ticket.id)} />{ticket.name}</label>)}
       {unknownTickets.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => toggleTicket(id)} />Previously selected ticket unavailable (uncheck to remove)</label>)}
+      {guardNotes.map(note => <p key={note} className="efb-notice" data-testid="funnel-reoffer-note">{note}</p>)}
     </div>
     {['event', 'addon'].includes(node.type) && <div className="efb-field">
       <span>Visibility and checkout restrictions</span>
@@ -114,7 +116,7 @@ function PurchaseInspector({ node, nodes, catalog, tenantId, update }) {
       {visibilityIssues.map(issue => <p key={issue} role="alert" className="efb-notice efb-error">{issue}</p>)}
     </div>}
     {node.type !== 'source' && <div className="efb-field"><span>Required earlier purchases</span>
-      <p className="efb-muted">{node.type === 'addon' ? 'An add-on must follow an earlier offer for the same event and use different tickets.' : 'If an earlier required offer is not included, this offer follows its skip choice.'}</p>
+      <p className="efb-muted">{node.type === 'addon' ? 'An add-on must follow an earlier offer for the same event. It can offer a ticket from an earlier step again only if a condition before it continues when that ticket is not selected.' : 'If an earlier required offer is not included, this offer follows its skip choice.'}</p>
       {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog, tiers)}</label>)}
       {!earlierPurchases.length && <p className="efb-muted">Connect an earlier purchase to this offer to select a prerequisite.</p>}
       {unavailablePrerequisites.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => update({ requires: prerequisites.filter(value => value !== id) })} />
@@ -178,6 +180,7 @@ function ConditionInspector({ node, nodes, catalog, tenantId, update }) {
   const newTest = () => ({ event: eventReference(selectableEvents(catalog)[0], tenantId), selected: true });
   return <>
     <p className="efb-muted">The first matching rule wins. Check answers for earlier offers; a fallback handles every other answer.</p>
+    <p className="efb-muted">To offer a ticket again as a later add-on (for example another day), use a rule that requires that ticket to be not selected.</p>
     {rules.map((rule, index) => <div className="efb-rule" key={index} data-testid={`funnel-rule-${index}`}>
       <div className="efb-row" style={{ justifyContent: 'space-between' }}><strong className="efb-muted">Rule {index + 1}</strong>
         <Button type="button" size="sm" variant="ghost" aria-label={`Remove rule ${index + 1}`} onClick={() => update({ rules: rules.filter((_, i) => i !== index) })}><Trash2 /></Button>
@@ -455,7 +458,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
         <aside className="efb-inspector" aria-label="Selected node settings" data-testid="funnel-inspector">
           {!selected ? <div className="efb-empty"><h4>Select a node</h4><p className="efb-muted">Choose an offer, condition or checkout to inspect its configuration.</p></div> : <fieldset disabled={locked}>
              <h4>{isPurchase(selected) || selected.type === 'membership' ? nodeTitle(selected, catalog, tiers) : typeNames[selected.type] || 'Unsupported funnel step'}</h4>
-            {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
+            {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} graph={graph} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'membership' && <MembershipInspector node={selected} nodes={graphNodes} catalog={catalog} update={updateNode} />}
             {selected.type === 'condition' && <ConditionInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'checkout' && <p className="efb-muted">All routes must end at this checkout. Only eligible retained purchases are included. The reservation and invoice settings above apply to this funnel.</p>}

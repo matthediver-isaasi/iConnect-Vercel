@@ -56,6 +56,24 @@ export function describeFunnelIssue(issue, graph, catalog = [], tiers = []) {
     .replace(/\b[a-f0-9]{8}-[a-f0-9-]{20,}\b/gi, 'a saved funnel step');
 }
 
+/**
+ * Explains why an add-on may re-offer a ticket that an earlier step offers:
+ * every route into it passes a condition requiring that ticket to be not
+ * selected. Returns no notes for invalid graphs; their issues are reported.
+ */
+export function reofferNotes(graph, nodeId, catalog = []) {
+  let guards;
+  try { guards = validateFunnelGraph(graph).reofferGuards.get(nodeId); } catch { return []; }
+  if (!guards) return [];
+  const node = graph.nodes.find(item => item.id === nodeId);
+  const tickets = findEvent(catalog, node?.event)?.tickets || [];
+  return [...guards].map(([ticketId, conditionIds]) => {
+    const name = tickets.find(ticket => ticket.id === ticketId)?.name || 'This ticket';
+    const count = conditionIds.length === 1 ? 'a selection condition' : `${conditionIds.length} selection conditions`;
+    return `${name} is also offered earlier. It is offered again here only because every route passes ${count} requiring it to be not selected, so it cannot be bought twice.`;
+  });
+}
+
 export function createFunnelDraft(tenantId) {
   const source = crypto.randomUUID(), checkout = crypto.randomUUID();
   return {

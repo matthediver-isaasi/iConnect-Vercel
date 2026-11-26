@@ -119,3 +119,30 @@ test('membership stage titles, issues and tier switching never expose tier ident
   assert.deepEqual(membershipStagePatch(node, tiers[1]).membership, { scheduleId: 'org', scope: 'organization', recipientMode: 'purchaser', description: 'Hi' });
   assert.equal(membershipStagePatch(node, tiers[0]).membership.recipientMode, 'attendees');
 });
+
+test('guarded day re-offers explain their condition and unguarded ones explain the fix', async () => {
+  const { reofferNotes } = await import('./eventFunnelBuilderModel.mjs');
+  const event = { id: 'meeting', kind: 'simple', tenantId: 'association' };
+  const days = [{ id: 'mon', name: 'Monday Non-member' }, { id: 'tue', name: 'Tuesday Non-member' }, { id: 'wed', name: 'Wednesday Non-member' }];
+  const meeting = [{ id: 'meeting', kind: 'simple', title: 'Spring Meeting', tickets: days }];
+  const graph = { version: 1, tenantId: 'association', entry: 'src', reservationSeconds: 900, invoiceMode: 'per_event', nodes: [
+    { id: 'src', type: 'source', event, ticketIds: ['mon', 'tue'], requires: [], accept: 'cond' },
+    { id: 'cond', type: 'condition', rules: [
+      { priority: 0, match: 'all', tests: [{ event, ticketId: 'mon', selected: true }, { event, ticketId: 'tue', selected: false }], to: 'tue-addon' },
+      { priority: 1, match: 'all', tests: [{ event, ticketId: 'tue', selected: true }], to: 'wed-addon' },
+    ], fallback: 'out' },
+    { id: 'tue-addon', type: 'addon', event, ticketIds: ['tue'], requires: ['src'], accept: 'wed-addon', skip: 'wed-addon' },
+    { id: 'wed-addon', type: 'addon', event, ticketIds: ['wed'], requires: ['src'], accept: 'out', skip: 'out' },
+    { id: 'out', type: 'checkout' },
+  ] };
+  assert.deepEqual(graphIssues(graph, meeting, 'association'), []);
+  const notes = reofferNotes(graph, 'tue-addon', meeting);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /^Tuesday Non-member is also offered earlier/);
+  assert.deepEqual(reofferNotes(graph, 'wed-addon', meeting), []);
+  graph.nodes[1].rules[0].tests.pop();
+  const [issue] = graphIssues(graph, meeting, 'association');
+  assert.match(issue, /Spring Meeting offers Tuesday Non-member again/);
+  assert.match(issue, /Tuesday Non-member is not selected/);
+  assert.ok(!issue.includes('tue-addon') && !/\btue\b/.test(issue));
+});

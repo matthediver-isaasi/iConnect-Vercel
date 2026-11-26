@@ -234,3 +234,13 @@ document or sends one without explicit recipient authority.
 **How to apply:** Freeze the requested address at approval, use the original
 accounting company for the document, and keep its delivery receipt separate from
 cancellation notification receipts. An uncertain send never authorizes resend.
+
+Same-event ticket re-offers (for example later days of a multi-day event) are
+allowed only behind a condition that proves the ticket is not selected on every
+route; the owner approved this for the BNMS Spring Meeting day-ticket flow.
+
+**Why:** Holds are unique per session/event/ticket, so an unguarded re-offer
+could double-reserve or fail at the database constraint.
+
+**How to apply:** Keep the path-aware guard, the evaluator/pending dedupe, the
+planner rejection and the checkout assertion together; never relax only one.

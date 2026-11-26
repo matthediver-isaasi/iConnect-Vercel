@@ -105,10 +105,13 @@ export function validateFunnelGraph(graph) {
   }
   visit(graph.entry);
   if (visited.size !== nodes.size) fail('Graph contains unreachable nodes');
-  // Propagate potential ancestors (not full paths: joins must remain bounded).
+  // Propagate potential ancestors (not full paths: joins must remain bounded),
+  // plus "not selected" facts that hold on EVERY route reaching a node.
   const ancestors = new Map(order.map(id => [id, new Set()]));
+  const facts = new Map([[graph.entry, new Map()]]);
+  const reofferGuards = new Map();
   for (const id of order) {
-    const node = nodes.get(id), prior = ancestors.get(id);
+    const node = nodes.get(id), prior = ancestors.get(id), known = facts.get(id) || new Map();
     for (const required of node.requires || []) {
       if (!prior.has(required)) fail('Prerequisites must be earlier purchases');
     }
@@ -120,8 +123,16 @@ export function validateFunnelGraph(graph) {
       for (const previousId of prior) {
         const previous = nodes.get(previousId);
         if (!purchasing(previous) || key(previous.event) !== key(node.event)) continue;
-        if (node.type !== 'addon' || previous.ticketIds.some(ticket => node.ticketIds.includes(ticket))) {
-          fail('A purchasing path contains duplicate event or ticket offers');
+        if (node.type !== 'addon') fail('A purchasing path contains duplicate event or ticket offers');
+        for (const ticket of previous.ticketIds.filter(ticket => node.ticketIds.includes(ticket))) {
+          const origins = excludedBy(known, node.event, ticket);
+          if (!origins) {
+            fail(`The add-on ${node.id} offers ${ticket} again after an earlier step offers it. `
+              + `Every route into this add-on must pass a condition rule that continues only when ${ticket} is not selected.`);
+          }
+          const guards = reofferGuards.get(id) || new Map();
+          guards.set(ticket, [...new Set([...(guards.get(ticket) || []), ...origins])]);
+          reofferGuards.set(id, guards);
         }
       }
     }
@@ -134,14 +145,72 @@ export function validateFunnelGraph(graph) {
         })) fail('Conditions may reference only earlier offered selections');
       }
     }
-    for (const next of destinations(node)) {
+    for (const [next, established] of edgeFacts(node, known)) {
       const target = ancestors.get(next);
       target.add(id);
       for (const previous of prior) target.add(previous);
+      facts.set(next, facts.has(next) ? intersectFacts(facts.get(next), established) : established);
     }
   }
-  return { nodes, checkoutId: checkouts[0].id };
+  return { nodes, checkoutId: checkouts[0].id, order, reofferGuards };
 }
+
+// A fact means "no selection retained so far on this route includes this
+// ticket" (or any ticket of the event, for '*'). Values are the condition
+// steps that establish it.
+const factKey = (event, ticket) => JSON.stringify([event.kind, event.id, ticket ?? '*']);
+function excludedBy(known, event, ticket) {
+  const origins = [...(known.get(factKey(event, ticket)) || []), ...(known.get(factKey(event)) || [])];
+  return known.has(factKey(event, ticket)) || known.has(factKey(event)) ? [...new Set(origins)] : null;
+}
+const unionFacts = (...sets) => {
+  const result = new Map();
+  for (const set of sets) for (const [fact, origins] of set) result.set(fact, new Set([...(result.get(fact) || []), ...origins]));
+  return result;
+};
+function intersectFacts(...sets) {
+  if (!sets.length) return new Map();
+  const result = new Map();
+  for (const [fact] of sets[0]) {
+    if (sets.every(set => set.has(fact))) result.set(fact, new Set(sets.flatMap(set => [...set.get(fact)])));
+  }
+  return result;
+}
+// A test establishes exclusion when it requires "not selected" and holds, or
+// requires "selected" and is known to have failed.
+const testFacts = (test, holds, origin) => test.selected !== holds
+  ? new Map([[factKey(test.event, test.ticketId), new Set([origin])]]) : new Map();
+const ruleMatched = (rule, origin) => rule.match === 'all'
+  ? unionFacts(...rule.tests.map(test => testFacts(test, true, origin)))
+  : intersectFacts(...rule.tests.map(test => testFacts(test, true, origin)));
+const ruleFailed = (rule, origin) => rule.match === 'all'
+  ? intersectFacts(...rule.tests.map(test => testFacts(test, false, origin)))
+  : unionFacts(...rule.tests.map(test => testFacts(test, false, origin)));
+function edgeFacts(node, known) {
+  if (node.type === 'checkout') return [];
+  if (node.type === 'condition') {
+    const sorted = [...node.rules].sort((a, b) => a.priority - b.priority);
+    const edges = sorted.map((rule, index) => [rule.to, unionFacts(known, ruleMatched(rule, node.id),
+      ...sorted.slice(0, index).map(earlier => ruleFailed(earlier, node.id)))]);
+    return [...edges, [node.fallback, unionFacts(known, ...sorted.map(rule => ruleFailed(rule, node.id)))]];
+  }
+  if (node.type === 'membership') return [[node.accept, known], [node.skip, known]];
+  // Accepting an offer may retain any of its tickets; skipping retains none.
+  const accepted = new Map([...known].filter(([fact]) => {
+    const [kind, eventId, ticket] = JSON.parse(fact);
+    return kind !== node.event.kind || eventId !== node.event.id || (ticket !== '*' && !node.ticketIds.includes(ticket));
+  }));
+  return node.type === 'source' ? [[node.accept, accepted]] : [[node.accept, accepted], [node.skip, known]];
+}
+
+/** Tickets of the same event that each retained selection already holds. */
+function heldTickets(nodes, selected, ids) {
+  const held = new Set();
+  for (const id of ids) for (const ticket of selected.get(id).tickets) held.add(factKey(nodes.get(id).event, ticket.id));
+  return held;
+}
+const overlaps = (node, selection, held) => selection.tickets.some(ticket => held.has(factKey(node.event, ticket.id)));
+
 
 /**
  * Selections: [{nodeId, tickets:[{id, quantity}]}]; decisions: {nodeId:'skip'}
@@ -150,7 +219,7 @@ export function validateFunnelGraph(graph) {
  * Unanswered offers pause traversal; missing prerequisites automatically skip.
  */
 export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, checkoutNow = false } = {}) {
-  const { nodes, checkoutId } = validateFunnelGraph(graph);
+  const { nodes, checkoutId, order } = validateFunnelGraph(graph);
   if (typeof checkoutNow !== 'boolean') fail('Invalid checkout decision');
   if (!Array.isArray(selections) || selections.length > graph.nodes.length) fail('Invalid selections');
   const selected = new Map();
@@ -171,7 +240,7 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
     }
     if (selected.has(id)) fail('A selected offer cannot also be skipped');
   }
-  const route = [], retained = new Set(), matchedRules = [], accepted = [];
+  const route = [], retained = new Set(), matchedRules = [], accepted = [], conflicts = new Set();
   let current = graph.entry;
   const matches = test => {
     const found = [...retained].some(id => {
@@ -198,6 +267,12 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
         else break;
         continue;
       }
+      if (selected.has(current) && overlaps(node, selected.get(current), heldTickets(nodes, selected, retained))) {
+        // Defence in depth: never retain a ticket twice for the same event,
+        // even if a stored definition bypassed authoring validation.
+        conflicts.add(current);
+        break;
+      }
       if (selected.has(current)) {
         retained.add(current);
         // Source-only checkout deliberately removes every optional selection.
@@ -218,8 +293,22 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
       for (const next of destinations(nodes.get(id))) collect(next);
     };
     collect(route.at(-1));
-    for (const id of selected.keys()) if (possible.has(id) && !retained.has(id)) pending.add(id);
+    for (const id of selected.keys()) if (possible.has(id) && !retained.has(id) && !conflicts.has(id)) pending.add(id);
     let changed;
+    do {
+      changed = false;
+      for (const id of pending) {
+        if (!nodes.get(id).requires.every(required => retained.has(required) || pending.has(required))) {
+          pending.delete(id); changed = true;
+        }
+      }
+    } while (changed);
+    // A pending draft may never duplicate a held ticket of the same event.
+    const held = heldTickets(nodes, selected, retained);
+    for (const id of order.filter(candidate => pending.has(candidate))) {
+      if (overlaps(nodes.get(id), selected.get(id), held)) { pending.delete(id); conflicts.add(id); continue; }
+      for (const ticket of selected.get(id).tickets) held.add(factKey(nodes.get(id).event, ticket.id));
+    }
     do {
       changed = false;
       for (const id of pending) {
@@ -237,7 +326,8 @@ export function evaluateFunnelRoute(graph, { selections = [], decisions = {}, ch
     acceptedMembershipNodeIds: route.at(-1) === checkoutId ? accepted : [],
     pendingNodeIds: [...pending],
     removed: [...selected.keys()].filter(id => !retained.has(id) && !pending.has(id)).map(nodeId => ({
-      nodeId, reason: 'This selection is no longer reachable from your current choices.',
+      nodeId, reason: conflicts.has(nodeId) ? 'These tickets are already included earlier in your selection.'
+        : 'This selection is no longer reachable from your current choices.',
     })),
   };
 }

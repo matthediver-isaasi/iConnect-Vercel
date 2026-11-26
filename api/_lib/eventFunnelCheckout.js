@@ -1,4 +1,4 @@
-import { FunnelJourneyError, readFunnelJourney } from '../../shared/eventFunnelJourney.mjs';
+import { FunnelJourneyError, readFunnelJourney, assertFunnelCheckoutSelections } from '../../shared/eventFunnelJourney.mjs';
 import { createHash } from 'node:crypto';
 import { INVOICING_ADDRESS_KEYS } from '../../shared/invoicingAddress.js';
 import { createEventFunnelJourneyService } from './eventFunnelJourney.js';
@@ -109,6 +109,7 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         || snapshot.session.revision !== command.expectedRevision) {
         fail('Your checkout changed. Resume the original reservation without paying again.','REVISION_CONFLICT');
       }
+      assertFunnelCheckoutSelections(journey);
       const normalized = structuredClone(snapshot);
       // Revalidate every purchase, including previously accepted optional offers,
       // without replacing held economics or acquiring any extra inventory.

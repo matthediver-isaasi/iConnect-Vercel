@@ -304,8 +304,22 @@ number wins), `any`/`all` predicates, and a mandatory fallback. Predicates test
 selected/not-selected events or ticket classes offered earlier in the graph.
 Only selections traversed on the current route satisfy predicates; stale answers
 on another branch cannot influence the route. A graph may rejoin later nodes.
-Duplicate event purchases and overlapping ticket subsets on a purchasing path
-are rejected conservatively, including paths made unlikely by conditions.
+Duplicate event purchases on a purchasing path are rejected conservatively,
+including paths made unlikely by conditions. A same-event add-on may re-offer a
+ticket class that an earlier step offers (for example later days of a multi-day
+event) only when **every** route into the add-on passes a condition that proves
+that ticket is not selected: a matched rule requiring "not selected", or an
+earlier/fallback rule requiring "selected" that did not match. Accepting any
+later offer of the same ticket cancels the proof; skipping preserves it. The
+validator reports each guarded re-offer so the builder can explain it.
+
+Independently of authoring validation, evaluation never retains or keeps
+pending a selection whose event ticket is already held by another step; the
+journey planner rejects such a select command; and checkout and registration
+planning refuse holds outside the retained route or duplicated event tickets.
+Holds are unique per session, event and ticket, and the hold replacement
+deletes before inserting, so moving a ticket from an add-on to the source in
+one back-edit releases the add-on hold in the same transaction.
 
 Evaluation takes selections and explicit skip decisions, never next-node IDs.
 It reports the route, rule priorities, retained nodes, pending downstream drafts,

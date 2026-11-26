@@ -126,3 +126,55 @@ test('membership offers accept or decline without tickets, including after the h
   assert.throws(() => planFunnelJourneyChange(snapshot, { type: 'membership', expectedRevision: 5, nodeId: 'parking', decision: 'accept' }));
   assert.throws(() => planFunnelJourneyChange(snapshot, { type: 'select', expectedRevision: 5, nodeId: 'source', decision: 'accept', tickets: [{ id: 'A', quantity: 1 }] }));
 });
+
+// Multi-day re-offer: Tuesday is offered at the source and again as an add-on
+// for Monday-only buyers. Holds are unique per event ticket.
+function dayFixture(selection) {
+  const event = { kind: 'simple', id: 'meeting', tenantId: 'tenant' };
+  const day = (ticketId, selected) => ({ event, ticketId, selected });
+  const graph = { version: 1, tenantId: 'tenant', entry: 'source', reservationSeconds: 900, invoiceMode: 'per_event', nodes: [
+    { id: 'source', type: 'source', event, ticketIds: ['three-day', 'mon', 'tue'], requires: [], accept: 'days' },
+    { id: 'days', type: 'condition', rules: [
+      { priority: 0, match: 'all', tests: [day('mon', true), day('tue', false)], to: 'add-tue' },
+      { priority: 1, match: 'all', tests: [day('tue', true)], to: 'add-wed' },
+    ], fallback: 'checkout' },
+    { id: 'add-tue', type: 'addon', event, ticketIds: ['tue'], requires: ['source'], accept: 'add-wed', skip: 'add-wed' },
+    { id: 'add-wed', type: 'addon', event, ticketIds: ['wed'], requires: ['source'], accept: 'checkout', skip: 'checkout' },
+    { id: 'checkout', type: 'checkout' },
+  ] };
+  return { graph, session: { revision: 5, state: 'held', expires_at: '2030-01-01T00:15:00Z',
+    journey: { version: 1, decisions: {}, checkoutNow: false } }, serverNow: '2030-01-01T00:01:00Z', drafts: {},
+  holds: selection.map(([node_id, ticket_id]) => ({ node_id, ticket_id, quantity: 1, places: 1, event_kind: 'simple',
+    event_id: 'meeting', price_snapshot: { unitMinor: 1000, currency: 'GBP' } })) };
+}
+test('Monday buyers can add Tuesday and then Wednesday', async () => {
+  const { assertFunnelCheckoutSelections } = await import('./eventFunnelJourney.mjs');
+  const added = planFunnelJourneyChange(dayFixture([['source', 'mon']]), select('add-tue', 'tue'));
+  assert.equal(added.route.currentNodeId, 'add-wed');
+  const done = dayFixture([['source', 'mon'], ['add-tue', 'tue'], ['add-wed', 'wed']]);
+  assert.doesNotThrow(() => assertFunnelCheckoutSelections(readFunnelJourney(done)));
+});
+test('adding Tuesday at the source releases the Tuesday add-on in the same change', () => {
+  const result = planFunnelJourneyChange(dayFixture([['source', 'mon'], ['add-tue', 'tue'], ['add-wed', 'wed']]),
+    { type: 'select', expectedRevision: 5, nodeId: 'source', tickets: [{ id: 'mon', quantity: 1 }, { id: 'tue', quantity: 1 }] });
+  assert.deepEqual(result.selections.map(s => s.nodeId), ['source', 'add-wed']);
+  assert.deepEqual(result.removed.map(r => r.nodeId), ['add-tue']);
+  assert.equal(result.route.atCheckout, true);
+  const tickets = result.selections.flatMap(s => s.tickets.map(t => t.id));
+  assert.equal(new Set(tickets).size, tickets.length);
+});
+test('a Tuesday add-on cannot be selected when Tuesday is already held earlier', () => {
+  // Tuesday buyers never reach the Tuesday add-on.
+  assert.throws(() => planFunnelJourneyChange(dayFixture([['source', 'tue']]), select('add-tue', 'tue')),
+    error => error.code === 'OFFER_UNREACHABLE');
+});
+test('checkout refuses held lines outside the retained route or duplicated tickets', async () => {
+  const { assertFunnelCheckoutSelections } = await import('./eventFunnelJourney.mjs');
+  const journey = readFunnelJourney(dayFixture([['source', 'tue'], ['add-wed', 'wed']]));
+  assert.doesNotThrow(() => assertFunnelCheckoutSelections(journey));
+  const forged = { ...journey, route: { ...journey.route, retainedNodeIds: [...journey.route.retainedNodeIds, 'add-tue'] },
+    selections: new Map([...journey.selections, ['add-tue', { nodeId: 'add-tue', tickets: [{ id: 'tue', quantity: 1 }] }]]) };
+  assert.throws(() => assertFunnelCheckoutSelections(forged), error => error.code === 'DUPLICATE_TICKET');
+  const stray = { ...journey, selections: new Map([...journey.selections, ['add-tue', { nodeId: 'add-tue', tickets: [{ id: 'tue', quantity: 1 }] }]]) };
+  assert.throws(() => assertFunnelCheckoutSelections(stray), error => error.code === 'REVISION_CONFLICT');
+});

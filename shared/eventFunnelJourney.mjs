@@ -102,6 +102,13 @@ export function planFunnelJourneyChange(snapshot, command) {
           || !node.ticketIds.includes(ticket.id) || !Number.isSafeInteger(ticket.quantity)
           || ticket.quantity < 1 || ticket.quantity > 10000)
         || new Set(command.tickets.map(ticket => ticket.id)).size !== command.tickets.length) reject('Choose valid ticket quantities.');
+      // A ticket already retained earlier for the same event can never be
+      // reserved again, whatever the stored definition allows.
+      const earlier = before.retainedNodeIds.filter(id => id !== node.id && before.route.indexOf(id) < index
+        && nodes.get(id).event.kind === node.event.kind && nodes.get(id).event.id === node.event.id);
+      if (command.tickets.some(ticket => earlier.some(id => selections.get(id)?.tickets.some(held => held.id === ticket.id)))) {
+        reject('This ticket is already in your selection. Change your earlier choice instead.', 'DUPLICATE_TICKET', 409);
+      }
       if (command.answers !== undefined) {
         if (!object(command.answers) || JSON.stringify(command.answers).length > 65536) reject('Invalid attendee answers.');
         answerNode = node.id; answers = structuredClone(command.answers);
@@ -130,4 +137,24 @@ export function planFunnelJourneyChange(snapshot, command) {
     expectedRevision: command.expectedRevision, selections: [...selections.values()],
     journey, route, removed, answerNode, answers, rereserve: command.type === 'rereserve',
   };
+}
+
+/**
+ * Checkout-time guard: every held line must belong to a retained step on the
+ * completed route, and no event ticket may be held by two steps.
+ */
+export function assertFunnelCheckoutSelections(journey) {
+  if (!journey.route.atCheckout) reject('Your selection is not ready for checkout.', 'REVISION_CONFLICT', 409);
+  const seen = new Set();
+  for (const selection of journey.selections.values()) {
+    if (!journey.route.retainedNodeIds.includes(selection.nodeId)) {
+      reject('Your selection changed. Review it before checking out.', 'REVISION_CONFLICT', 409);
+    }
+    const node = journey.nodes.get(selection.nodeId);
+    for (const ticket of selection.tickets) {
+      const ticketKey = JSON.stringify([node.event.kind, node.event.id, ticket.id]);
+      if (seen.has(ticketKey)) reject('A ticket appears twice in your selection. Review it before checking out.', 'DUPLICATE_TICKET', 409);
+      seen.add(ticketKey);
+    }
+  }
 }

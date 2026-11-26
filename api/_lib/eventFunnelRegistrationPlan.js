@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { FunnelJourneyError, readFunnelJourney } from '../../shared/eventFunnelJourney.mjs';
+import { FunnelJourneyError, readFunnelJourney, assertFunnelCheckoutSelections } from '../../shared/eventFunnelJourney.mjs';
 import { assertFunnelCommercialCompatibility, funnelLineTotal } from './eventFunnelCommercial.js';
 import { validateFunnelVoucherAllocations } from './eventFunnelVoucherAllocation.js';
 
@@ -56,6 +56,7 @@ export function buildFunnelRegistrationPlan(snapshot, {
   if (!journey.route.atCheckout || snapshot.session.state !== 'held'
     || Date.parse(snapshot.session.expires_at) <= Date.parse(snapshot.serverNow)) fail('A current reservation at checkout is required.');
   if (!Number.isFinite(Date.parse(snapshot.serverNow)) || !Number.isFinite(Date.parse(snapshot.session.expires_at))) fail('Reservation time could not be verified.');
+  assertFunnelCheckoutSelections(journey);
   const compatibility = assertFunnelCommercialCompatibility(snapshot.holds);
   const source = snapshot.holds.find(hold => hold.node_id === snapshot.graph.entry);
   const purchaser = source?.price_snapshot?.purchaser;
