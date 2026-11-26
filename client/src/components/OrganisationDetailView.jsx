@@ -132,6 +132,7 @@ import {
   organisationCustomValuesEqual,
 } from "@/lib/myOrganisationSave";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import OrganisationActivityPurchaseSummary from "@/components/forms/OrganisationActivityPurchaseSummary";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -328,7 +329,9 @@ export default function OrganisationDetailView({
   isNew = false,
   onCreated 
 }) {
-  const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const { isAdmin, memberInfo, sessionValidated, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const canViewPurchaseDetails = !!memberInfo && sessionValidated && isAccessReady
+    && !isFeatureExcluded('page_FormSubmissions');
   const { memberLabel, memberLabelPlural } = useMemberTerminology();
   const hideTrainingFundCard = isFeatureExcluded('crm.organisations.fund');
   const canViewCommercial = isAccessReady && (isAdmin || (
@@ -885,7 +888,7 @@ export default function OrganisationDetailView({
 
   // Organization Form Submissions query
   const { data: orgFormSubmissions = [], isLoading: formSubmissionsLoading } = useQuery({
-    queryKey: ['org-form-submissions', organization?.id],
+    queryKey: ['org-form-submissions', organization?.id, memberInfo?.tenant_id, memberInfo?.id],
     enabled: !!organization?.id && (activeTab === 'forms' || activeTab === 'activity'),
     queryFn: async () => {
       try {
@@ -904,7 +907,7 @@ export default function OrganisationDetailView({
 
   // Fetch form details for the submissions
   const { data: formsMap = {}, isFetching: formsMapLoading } = useQuery({
-    queryKey: ['forms-for-submissions', orgFormSubmissions.map(s => s.form_id).join(',')],
+    queryKey: ['forms-for-submissions', memberInfo?.tenant_id, memberInfo?.id, orgFormSubmissions.map(s => s.form_id).join(',')],
     enabled: orgFormSubmissions.length > 0,
     queryFn: async () => {
       try {
@@ -2697,6 +2700,12 @@ export default function OrganisationDetailView({
                                 {submission.created_date ? format(new Date(submission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
                               </p>
                               <Badge variant="outline" className="mt-2">Form Submitted</Badge>
+                              <OrganisationActivityPurchaseSummary
+                                submission={submission}
+                                canView={canViewPurchaseDetails}
+                                tenantId={memberInfo?.tenant_id}
+                                organizationId={organization.id}
+                              />
                             </div>
                             <Link to={`/FormSubmission/${submission.id}?from=org&orgId=${organization.id}`} onClick={(e) => e.stopPropagation()}>
                               <Button
