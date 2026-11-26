@@ -43,20 +43,31 @@ export function createProjectInboxHandler({ db = supabase, sessionFor = getSessi
           || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
           return res.status(400).json({ error: 'Invalid pagination' });
         }
+        // Optional list filter; absent means every mention (the original default).
+        const unreadFilter = req.query.unread;
+        if (unreadFilter !== undefined && unreadFilter !== 'true' && unreadFilter !== 'false') {
+          return res.status(400).json({ error: 'Invalid inbox filter' });
+        }
+        const unreadOnly = unreadFilter === 'true';
         const base = columns => db.from('project_mention_inbox')
           .select(columns,{count:'exact'}).eq('board_id',boardId).eq('recipient_id',identityId)
           .eq('is_archived',false)
           .eq('card.is_archived',false).eq('card.board_id',boardId);
-        const rows = await base('id,card_id,comment_id,content,author_name,created_at,read_at,pinned_at,card:project_card!inner(title,is_archived)')
+        let list = base('id,card_id,comment_id,content,author_name,created_at,read_at,pinned_at,card:project_card!inner(title,is_archived)');
+        // Filter before ordering/range so totals and pages cover the whole inbox.
+        if (unreadOnly) list = list.is('read_at',null);
+        const rows = await list
           .order('pinned_at',{ascending:false,nullsFirst:false})
           .order('created_at',{ascending:false}).order('id',{ascending:false})
           .range((page-1)*pageSize,page*pageSize-1);
         if (rows.error) throw rows.error;
+        // Board-wide unread count, independent of the selected list filter.
         const unread = await base('id,card:project_card!inner(is_archived)').is('read_at',null).limit(0);
         if (unread.error) throw unread.error;
         return res.json({
           items:(rows.data || []).map(({card,...item})=>({...item,card_title:card?.title || 'Card'})),
           total:rows.count || 0, unreadCount:unread.count || 0, page, pageSize,
+          filter: unreadOnly ? 'unread' : 'all',
         });
       }
       const body = req.body || {};

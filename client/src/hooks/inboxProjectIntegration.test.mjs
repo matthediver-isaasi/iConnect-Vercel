@@ -221,3 +221,38 @@ test("deep links reject mismatched/archived cards and present permission errors 
     assert.equal(link.error, "");
   } finally { await mounted.close(); }
 });
+
+test("board list filters use separate cache entries and both refresh after main inbox read actions", async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url, method: options.method || "GET" });
+    if (url.startsWith("/api/projects/boards/b/inbox?page=1&pageSize=30")) {
+      const unread = url.endsWith("&unread=true");
+      return json({ items: [], total: unread ? 1 : 2, unreadCount: 1, page: 1, pageSize: 30 });
+    }
+    if (url === "/api/communication/inbox") return json(options.method ? { success: true } : { messages: [], folders: [] });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  let all, unread, main;
+  function Harness() {
+    all = useBoardInbox("b", 1);
+    unread = useBoardInbox("b", 1, true, { unreadOnly: true });
+    main = useInbox();
+    return null;
+  }
+  const mounted = await mount(Harness);
+  try {
+    assert.equal(all.query.data.total, 2);
+    assert.equal(unread.query.data.total, 1);
+    assert.equal(all.query.data.unreadCount, unread.query.data.unreadCount, "badge count is filter-independent");
+    const cache = mounted.client.getQueryCache();
+    assert.ok(cache.find({ queryKey: ["board-inbox", "b", 1, "all"], exact: true }));
+    assert.ok(cache.find({ queryKey: ["board-inbox", "b", 1, "unread"], exact: true }));
+    const count = (suffix) => requests.filter(({ url }) => url === `/api/projects/boards/b/inbox?page=1&pageSize=30${suffix}`).length;
+    const before = [count(""), count("&unread=true")];
+    await React.act(async () => main.act("m", "read", undefined, "project"));
+    await React.act(wait);
+    assert.ok(count("") > before[0], "all list refreshed");
+    assert.ok(count("&unread=true") > before[1], "unread list refreshed");
+  } finally { await mounted.close(); }
+});

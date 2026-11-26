@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Inbox, Mail, MailOpen, Pin, PinOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { projectTaskRequest } from "@/components/sales/useSalesProjectTasks";
 import { availableInboxCard, inboxCardError } from "./boardMentionHelpers.mjs";
 import { useBoardInbox } from "./useBoardInbox";
@@ -23,9 +24,12 @@ function InboxContent({ boardId, onOpenCard }) {
   const [opening, setOpening] = useState(null);
   const [openError, setOpenError] = useState(null);
   const [actionError, setActionError] = useState("");
+  // Display-only filter: defaults to every mention and never changes message state.
+  const [showRead, setShowRead] = useState(true);
   const controller = useRef(null);
   const contentId = useId();
-  const { query, command } = useBoardInbox(boardId, page);
+  const showReadId = useId();
+  const { query, command } = useBoardInbox(boardId, page, true, { unreadOnly: !showRead });
   const { data, isLoading, error } = query;
   const items = data?.items || [];
   const pages = Math.max(1, Math.ceil((data?.total || 0) / (data?.pageSize || 30)));
@@ -56,6 +60,9 @@ function InboxContent({ boardId, onOpenCard }) {
     }
   };
   const changePage = (next) => { setPage(next); setSelected([]); };
+  const changeShowRead = (next) => { setShowRead(next); setPage(1); setSelected([]); };
+  // A read action can empty the last page; the clamp effect moves back once data arrives.
+  const clamping = Boolean(data) && page > pages;
   const visibleIds = items.map((item) => item.id);
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
   return <aside className="project-inbox" aria-label="Personal board mention inbox" data-testid="board-mention-inbox">
@@ -71,6 +78,10 @@ function InboxContent({ boardId, onOpenCard }) {
       </Button>
     </div>
     <div id={contentId} className={`${expanded ? "flex" : "hidden"} min-h-0 flex-1 flex-col md:flex`}>
+      <div className="flex items-center justify-between gap-2 border-t px-4 py-2">
+        <label htmlFor={showReadId} className="cursor-pointer text-xs">Show read messages</label>
+        <Switch id={showReadId} checked={showRead} onCheckedChange={changeShowRead} disabled={command.isPending} data-testid="switch-show-read-mentions" />
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-y px-4 py-2">
         <label className="flex cursor-pointer items-center gap-2 text-xs">
           <input type="checkbox" aria-label="Select all mentions on this page" checked={allSelected} disabled={!items.length || command.isPending}
@@ -93,6 +104,8 @@ function InboxContent({ boardId, onOpenCard }) {
           : error ? <div role="alert" className="rounded-lg border border-dashed p-4 text-sm">
             <AlertCircle className="mb-2 h-5 w-5 text-destructive" /><p className="font-medium">Your inbox couldn’t load</p><p className="mt-1 text-xs text-muted-foreground">{error.message}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>Retry</Button>
           </div>
+          : !items.length && clamping ? <div role="status" aria-label="Loading your mentions" className="h-28 animate-pulse rounded-lg bg-muted" />
+          : !items.length && !showRead ? <div className="rounded-lg border border-dashed px-4 py-7 text-center"><MailOpen className="mx-auto mb-3 h-7 w-7 text-primary/60" /><p className="text-sm font-medium">No unread mentions</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground">You’re all caught up on this board. Turn on Show read messages to see earlier mentions.</p></div>
           : !items.length ? <div className="rounded-lg border border-dashed px-4 py-7 text-center"><Inbox className="mx-auto mb-3 h-7 w-7 text-primary/60" /><p className="text-sm font-medium">Nothing waiting for you</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground">When a board member mentions you in a card comment, it will appear here.</p></div>
           : items.map((item) => <article key={item.id} className="project-inbox-item p-3" data-unread={!item.read_at} data-selected={selected.includes(item.id)}>
             <div className="flex items-start gap-2">
@@ -115,7 +128,7 @@ function InboxContent({ boardId, onOpenCard }) {
           </article>)}
       </div>
       {data && <div className="flex items-center justify-between gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
-        <span>{data.total} mention{data.total === 1 ? "" : "s"} · Page {page} / {pages}</span>
+        <span>{data.total} {showRead ? "" : "unread "}mention{data.total === 1 ? "" : "s"} · Page {Math.min(page, pages)} / {pages}</span>
         <div className="flex gap-1"><Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Previous inbox page" disabled={page <= 1 || query.isFetching || command.isPending} onClick={() => changePage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Next inbox page" disabled={page >= pages || query.isFetching || command.isPending} onClick={() => changePage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div>
       </div>}
     </div>

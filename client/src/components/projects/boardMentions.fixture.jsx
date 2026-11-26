@@ -30,8 +30,10 @@ window.fetch = async (path, options = {}) => {
         ? { ...item, ...(typeof body.read === "boolean" ? { read_at: body.read ? new Date().toISOString() : null } : {}), ...(typeof body.pinned === "boolean" ? { pinned_at: body.pinned ? new Date().toISOString() : null } : {}) } : item);
       return new Response(JSON.stringify({ updated: true }), { status: 200 });
     }
-    const sorted = [...items].sort((a, b) => Number(Boolean(b.pinned_at)) - Number(Boolean(a.pinned_at)) || new Date(b.created_at) - new Date(a.created_at));
-    return new Response(JSON.stringify({ items: mode === "empty" ? [] : sorted, total: mode === "empty" ? 0 : items.length, unreadCount: mode === "empty" ? 0 : items.filter((item) => !item.read_at).length, page: 1, pageSize: 30 }), { status: 200 });
+    const unreadOnly = new URL(pathname, location.origin).searchParams.get("unread") === "true";
+    const listed = unreadOnly ? items.filter((item) => !item.read_at) : items;
+    const sorted = [...listed].sort((a, b) => Number(Boolean(b.pinned_at)) - Number(Boolean(a.pinned_at)) || new Date(b.created_at) - new Date(a.created_at));
+    return new Response(JSON.stringify({ items: mode === "empty" ? [] : sorted, total: mode === "empty" ? 0 : listed.length, unreadCount: mode === "empty" ? 0 : items.filter((item) => !item.read_at).length, page: 1, pageSize: 30 }), { status: 200 });
   }
   if (pathname.startsWith("/api/projects/cards/")) {
     const id = pathname.split("/").pop();

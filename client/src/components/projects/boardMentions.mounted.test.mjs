@@ -139,7 +139,7 @@ test("inbox explicit actions, scoped bulk read, checked card access and no impli
     return json({ items: [current], total: 1, unreadCount: current.read_at ? 0 : 1, page: 1, pageSize: 30 });
   });
   await waitFor(() => host.querySelector('[aria-label="Open card: Review checklist"]'), "inbox loaded");
-  const query = client.getQueryCache().find({ queryKey: ["board-inbox", "board-1", 1] });
+  const query = client.getQueryCache().find({ queryKey: ["board-inbox", "board-1", 1, "all"] });
   assert.equal(query.options.refetchInterval, 30000);
   assert.equal(query.options.refetchIntervalInBackground, false);
   await click(host.querySelector('[aria-label="Open card: Review checklist"]'));
@@ -214,6 +214,70 @@ test("inbox pagination clears page selection and uses the contract pageSize", as
   await waitFor(() => host.querySelector('[aria-label="Open card: Card page 2"]'), "second page");
   assert.equal(host.textContent.includes("1 selected"), false);
   assert.ok(calls.some((url) => url.endsWith("?page=2&pageSize=30")));
+});
+
+test("show read messages toggle filters the whole inbox, resets page/selection and survives read actions", async () => {
+  // 34 mentions: two read (one pinned), 32 unread -> unread-only view spans two pages.
+  let rows = Array.from({ length: 34 }, (_, index) => ({ ...item, id: `m-${String(index).padStart(2, "0")}`, card_title: `Card ${index}`,
+    created_at: `2026-03-12T09:${String(59 - index).padStart(2, "0")}:00Z`, read_at: index < 2 ? "2026-03-12" : null, pinned_at: index === 0 ? "2026-03-12" : null }));
+  const gets = [], writes = [];
+  const { host, client } = await mount(h(Inbox, { boardId: "board-1", onOpenCard: () => {} }), async (url, options = {}) => {
+    if (options.method === "PATCH") {
+      const body = JSON.parse(options.body); writes.push(body);
+      rows = rows.map((row) => body.all || body.ids.includes(row.id) ? { ...row, read_at: body.read ? "2026-03-13" : null } : row);
+      return json({ updated: true });
+    }
+    const params = new URL(String(url), "https://fixture.test").searchParams;
+    gets.push(params.toString());
+    const unreadOnly = params.get("unread") === "true";
+    const page = Number(params.get("page")), pageSize = Number(params.get("pageSize"));
+    const listed = rows.filter((row) => !unreadOnly || !row.read_at)
+      .sort((a, b) => Number(Boolean(b.pinned_at)) - Number(Boolean(a.pinned_at)) || b.created_at.localeCompare(a.created_at));
+    return json({ items: listed.slice((page - 1) * pageSize, page * pageSize), total: listed.length, unreadCount: rows.filter((row) => !row.read_at).length, page, pageSize });
+  });
+  const toggle = () => host.querySelector('[data-testid="switch-show-read-mentions"]');
+  const footer = () => host.textContent;
+  const button = (text) => [...host.querySelectorAll("button")].find((node) => node.textContent === text);
+  await waitFor(() => host.querySelector('[aria-label="Open card: Card 0"]'), "all view");
+  assert.equal(toggle().getAttribute("role"), "switch");
+  assert.equal(toggle().getAttribute("aria-checked"), "true", "defaults to showing read messages");
+  assert.equal(host.querySelector(`label[for="${toggle().id}"]`).textContent, "Show read messages");
+  assert.ok(footer().includes("34 mentions · Page 1 / 2"));
+  await click(host.querySelector('[aria-label="Next inbox page"]'));
+  await waitFor(() => host.querySelector('[aria-label="Open card: Card 30"]'), "all page 2");
+  await click(host.querySelector('[aria-label="Select all mentions on this page"]'));
+  assert.ok(footer().includes("4 selected"));
+
+  await click(toggle());
+  await waitFor(() => host.querySelector('[aria-label="Open card: Card 2"]') && footer().includes("32 unread mentions · Page 1 / 2"), "unread page 1");
+  assert.equal(toggle().getAttribute("aria-checked"), "false");
+  assert.equal(footer().includes("selected"), false, "toggle clears selection");
+  assert.equal(host.querySelector('[aria-label="Open card: Card 0"]'), null, "pinned read mention hidden");
+  assert.equal(host.querySelector('[aria-label="Open card: Card 1"]'), null);
+  assert.equal(gets.at(-1), "page=1&pageSize=30&unread=true");
+  assert.ok(client.getQueryCache().find({ queryKey: ["board-inbox", "board-1", 1, "unread"] }));
+  assert.equal(host.querySelector('[aria-label="32 unread mentions"]')?.textContent, "32", "badge stays board-wide");
+  assert.equal(writes.length, 0, "toggling never changes message state");
+
+  await click(host.querySelector('[aria-label="Next inbox page"]'));
+  await waitFor(() => host.querySelectorAll('[aria-label^="Open card:"]').length === 2 && footer().includes("Page 2 / 2"), "unread last page");
+  await click(host.querySelector('[aria-label="Mark read"]'));
+  await waitFor(() => host.querySelectorAll('[aria-label^="Open card:"]').length === 1 && footer().includes("31 unread mentions"), "single read removed");
+  assert.equal(writes.at(-1).read, true);
+  await click(host.querySelector('[aria-label="Select all mentions on this page"]'));
+  await click(button("Mark read"));
+  await waitFor(() => footer().includes("30 unread mentions · Page 1 / 1") && host.querySelectorAll('[aria-label^="Open card:"]').length === 30, "emptied last page clamps to page 1");
+  assert.equal(footer().includes("selected"), false);
+  await click(button("Mark all read"));
+  await waitFor(() => footer().includes("No unread mentions"), "unread empty state");
+  assert.deepEqual(writes.at(-1), { all: true, read: true });
+  assert.equal(footer().includes("Nothing waiting for you"), false);
+  assert.ok(footer().includes("0 unread mentions · Page 1 / 1"));
+
+  await click(toggle());
+  await waitFor(() => host.querySelector('[aria-label="Open card: Card 0"]') && footer().includes("34 mentions · Page 1 / 2"), "read mentions restored");
+  assert.equal(gets.at(-1), "page=1&pageSize=30");
+  assert.equal(writes.length, 3);
 });
 
 test("shared comment modal sends picked IDs only, invalidates board inbox, preserves ordinary comments and viewer permissions", async () => {
