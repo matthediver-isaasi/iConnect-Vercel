@@ -31,7 +31,7 @@ const compiled = await build({
     builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
       contents: {
         scope: 'export const useSalesSettingsScope=()=>({scopeKey:"tenant-test",ready:true}); export const useQuoteNaming=()=>({singular:"proposal",plural:"proposals"});',
-        router: 'import React from "react"; export const useParams=()=>({id:"quote"}); export const useLocation=()=>({search:""}); export const useNavigate=()=>()=>{}; export const Link=({children})=><span>{children}</span>;',
+        router: 'import React from "react"; export const useParams=()=>({id:globalThis.quoteExhibitionFixture.routeId||"quote"}); export const useLocation=()=>({search:""}); export const useNavigate=()=>()=>{}; export const Link=({children})=><span>{children}</span>;',
         tax: 'export const useCatalogueTaxOptions=()=>globalThis.quoteExhibitionFixture.taxOptions || ({data:{items:[]},isPending:false,isError:false});',
         opportunity: 'export const useQuoteOpportunity=()=>globalThis.quoteExhibitionFixture.opportunity || {ready:true,contacts:[]}; export const opportunityContacts=()=>[]; export const clearOpportunityContacts=(form)=>form;',
         api: 'export const base44={_apiRequest:(...args)=>globalThis.quoteExhibitionFixture.json(...args)};',
@@ -118,6 +118,22 @@ async function mount(options = {}) {
   await settle(); await settle();
   return { host, state, close: async () => { await act(async () => root.unmount()); client.clear(); host.remove(); } };
 }
+test("proposal actions stay in the sticky bar for new, draft and issued proposals", async () => {
+  for (const mode of ["new", "draft", "issued"]) {
+    const fixture = await mount({
+      routeId: mode === "new" ? "new" : "quote",
+      quote: { ...freshQuote(), status: mode === "issued" ? "issued" : "draft" },
+    });
+    try {
+      const bar = fixture.host.querySelector('[data-testid="proposal-action-bar"]');
+      assert.ok(bar, `${mode} proposal has an action bar`);
+      for (const utility of ["sticky", "top-0", "z-20", "bg-slate-50", "flex-wrap"]) {
+        assert.ok(bar.classList.contains(utility), `${mode} action bar includes ${utility}`);
+      }
+      assert.ok(button(bar, mode === "issued" ? "Preview PDF" : "Save draft"));
+    } finally { await fixture.close(); }
+  }
+});
 async function replace(fixture) {
   await click(button(fixture.host, "Replace space")); await settle();
   const select = fixture.host.querySelector('select[aria-label="Space for slot slot"]');
