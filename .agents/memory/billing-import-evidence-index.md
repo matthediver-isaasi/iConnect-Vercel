@@ -1,5 +1,7 @@
 # Billing, import, and evidence topics
 
+- [Xero invoice readback](xero-invoice-readback-projections.md) — list and by-ID projections differ; compare matching endpoints to avoid false financial-change alarms.
+
 - [Xero optional-field searches](xero-optional-field-search.md) — null-guard string operations; rejected lookup never proves absence.
 - [Accounting tax choices](accounting-tax-choice-policy.md) — connected selectors use provider codes, never platform VAT defaults.
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — retain valid UTF-8 while decoding isolated Windows-1252 bytes.
