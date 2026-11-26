@@ -2175,3 +2175,17 @@ mtime_ms = 1795595221781
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4e987bb6-7f9c-434f-b063-64978cd60a7c/d51cb23f-3da4-4249-bedd-978556f71c8d"
 storage_version_token = "1795595228107025"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "URoN_fsR1L0ZMDUHTqZoo"
+uri = "file://generated-artifacts/organisation-purchase-activity-audit.html"
+type = "html"
+title = "Organisation purchase Activity audit"
+description = "All 11 invoice orders reviewed: Bayer already linked; 10 lack frozen organisation IDs; no additional repair candidates."
+logical_id = "3d6b68ac-decc-4ee8-a940-0a00a2f31da7"
+content_hash = "sha256:ce14b9fa387836903fad94ebf6ddb5799131cdabc59e8bdf0bffd27a210c3a01"
+size = 6201
+mtime_ms = 1795685555083
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3d6b68ac-decc-4ee8-a940-0a00a2f31da7/21edf47b-0d06-4985-ae9e-31ee35cb08f9"
+storage_version_token = "1795685605536745"
+content_type = "text/html"
