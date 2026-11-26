@@ -13,14 +13,31 @@ identity and a snapshot to the existing queue. Legacy rows and delivery history
 are retained. Legacy deduplication remains enforced by a partial index; follow-ups
 have a separate unique target index. No permissions are broadened.
 
-**Applied:** only to disposable, isolated local PostgreSQL fixtures for testing.
-**Pending:** all live application databases. No SOURCE, DEST, tenant configuration,
-backfill, requeue, mail send or deployment was performed for this change.
-Before an authorized release, independently verify the intended **DEST** project
-identity and its prerequisite migrations. Never apply to legacy SOURCE or assume
-the development runtime points at DEST. Obtain owner approval before live
-migration/deployment. Run the migration in its transaction before enabling
-follow-ups. A source merge alone does not establish public rollout.
+**Live installation:** the owner approved both missing updates on 26 November
+2026. They were installed on the independently verified external **DEST** project
+`lvmzliemqnieeoruhkik`, with these managed migration records:
+
+- `20261126145727_training_reminder_target_snapshot` installs
+  `202612310039_training_reminder_target_snapshot.sql`.
+- `20261126145740_event_email_follow_ups` installs
+  `202612310060_event_email_follow_ups.sql`.
+
+Each installation took a bounded write lock and compared row counts and hashes
+of all pre-existing fields inside its transaction. All 334 email configurations
+and 8,730 scheduled-email records were preserved. No tenant configuration,
+backfill, requeue, mail send or application deployment was performed. The schema
+cache was refreshed, and authenticated read-only REST projections and the
+PostgREST OpenAPI schema independently confirmed all seven new columns.
+
+Isolated migration, booking, worker and editor checks passed, along with six
+authenticated save-route regressions covering confirmation, reminder and
+follow-up edits for both event types: 35 relevant checks in total. No live
+configuration was created as a test, and the signed-in editor was not exercised.
+
+Other databases still require their own preflight and approval. Never apply to
+legacy SOURCE or assume the development runtime points at DEST. Verify actual
+column, constraint and index contracts rather than relying solely on the source
+migration filename. A source merge alone does not establish public rollout.
 
 ## Tenant setup
 
