@@ -27,6 +27,50 @@ test('invoice billing requires explicit stored text/email mappings', () => {
   assert.throws(() => invoiceBillingDetails({}, fields, { name: 'Buyer', email: 'buyer@example.org' }), /billing name and email/);
 });
 
+for (const scenario of ['missing-link', 'existing-link', 'conflict', 'foreign-organization', 'concurrent-change']) {
+  test(`organisation invoice activity linkage: ${scenario}`, async () => {
+    const snapshot = { linkage: { formId: 'form' }, organizationCustomer: { organizationId: 'org' } };
+    const source = { id: 'submission', form_id: 'form', organization_id: scenario === 'conflict'
+      ? 'other-org' : scenario === 'existing-link' ? 'org' : null,
+    payment_provider: 'invoice', payment_amount: 120, payment_currency: 'GBP',
+    payment_meta: { invoice_order: { version: 1, provider: 'xero', companyId: 'company',
+      connectionId: 'connection', amount: 120, currency: 'GBP', snapshot } } };
+    let written;
+    const db = { from(table) {
+      const filters = {};
+      const q = { select() { return q; }, eq(k, v) { filters[k] = v; return q; },
+        is(k, v) { filters[k] = v; return q; },
+        update(v) { written = v; return q; },
+        async maybeSingle() {
+          assert.equal(filters.tenant_id, 'tenant');
+          if (table === 'organization') {
+            assert.equal(filters.id, 'org');
+            return { data: scenario === 'foreign-organization' ? null : { id: 'org' } };
+          }
+          if (written) {
+            assert.equal(filters.organization_id, source.organization_id);
+            return { data: scenario === 'concurrent-change' ? null : { id: source.id } };
+          }
+          return { data: source };
+        },
+      };
+      return q;
+    } };
+    const run = () => linkFormInvoiceSource({ db, row: { tenant_id: 'tenant', source_id: source.id,
+      provider: 'xero', company_id: 'company', connection_id: 'connection', snapshot, invoice_result: { id: 'invoice' } } });
+    if (['conflict', 'foreign-organization', 'concurrent-change'].includes(scenario)) {
+      await assert.rejects(run);
+      if (scenario !== 'concurrent-change') assert.equal(written, undefined);
+    } else {
+      assert.deepEqual(await run(), { linked: true });
+      assert.equal(written.organization_id, scenario === 'missing-link' ? 'org' : undefined);
+      assert.equal(written.created_organization_id, undefined);
+      assert.equal(written.submission_data, undefined);
+      assert.equal(written.payment_meta.invoice_result.id, 'invoice');
+    }
+  });
+}
+
 test('ordinary invoice preserves gross amount and explicit default tax', () => {
   const [line] = invoiceLines({ amount: 120, label: 'Order', taxOptions: [{ id: 'OUTPUT2', rateBps: 2000 }],
     defaultCode: 'OUTPUT2', accountCode: '200' });

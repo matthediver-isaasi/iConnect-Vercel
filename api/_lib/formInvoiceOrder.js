@@ -130,7 +130,7 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
 }
 
 export async function assertFormInvoiceSource({ db, row }) {
-  const { data, error } = await db.from('form_submission').select('id,form_id,payment_provider,payment_meta,payment_amount,payment_currency')
+  const { data, error } = await db.from('form_submission').select('id,form_id,organization_id,payment_provider,payment_meta,payment_amount,payment_currency')
     .eq('tenant_id', row.tenant_id).eq('id', row.source_id).maybeSingle();
   const authority = data?.payment_meta?.invoice_order;
   if (error || !data || data.payment_provider !== 'invoice' || authority?.version !== 1
@@ -221,10 +221,26 @@ export async function prepareFormInvoiceSource({ row, transport }, dependencies 
 export async function linkFormInvoiceSource({ db, row }) {
   const source = await assertFormInvoiceSource({ db, row });
   if (!row.invoice_result?.id) fail('Invoice result is missing.');
-  const { data, error } = await db.from('form_submission').update({
+  const organizationId = row.snapshot.organizationCustomer?.organizationId;
+  if (organizationId && source.organization_id && source.organization_id !== organizationId) {
+    fail('Submission organisation differs from the invoice customer.', 'FORM_INVOICE_ORGANIZATION_CONFLICT');
+  }
+  const linkOrganization = organizationId && !source.organization_id;
+  if (linkOrganization) {
+    const organization = await db.from('organization').select('id')
+      .eq('tenant_id', row.tenant_id).eq('id', organizationId).maybeSingle();
+    if (organization.error) throw organization.error;
+    if (!organization.data) fail('Invoice organisation is unavailable.', 'FORM_INVOICE_ORGANIZATION_UNAVAILABLE');
+  }
+  let update = db.from('form_submission').update({
     payment_meta: { ...source.payment_meta, invoice_result: row.invoice_result },
+    ...(linkOrganization ? { organization_id: organizationId } : {}),
   }).eq('tenant_id', row.tenant_id).eq('id', row.source_id)
-    .eq('payment_meta', JSON.stringify(source.payment_meta)).select('id').maybeSingle();
+    .eq('payment_meta', JSON.stringify(source.payment_meta));
+  // Do not overwrite an association changed while the invoice was linking.
+  if (organizationId) update = source.organization_id
+    ? update.eq('organization_id', source.organization_id) : update.is('organization_id', null);
+  const { data, error } = await update.select('id').maybeSingle();
   if (error || !data) throw error || new Error('Invoice linkage changed; retry required.');
   return { linked: true };
 }
