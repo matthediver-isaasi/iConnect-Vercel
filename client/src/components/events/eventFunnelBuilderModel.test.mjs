@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFunnelDraft, draftFingerprint, graphConnections, graphIssues, nodeTitle, earlierPurchaseNodes, selectableEvents, describeFunnelIssue,
-  purchaseVisibilityPatch, purchaseVisibilityIssues } from './eventFunnelBuilderModel.mjs';
+  purchaseVisibilityPatch, purchaseVisibilityIssues, nodeLabel, nodeStepNumber } from './eventFunnelBuilderModel.mjs';
 
 const catalog = [{ id: 'conference', kind: 'simple', title: 'Annual conference', tickets: [{ id: 'admission', name: 'Admission' }] }];
 function validDraft() {
@@ -11,6 +11,33 @@ function validDraft() {
   });
   return draft;
 }
+
+test('step labels distinguish same-event tickets and keep checkout last without changing identities', () => {
+  const event = { id: 'conference', kind: 'simple', tenantId: 'association' };
+  const options = [{ ...catalog[0], tickets: [...catalog[0].tickets, { id: 'dinner', name: 'Dinner' }] }];
+  const nodes = [
+    { id: 'checkout', type: 'checkout' },
+    { id: 'source', type: 'source', event, ticketIds: ['admission'] },
+    { id: 'branch', type: 'condition', name: 'Check day tickets' },
+    { id: 'dinner-step', type: 'addon', event, ticketIds: ['dinner'] },
+  ];
+  const before = JSON.stringify(nodes);
+  assert.equal(nodeLabel(nodes[1], nodes, options), 'Step 1 · Annual conference — Admission');
+  assert.equal(nodeLabel(nodes[2], nodes, options), 'Step 2 · Check day tickets');
+  assert.equal(nodeLabel(nodes[3], nodes, options), 'Step 3 · Annual conference — Dinner');
+  assert.equal(nodeLabel(nodes[0], nodes, options), 'Step 4 · Checkout');
+  assert.equal(JSON.stringify(nodes), before);
+  assert.equal(nodeStepNumber({ id: 'unknown' }, nodes), null);
+  assert.equal(nodeLabel(null, nodes, options), 'Unavailable destination');
+  assert.equal(nodeTitle({ type: 'condition', name: '  ' }, options), 'Selection condition');
+  assert.equal(nodeTitle({ type: 'condition', name: '  Named condition  ' }, options), 'Named condition');
+  assert.equal(nodeTitle({ type: 'condition' }, options), 'Selection condition');
+});
+test('multi-ticket and unavailable references remain readable without exposing identifiers', () => {
+  const node = { id: 'one', type: 'event', event: { id: 'conference', kind: 'simple' }, ticketIds: ['admission', 'missing-secret-id'] };
+  assert.equal(nodeLabel(node, [node], catalog), 'Step 1 · Annual conference — Admission, Previously selected ticket unavailable');
+  assert.ok(!nodeLabel(node, [node], []).includes('missing-secret-id'));
+});
 
 test('new drafts have independent IDs, revision zero and layout separate from graph', () => {
   const first = createFunnelDraft('association'), second = createFunnelDraft('association');

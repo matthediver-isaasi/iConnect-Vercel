@@ -3,7 +3,7 @@ import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType 
 import { GitBranch, Plus, Save, Upload, Trash2, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { evaluateFunnelRoute } from '../../../../shared/eventFunnelGraph.mjs';
-import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, earlierPurchaseNodes, reofferNotes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue, findMembershipTier, membershipStagePatch } from './eventFunnelBuilderModel.mjs';
+import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEvent, graphConnections, graphIssues, isPurchase, nodeTitle, nodeLabel, earlierPurchaseNodes, reofferNotes, purchaseVisibilityPatch, purchaseVisibilityIssues, selectableEvents, describeFunnelIssue, findMembershipTier, membershipStagePatch } from './eventFunnelBuilderModel.mjs';
 import '@xyflow/react/dist/style.css';
 import './EventFunnelBuilder.css';
 import { autoLayoutFunnel } from './eventFunnelLayout.mjs';
@@ -57,7 +57,7 @@ function Destination({ label, value, nodes, catalog, onChange }) {
   return <Field label={label}><select aria-label={label} value={value || ''} onChange={event => onChange(event.target.value)}>
     <option value="">Choose a destination</option>
     {value && !nodes.some(node => node.id === value) && <option value={value}>Previously connected destination unavailable</option>}
-    {nodes.map(node => <option key={node.id} value={node.id}>{nodeTitle(node, catalog, tiers)}{isPurchase(node) ? ` — ${typeNames[node.type]}` : ''}</option>)}
+    {nodes.map(node => <option key={node.id} value={node.id}>{nodeLabel(node, nodes, catalog, tiers)}{isPurchase(node) ? ` — ${typeNames[node.type]}` : ''}</option>)}
   </select></Field>;
 }
 
@@ -127,7 +127,7 @@ function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
     </div>}
     {node.type !== 'source' && <div className="efb-field"><span>Required earlier purchases</span>
       <p className="efb-muted">{node.type === 'addon' ? 'An add-on must follow an earlier offer for the same event. It can offer a ticket from an earlier step again only if a condition before it continues when that ticket is not selected.' : 'If an earlier required offer is not included, this offer follows its skip choice.'}</p>
-      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog, tiers)}</label>)}
+      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeLabel(other, nodes, catalog, tiers)}</label>)}
       {!earlierPurchases.length && <p className="efb-muted">Connect an earlier purchase to this offer to select a prerequisite.</p>}
       {unavailablePrerequisites.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => update({ requires: prerequisites.filter(value => value !== id) })} />
          {nodes.some(other => other.id === id) ? 'Not a connected earlier purchase' : 'Previously selected prerequisite unavailable'} (uncheck to remove)</label>)}
@@ -175,7 +175,7 @@ function MembershipInspector({ node, nodes, catalog, update }) {
     }} /></Field>
     <div className="efb-field"><span>Only if they bought…</span>
       <p className="efb-muted">Optional. If a chosen earlier offer is not included, this membership offer is skipped. Without a choice, the source event qualifies.</p>
-      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeTitle(other, catalog, tiers)}</label>)}
+      {earlierPurchases.map(other => <label className="efb-check" key={other.id}><input type="checkbox" checked={prerequisites.includes(other.id)} onChange={() => update({ requires: prerequisites.includes(other.id) ? prerequisites.filter(id => id !== other.id) : [...prerequisites, other.id] })} />{nodeLabel(other, nodes, catalog, tiers)}</label>)}
       {unavailablePrerequisites.map(id => <label className="efb-check" key={id}><input type="checkbox" checked onChange={() => update({ requires: prerequisites.filter(value => value !== id) })} />
         {nodes.some(other => other.id === id) ? 'Not a connected earlier purchase' : 'Previously selected prerequisite unavailable'} (uncheck to remove)</label>)}
     </div>
@@ -189,6 +189,9 @@ function ConditionInspector({ node, nodes, catalog, tenantId, update }) {
   const updateRule = (index, patch) => update({ rules: rules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
   const newTest = () => ({ event: eventReference(selectableEvents(catalog)[0], tenantId), selected: true });
   return <>
+    <Field label="Condition name"><input aria-label="Condition name" data-testid="funnel-condition-name"
+      maxLength={120} placeholder="Selection condition" value={node.name || ''}
+      onChange={event => update({ name: event.target.value })} /></Field>
     <p className="efb-muted">The first matching rule wins. Check answers for earlier offers; a fallback handles every other answer.</p>
     <p className="efb-muted">To offer a ticket again as a later add-on (for example another day), use a rule that requires that ticket to be not selected.</p>
     {rules.map((rule, index) => <div className="efb-rule" key={index} data-testid={`funnel-rule-${index}`}>
@@ -234,6 +237,9 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
   const [baseline, setBaseline] = useState('');
   const [localDefinitions, setLocalDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  // React Flow's mini-map reads dimensions from the controlled user nodes.
+  // Keep measurements in view state, never in the saved purchase graph/layout.
+  const [nodeMeasurements, setNodeMeasurements] = useState({});
   const [operation, setOperation] = useState(null);
   const [message, setMessage] = useState(null);
   const [samples, setSamples] = useState({});
@@ -302,6 +308,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     if (dirty && !window.confirm('Discard unsaved changes to this funnel?')) return;
     const next = clone(definition);
     next.layout = next.layout || { positions: {} };
+    if (next.id !== draft?.id) setNodeMeasurements({});
     setDraft(next); setBaseline(isNew ? '' : draftFingerprint(next)); setSelectedId(next.graph?.entry || null);
     setSamples({}); setCheckoutNow(false); setConfirmDelete(false); setMessage(null); invalidatePreview();
     requestAnimationFrame(() => flowRef.current?.fitView({ padding: .25 }));
@@ -400,8 +407,9 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
   const connections = graphConnections(graph);
   const flowNodes = graphNodes.map((node, index) => ({
     id: node.id, type: 'funnel', selected: selectedId === node.id,
+    ...(nodeMeasurements[node.id] ? { measured: nodeMeasurements[node.id] } : {}),
     position: draft?.layout?.positions?.[node.id] || { x: 80 + (index % 2) * 300, y: 60 + Math.floor(index / 2) * 180 },
-    data: { node, title: nodeTitle(node, catalog, tiers),
+    data: { node, title: nodeLabel(node, graphNodes, catalog, tiers),
        detail: isPurchase(node) ? `${(node.ticketIds || []).length} ticket classes`
          : node.type === 'membership' ? (node.membership?.scope === 'member' ? (node.membership.recipientMode === 'attendees' ? 'Individual · each named attendee' : 'Individual · purchaser') : 'Organisation · purchaser’s organisation')
          : node.type === 'condition' ? `${(node.rules || []).length} rules · first match wins` : 'All selected offers finish here',
@@ -471,6 +479,18 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
       <div className="efb-grid">
         <div className="efb-canvas" data-testid="funnel-canvas">
           <ReactFlow key={draft.id} nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} onInit={instance => { flowRef.current = instance; }} fitView fitViewOptions={{ padding: .25 }} minZoom={.15} maxZoom={2} nodesDraggable={!locked} nodesConnectable={!locked} elementsSelectable onNodeClick={(_, node) => { setSelectedId(node.id); setConfirmDelete(false); }} onPaneClick={() => { setSelectedId(null); setConfirmDelete(false); }} onNodesChange={changes => {
+            const dimensions = changes.filter(change => change.type === 'dimensions'
+              && Number.isFinite(change.dimensions?.width) && change.dimensions.width > 0
+              && Number.isFinite(change.dimensions?.height) && change.dimensions.height > 0);
+            if (dimensions.length) setNodeMeasurements(current => {
+              let next = current;
+              for (const change of dimensions) {
+                if (current[change.id]?.width === change.dimensions.width && current[change.id]?.height === change.dimensions.height) continue;
+                if (next === current) next = { ...current };
+                next[change.id] = { width: change.dimensions.width, height: change.dimensions.height };
+              }
+              return next;
+            });
             if (locked) return;
             const positions = changes.filter(change => change.type === 'position' && change.position);
             const selection = changes.find(change => change.type === 'select' && change.selected);
@@ -484,7 +504,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
         </div>
         <aside className="efb-inspector" aria-label="Selected node settings" data-testid="funnel-inspector">
           {!selected ? <div className="efb-empty"><h4>Select a node</h4><p className="efb-muted">Choose an offer, condition or checkout to inspect its configuration.</p></div> : <fieldset disabled={locked}>
-             <h4>{isPurchase(selected) || selected.type === 'membership' ? nodeTitle(selected, catalog, tiers) : typeNames[selected.type] || 'Unsupported funnel step'}</h4>
+             <h4>{nodeLabel(selected, graphNodes, catalog, tiers)}</h4>
             {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} graph={graph} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'membership' && <MembershipInspector node={selected} nodes={graphNodes} catalog={catalog} update={updateNode} />}
             {selected.type === 'condition' && <ConditionInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
@@ -510,7 +530,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
             const event = findEvent(catalog, node.event);
             const sample = samples[node.id] || {};
             return <div className="efb-sample" key={node.id} data-testid={`funnel-sample-${node.id}`}>
-              <strong>{nodeTitle(node, catalog, tiers)}</strong><p className="efb-muted">{typeNames[node.type]}</p>
+              <strong>{nodeLabel(node, graphNodes, catalog, tiers)}</strong><p className="efb-muted">{typeNames[node.type]}</p>
               {(node.ticketIds || []).map(id => <label className="efb-quantity" key={id}><span>{event?.tickets?.find(ticket => ticket.id === id)?.name || 'Previously selected ticket unavailable'}</span><input aria-label={`Sample quantity for ${nodeTitle(node, catalog, tiers)} — ${event?.tickets?.find(ticket => ticket.id === id)?.name || 'unavailable ticket'}`} data-testid={`funnel-quantity-${node.id}-${id}`} type="number" min="0" step="1" disabled={sample.skip} value={sample.quantities?.[id] ?? 0} onChange={change => {
                 const quantity = change.target.value;
                 invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { ...current[node.id],
@@ -523,7 +543,7 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
             </div>;
           })}
           {graphNodes.filter(node => node.type === 'membership').map(node => <div className="efb-sample" key={node.id} data-testid={`funnel-sample-${node.id}`}>
-            <strong>{nodeTitle(node, catalog, tiers)}</strong><p className="efb-muted">{typeNames.membership}</p>
+            <strong>{nodeLabel(node, graphNodes, catalog, tiers)}</strong><p className="efb-muted">{typeNames.membership}</p>
             <label className="efb-quantity"><span>Sample answer</span><select aria-label={`Sample answer for ${nodeTitle(node, catalog, tiers)}`} data-testid={`funnel-membership-sample-${node.id}`} value={samples[node.id]?.decision || ''} onChange={change => {
               const decision = change.target.value;
               invalidatePreview(); setSamples(current => ({ ...current, [node.id]: { decision } }));
@@ -535,10 +555,10 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
         {localPreview?.error && <div className="efb-notice" role="status">Preview unavailable: {describeFunnelIssue(localPreview.error, graph, catalog, tiers)}</div>}
         {routeResult && <div aria-live="polite" data-testid="funnel-preview-result">
           <p className="efb-muted">{serverPreview ? 'Confirmed preview' : 'Draft simulation'} · {routeResult.atCheckout ? 'Checkout reached' : 'Paused at an unanswered offer'}</p>
-           <ol className="efb-route" aria-label="Preview route">{routeResult.route.map((id, index) => <li key={`${id}-${index}`}>{index + 1}. {nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)}</li>)}</ol>
-           <p className="efb-muted">Included at checkout: {[...(routeResult.retainedNodeIds || []), ...(routeResult.acceptedMembershipNodeIds || [])].map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)).join(', ') || 'None'}<br />Still awaiting an answer: {(routeResult.pendingNodeIds || []).map(id => nodeTitle(graphNodes.find(node => node.id === id), catalog, tiers)).join(', ') || 'None'}</p>
-           {(routeResult.matchedRules || []).map(match => <p className="efb-muted" key={match.nodeId}>{nodeTitle(graphNodes.find(node => node.id === match.nodeId), catalog, tiers)}: {match.priority == null ? 'used the required fallback' : `matched priority ${match.priority}`}</p>)}
-           {(routeResult.removed || []).map(item => <p className="efb-notice" key={item.nodeId}>{nodeTitle(graphNodes.find(node => node.id === item.nodeId), catalog, tiers)}: {describeFunnelIssue(item.reason, graph, catalog, tiers)}</p>)}
+           <ol className="efb-route" aria-label="Preview route">{routeResult.route.map((id, index) => <li key={`${id}-${index}`}>{nodeLabel(graphNodes.find(node => node.id === id), graphNodes, catalog, tiers)}</li>)}</ol>
+           <p className="efb-muted">Included at checkout: {[...(routeResult.retainedNodeIds || []), ...(routeResult.acceptedMembershipNodeIds || [])].map(id => nodeLabel(graphNodes.find(node => node.id === id), graphNodes, catalog, tiers)).join(', ') || 'None'}<br />Still awaiting an answer: {(routeResult.pendingNodeIds || []).map(id => nodeLabel(graphNodes.find(node => node.id === id), graphNodes, catalog, tiers)).join(', ') || 'None'}</p>
+           {(routeResult.matchedRules || []).map(match => <p className="efb-muted" key={match.nodeId}>{nodeLabel(graphNodes.find(node => node.id === match.nodeId), graphNodes, catalog, tiers)}: {match.priority == null ? 'used the required fallback' : `matched priority ${match.priority}`}</p>)}
+           {(routeResult.removed || []).map(item => <p className="efb-notice" key={item.nodeId}>{nodeLabel(graphNodes.find(node => node.id === item.nodeId), graphNodes, catalog, tiers)}: {describeFunnelIssue(item.reason, graph, catalog, tiers)}</p>)}
         </div>}
       </section>
     </>}

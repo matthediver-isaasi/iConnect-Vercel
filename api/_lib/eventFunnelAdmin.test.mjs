@@ -45,6 +45,27 @@ function harness(overrides = {}, eventRow = { id: eventId, start_date: '2099-01-
   return { invoke, calls, db };
 }
 const save = () => ({ action: 'save', id, name: 'Admissions', expectedRevision: 0, graph: graph(), layout: { positions: {} } });
+test('condition names survive save and preview and invalid names fail before persistence', async () => {
+  const input = save();
+  input.graph.nodes[0].accept = 'branch';
+  input.graph.nodes.push({ id: 'branch', type: 'condition', name: 'Choose the next day',
+    rules: [{ priority: 0, match: 'all', tests: [{ event: input.graph.nodes[0].event, ticketId: 'standard', selected: true }], to: 'checkout' }],
+    fallback: 'checkout' });
+  const h = harness(), res = await h.invoke(input);
+  assert.equal(res.code, 200);
+  const saved = h.calls.find(([name]) => name === 'event_funnel_save_definition')[1].p_graph;
+  assert.equal(saved.nodes.find(node => node.id === 'branch').name, 'Choose the next day');
+  const preview = await h.invoke({ action: 'preview', graph: JSON.parse(JSON.stringify(saved)),
+    selections: [{ nodeId: 'source', tickets: [{ id: 'standard', quantity: 1 }] }] });
+  assert.equal(preview.code, 200);
+  assert.deepEqual(preview.body.route, ['source', 'branch', 'checkout']);
+  for (const name of [null, 42, {}, 'x'.repeat(121)]) {
+    const invalid = structuredClone(input); invalid.graph.nodes.at(-1).name = name;
+    const rejected = harness();
+    assert.equal((await rejected.invoke(invalid)).code, 400);
+    assert.equal(rejected.calls.some(([method]) => method === 'event_funnel_save_definition'), false);
+  }
+});
 test('past, undated and completed future events fail before saving', async () => {
   for (const event of [{start_date:'2000-01-01'}, {}, {start_date:'2099-01-01',status:'completed'}]) {
     const query = {select(){return this;},eq(){return this;},async maybeSingle(){return {data:{id:eventId,...event}};}};

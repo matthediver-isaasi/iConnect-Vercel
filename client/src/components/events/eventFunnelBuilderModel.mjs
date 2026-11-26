@@ -14,7 +14,28 @@ export const findMembershipTier = (tiers, node) => (tiers || []).find(tier => ti
 export const nodeTitle = (node, catalog, tiers = []) => !node ? 'Unavailable destination'
   : isPurchase(node) ? (findEvent(catalog, node.event)?.title || 'Previously selected event unavailable')
     : node.type === 'membership' ? `Complimentary membership: ${findMembershipTier(tiers, node)?.name || (node.membership?.scheduleId ? 'unavailable tier' : 'choose a tier')}`
-    : node.type === 'condition' ? 'Selection condition' : node.type === 'checkout' ? 'Checkout' : 'Unsupported funnel step';
+    : node.type === 'condition' ? (typeof node.name === 'string' && node.name.trim() || 'Selection condition') : node.type === 'checkout' ? 'Checkout' : 'Unsupported funnel step';
+
+// Authoring references, not an execution sequence: branches can skip steps.
+// Keep saved authoring order, with the source first and checkout last. Layout
+// changes and renaming never change numbering or mutate purchase identities.
+export function nodeStepNumber(node, nodes) {
+  if (!node) return null;
+  const ordered = [
+    ...nodes.filter(item => item.type === 'source'),
+    ...nodes.filter(item => !['source', 'checkout'].includes(item.type)),
+    ...nodes.filter(item => item.type === 'checkout'),
+  ];
+  const index = ordered.findIndex(item => item.id === node.id);
+  return index === -1 ? null : index + 1;
+}
+export function nodeLabel(node, nodes, catalog, tiers = []) {
+  const number = nodeStepNumber(node, nodes);
+  const title = nodeTitle(node, catalog, tiers);
+  const tickets = node && isPurchase(node) ? (node.ticketIds || []).map(id =>
+    findEvent(catalog, node.event)?.tickets?.find(ticket => ticket.id === id)?.name || 'Previously selected ticket unavailable') : [];
+  return `${number ? `Step ${number} · ` : ''}${title}${tickets.length ? ` — ${tickets.join(', ')}` : ''}`;
+}
 
 export function describeFunnelIssue(issue, graph, catalog = [], tiers = []) {
   let message = String(issue || 'Review this funnel step.');

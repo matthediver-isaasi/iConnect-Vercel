@@ -78,6 +78,9 @@ export function validateFunnelGraph(graph) {
       if (node.funnelOnly && !node.requires.length) fail('Same-checkout offers require at least one prerequisite');
     }
     if (node.type === 'condition') {
+      if (node.name !== undefined && (typeof node.name !== 'string' || node.name.length > 120)) {
+        fail('Condition names must be 120 characters or fewer');
+      }
       if (!Array.isArray(node.rules) || !node.rules.length || node.rules.length > 100) fail('Conditions require rules');
       const priorities = new Set();
       for (const rule of node.rules) {

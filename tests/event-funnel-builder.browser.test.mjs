@@ -61,6 +61,56 @@ async function open() {
   await page.getByTestId('funnel-node-source').waitFor();
   return { page, errors };
 }
+test('mini-map renders visible measured nodes and keeps them after edits', async () => {
+  const { page, errors } = await open();
+  try {
+    const visibleMiniMapNodes = () => page.waitForFunction(() => {
+      const nodes = [...document.querySelectorAll('.react-flow__minimap-node')];
+      return nodes.length === 5 && nodes.every(node => {
+        const box = node.getBoundingClientRect();
+        const fill = getComputedStyle(node).fill;
+        return box.width > 1 && box.height > 1 && fill !== 'none' && fill !== 'transparent';
+      });
+    }, null, { timeout: 5000 });
+    await visibleMiniMapNodes();
+    await page.getByTestId('funnel-node-branch').click();
+    await page.getByLabel('Condition name', { exact: true }).fill('Renamed routing condition');
+    await visibleMiniMapNodes();
+    await page.getByTestId('funnel-auto-layout').click();
+    await visibleMiniMapNodes();
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    assert.equal(await page.evaluate(() => window.saved[0].graph.nodes.some(node =>
+      ['measured', 'width', 'height'].some(key => key in node))), false);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+test('step numbers, ticket labels and saved condition names identify every builder reference', async () => {
+  const { page, errors } = await open();
+  try {
+    await page.getByTestId('funnel-node-branch').click();
+    await page.getByLabel('Condition name', { exact: true }).fill('Check selected day');
+    assert.match(await page.getByTestId('funnel-node-branch').innerText(), /Step 2 · Check selected day/);
+    await page.getByTestId('funnel-node-parking').click();
+    const inspector = page.locator('.efb-inspector');
+    const requiredSource = inspector.locator('.efb-check').filter({ hasText: 'Step 1 · Annual conference' });
+    assert.match(await requiredSource.innerText(), /Standard admission, Premium admission/);
+    const options = await page.getByLabel('If accepted, continue to', { exact: true }).locator('option').evaluateAll(items =>
+      items.map(item => ({ value: item.value, label: item.textContent })));
+    assert.equal(options.find(option => option.value === 'branch').label, 'Step 2 · Check selected day');
+    assert.match(options.find(option => option.value === 'parking').label, /^Step 3 · Annual conference — Parking/);
+    assert.match(options.find(option => option.value === 'dinner').label, /^Step 4 · Annual conference — Dinner/);
+    assert.equal(options.find(option => option.value === 'checkout').label, 'Step 5 · Checkout');
+    await page.getByTestId('funnel-save').click();
+    await page.waitForFunction(() => window.saved.length === 1);
+    assert.equal(await page.evaluate(() => window.saved[0].graph.nodes.find(node => node.id === 'branch').name), 'Check selected day');
+    assert.deepEqual(await page.evaluate(() => window.saved[0].graph.nodes.map(node => node.id)), ['source', 'branch', 'parking', 'dinner', 'checkout']);
+    await page.getByTestId('funnel-node-branch').click();
+    await page.getByLabel('Condition name', { exact: true }).fill('');
+    assert.match(await page.getByTestId('funnel-node-branch').innerText(), /Step 2 · Selection condition/);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
 test('mounted editor previews prioritised branches and source-only completion', async () => {
   const { page, errors } = await open();
   try {
