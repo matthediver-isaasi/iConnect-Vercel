@@ -39,7 +39,7 @@ import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } fr
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 import { persistedLineAmounts, persistedQuoteAmounts } from "./quoteDisplayAmounts";
 import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
-import { applyDefaultFreeTextTax, persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
+import { applyDefaultFreeTextTax, catalogueTaxForNewQuoteLine, persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import QuoteBillingSettings from "./QuoteBillingSettings";
 import BillingSchedule from "./BillingSchedule";
 import { billingScheduleOf, percentageInstalmentsForEditing, percentageInstalmentsForSaving } from "./billingGroups";
@@ -321,7 +321,8 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
   const choose = (index, type, id) => {
     const source = (type === "product" ? products : bundles).find((item) => String(idOf(item)) === String(id));
     const price = type === "product" ? pick(source, "standardPriceMinor", "standard_price_minor", 0) : pick(source, "sellingPriceMinor", "selling_price_minor", 0);
-    patch(index, { [`${type}Id`]: id, eventReference: type === "product" ? source?.eventReference || null : undefined, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined, ...(type === "product" ? { taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 0), taxCode: source?.taxCode || null, legacyTax: false, taxChanged: false } : {}) });
+    patch(index, { [`${type}Id`]: id, eventReference: type === "product" ? source?.eventReference || null : undefined, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined,
+      ...catalogueTaxForNewQuoteLine(type, source) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
   return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles, tickets or a custom line. Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("ticket")}><Plus className="mr-1 h-3.5 w-3.5" />Ticket</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
@@ -349,7 +350,7 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
         {(line.type === "product" || line.type === "bundle") && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
         <div className="mt-3">
           <Label>Provider VAT code</Label>
-          {line.type === "product" || readOnly ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the selected product’s provider code automatically."}</p> : <>
+          {line.type === "product" || readOnly || (line.type === "bundle" && bundles.find(item => String(idOf(item)) === String(line.bundleId))?.taxOverride) ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the catalogue VAT code automatically."}</p> : <>
             <select aria-label={`Line ${index + 1} provider VAT code`} className="mt-1 h-9 w-full rounded-md border border-input bg-white px-3 text-sm disabled:opacity-50" disabled={taxOptions.isPending || taxOptions.isError} value={line.taxChanged ? taxCodeKey(line.taxCode) : ""} onChange={(event) => {
               if (!event.target.value) {
                 const saved = form.lines[index];

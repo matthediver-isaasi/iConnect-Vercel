@@ -15,7 +15,7 @@ const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
 const built = await build({
-  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote, ticketLineError } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx";', loader: "js" },
+  stdin: { resolveDir: process.cwd(), contents: 'export { LinesEditor, QuotesList, normalizeQuote, ticketLineError } from "./client/src/components/sales/QuotesWorkspace.jsx"; export { default as PublicSalesQuote } from "./client/src/pages/PublicSalesQuote.jsx"; export { default as BundleTaxOverride } from "./client/src/pages/sales/BundleTaxOverride.jsx";', loader: "js" },
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
   alias: { "@": `${process.cwd()}/client/src`, "@shared": `${process.cwd()}/shared` },
   plugins: [{
@@ -173,6 +173,54 @@ test("mounted draft previews use calculator rounding, quantity and discounts; re
   }
 });
 
+test("bundle VAT dropdown shows provider names, supports zero-rate selection and clearing", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let selected;
+  const code = { id: "EXEMPT", name: "Exempt income", rateBps: 0, selectable: true };
+  function Harness() {
+    const [value, setValue] = React.useState({ provider: "xero", id: "OLD", name: "Saved VAT", rateBps: 500 });
+    return React.createElement(mod.exports.BundleTaxOverride, { value, onChange: next => { selected = next; setValue(next); },
+      taxOptions: { data: { provider: "xero", items: [code] }, isPending: false, isError: false } });
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const select = host.querySelector('[aria-label="Bundle VAT override"]');
+    assert.match(select.selectedOptions[0].textContent, /Saved VAT.*unavailable/);
+    assert.match(host.textContent, /ignoring all included products/);
+    const currentOption = [...select.options].find(option => option.textContent === "Exempt income");
+    assert.ok(currentOption);
+    await act(async () => { select.value = currentOption.value; select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(selected.id, "EXEMPT");
+    assert.equal(selected.provider, "xero");
+    assert.equal(selected.rateBps, 0);
+    await act(async () => { select.value = ""; select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(selected, null);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("a selected bundle override is displayed instead of manual line tax selection", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let current;
+  const code = { provider: "xero", id: "STANDARD", name: "Bundle VAT", rateBps: 2000 };
+  function Harness() {
+    const [form, setForm] = React.useState({ currency: "GBP", lines: [{ key: "bundle", type: "bundle",
+      bundleId: "bundle-new", quantity: 1, standardUnitPriceMinor: 10000, quotedUnitPriceMinor: 10000,
+      taxCode: code, taxRateBps: 2000, discountBps: 0 }] });
+    current = form;
+    return React.createElement(mod.exports.LinesEditor, { form, setForm, products: [],
+      bundles: [{ id: "bundle-new", name: "Bundle", sellingPriceMinor: 10000, taxOverride: code }], readOnly: false, canOverride: true });
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.deepEqual(current.lines[0].taxCode, code);
+    assert.equal(current.lines[0].taxRateBps, 2000);
+    assert.equal(host.querySelector('[aria-label="Line 1 provider VAT code"]'), null);
+    assert.match(host.textContent, /Bundle VAT/);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 test("mounted list and customer table show saved Net, Tax/VAT, Gross without repricing", async () => {
   const snapshot = {
     version_number: 2, currency: "GBP", lines: mixedLines(),
@@ -180,7 +228,7 @@ test("mounted list and customer table show saved Net, Tax/VAT, Gross without rep
   };
   const quote = { id: "quote-financial", quote_number: "Q-2026-0187", status: "issued", currentVersion: snapshot };
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  cache.setQueryData(["sales-quotes", "", "all", 1, ""], { items: [quote] });
+  cache.setQueryData(["sales-quotes", "", "all", 1, "", false], { items: [quote] });
   cache.setQueryData(["public-sales-quote", "fixture"], { quote, tenant: { name: "Association Learning" } });
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -188,8 +236,8 @@ test("mounted list and customer table show saved Net, Tax/VAT, Gross without rep
     React.createElement(MemoryRouter, { initialEntries: ["/fixture"] }, child));
   try {
     await act(async () => root.render(wrap(React.createElement(mod.exports.QuotesList))));
-    assert.deepEqual([...host.querySelectorAll("th")].slice(-3).map(th => th.textContent), ["Net", "Tax/VAT", "Gross"]);
-    assert.deepEqual([...host.querySelectorAll("tbody td")].slice(-3).map(td => td.textContent), ["£98.76", "£3.21", "£101.97"]);
+    assert.deepEqual([...host.querySelectorAll("th")].slice(-4, -1).map(th => th.textContent), ["Net", "Tax/VAT", "Gross"]);
+    assert.deepEqual([...host.querySelectorAll("tbody td")].slice(-4, -1).map(td => td.textContent), ["£98.76", "£3.21", "£101.97"]);
     await act(async () => root.render(wrap(React.createElement(Routes, null,
       React.createElement(Route, { path: "/:token", element: React.createElement(mod.exports.PublicSalesQuote) })))));
     assert.deepEqual([...host.querySelectorAll("th")].map(th => th.textContent),

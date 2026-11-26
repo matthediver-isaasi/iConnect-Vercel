@@ -26,9 +26,9 @@ function fixture(options = {}) {
         ? [{ id: productId, is_active: options.active !== false }]
         : table === 'sales_catalogue_category' ? options.category || null : null;
       return {
-        select() { return this; }, eq() { return this; }, in() { return this; },
+        select() { return this; }, eq() { return this; }, in() { return this; }, limit() { return this; },
         maybeSingle: async () => ({ data, error: null }),
-        then(resolve) { resolve({ data, error: null }); },
+        then(resolve) { resolve({ data, error: table === 'sales_catalogue_bundle' ? options.overrideSchemaError || null : null }); },
       };
     },
     async rpc(name, args) {
@@ -105,6 +105,26 @@ test('hidden-code product and ordered bundle creates use one tenant/actor-scoped
       }
     }
   }
+});
+
+test('bundle override validates provider identity and derives VAT server-side', async () => {
+  const f = fixture();
+  const res = await f.post('bundles', { ...bundle, taxOverride: { provider: 'xero', id: 'OUTPUT', name: 'Forged', rateBps: 0 } });
+  assert.equal(res.statusCode, 201);
+  const expected = { provider: 'xero', id: 'OUTPUT', name: 'Current VAT', rateBps: 2000 };
+  assert.deepEqual(f.calls[0].args.p_record.tax_override, expected);
+  assert.deepEqual(res.body.taxOverride, expected);
+  for (const invalid of [{ provider: 'quickbooks', id: 'OUTPUT' }, { provider: 'xero', id: 'MISSING' }, {}]) {
+    const bad = fixture();
+    assert.ok([400, 409].includes((await bad.post('bundles', { ...bundle, taxOverride: invalid })).statusCode));
+    assert.equal(bad.calls.length, 0);
+  }
+  const none = fixture();
+  assert.equal((await none.post('bundles', { ...bundle, taxOverride: null })).statusCode, 201);
+  assert.equal(none.calls[0].args.p_record.tax_override, null);
+  const notInstalled = fixture({ overrideSchemaError: { code: '42703' } });
+  assert.equal((await notInstalled.post('bundles', { ...bundle, taxOverride: null })).statusCode, 409);
+  assert.equal(notInstalled.calls.length, 0, 'never commit a bundle that silently drops its override');
 });
 
 test('visible-code validation is unchanged in both SKU modes; categories never generate', async () => {

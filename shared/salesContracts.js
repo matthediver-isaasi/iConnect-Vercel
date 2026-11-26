@@ -501,8 +501,13 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
 
 export function validateCatalogueBundle(value, { patch = false } = {}) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
-  const allowed = new Set(['code', 'name', 'description', 'categoryId', 'currency', 'sellingPriceMinor', 'minimumPriceMinor', 'presentationMode', 'availableFrom', 'availableTo', 'displayOrder', 'items', 'billingGroups', ...(!patch ? ['copySourceId'] : [])]);
+  const allowed = new Set(['code', 'name', 'description', 'categoryId', 'currency', 'sellingPriceMinor', 'minimumPriceMinor', 'presentationMode', 'availableFrom', 'availableTo', 'displayOrder', 'items', 'billingGroups', 'taxOverride', ...(!patch ? ['copySourceId'] : [])]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown bundle field: ${key}`);
+  if ('taxOverride' in value && value.taxOverride !== null
+    && (!isObject(value.taxOverride) || !['xero', 'quickbooks'].includes(value.taxOverride.provider)
+      || typeof value.taxOverride.id !== 'string' || !value.taxOverride.id.trim())) {
+    errors.push('taxOverride must be a provider VAT code or null');
+  }
   if ('categoryId' in value && value.categoryId !== null && !UUID_RE.test(value.categoryId || '')) errors.push('categoryId must be a UUID or null');
   if ('copySourceId' in value && !UUID_RE.test(value.copySourceId || '')) errors.push('copySourceId must identify a tenant bundle');
   if ('billingGroups' in value) errors.push(...bundleBillingGroupErrors(value.billingGroups, value.items, value.sellingPriceMinor));

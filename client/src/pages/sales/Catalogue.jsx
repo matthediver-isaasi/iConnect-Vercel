@@ -18,6 +18,8 @@ import { CATALOGUE_FIELDS, catalogueCopyForEditing, selectableCopyTaxId, product
 import { useSalesSettings } from "@/components/sales/useSalesSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { providerTaxOptions, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
+import BundleTaxOverride from "./BundleTaxOverride";
+import { bundleTaxForSaving } from "./bundleVatForm";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 import BundleBillingGroups from "@/components/sales/BundleBillingGroups";
@@ -156,7 +158,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
   const submitting = useRef(false);
   const [submittingNow, setSubmittingNow] = useState(false);
   const copyTaxInitialized = useRef(false);
-  const taxOptions = useCatalogueTaxOptions(Boolean(config && type === "products"));
+  const taxOptions = useCatalogueTaxOptions(Boolean(config && (type === "products" || type === "bundles")));
   useEffect(() => {
     if (!config || !boundedDialog) return;
     const visual = window.visualViewport;
@@ -228,6 +230,8 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
         if (categoriesLoading || productsLoading || catalogueError) throw new Error("Wait for categories and products to load successfully before saving.");
         data.items = bundleItemsForSaving(form.items);
         Object.assign(data, bundlePricesForSaving(form));
+        Object.assign(data, bundleTaxForSaving(config.row, form.taxOverride,
+          providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError));
         data.billingGroups = groupsForSaving(form.billingGroups, form.items, data.sellingPriceMinor, { copying: Boolean(config.copySource) });
         if (config.copySource) data.copySourceId = config.copySource.id;
       } catch (error) {
@@ -257,6 +261,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
     {type === "products" && <ProductSpaceRequirement value={form.spaceRequirementId} onChange={value => update("spaceRequirementId", value)} />}
     {type === "products" && <ProductMembershipSchedule value={form.membershipScheduleId} onChange={value => update("membershipScheduleId", value)} />}
      {type === "bundles" && <>
+       <BundleTaxOverride value={form.taxOverride} onChange={value => update("taxOverride", value)} taxOptions={taxOptions} />
        <Field label="Bundle category">
          <ProductSelect aria-label="Bundle category" value={form.categoryId || ""} onChange={event => update("categoryId", event.target.value)}>
            <option value="">Uncategorised</option>

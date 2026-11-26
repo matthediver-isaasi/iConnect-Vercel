@@ -47,6 +47,8 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     await db.query(migration('202610180005_sales_partnership_terms'));
     await db.query(migration('202612310100_sales_bundle_categories'));
     await db.query(migration('202612310100_sales_bundle_categories'));
+    await db.query(migration('202702030001_sales_bundle_vat_override'));
+    await db.query(migration('202702030001_sales_bundle_vat_override'));
     const a = await connect(true), b = await connect(true);
     const patch = (c, version, fields, tenant = id(1)) => c.query('SELECT * FROM patch_sales_settings($1,$2,$3,$4,$5)', [tenant, version, fields, 'actor', 'tenant_user']);
     const term = { id: id(3), name: '7 days', days: 7, isActive: true, isDefault: true };
@@ -98,6 +100,26 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     assert.equal(cleared.category_id, null);
     assert.equal((await db.query('SELECT count(*)::int AS n FROM sales_audit_event WHERE entity_id=$1', [categorised.id])).rows[0].n, 3);
     const bundle = await create('bundles', record, items);
+    const vat = { provider: 'xero', id: 'EXEMPT', name: 'Exempt income', rateBps: 0 };
+    const vatBundle = await create('bundles', { ...record, code: 'VAT_OVERRIDE', tax_override: vat }, items);
+    assert.deepEqual(vatBundle.tax_override, vat);
+    const changeVat = async (patch, expected) => (await a.query(
+      'SELECT update_sales_catalogue_bundle($1,$2,$3,$4,$5,$6,$7) AS record',
+      [id(1), vatBundle.id, expected, { ...record, code: 'VAT_OVERRIDE', ...patch }, JSON.stringify(items), 'actor', 'tenant_user']
+    )).rows[0].record;
+    const keptVat = await changeVat({}, vatBundle.updated_at);
+    assert.deepEqual(keptVat.tax_override, vat, 'old clients preserve the override');
+    const nextVat = { ...vat, id: 'OUTPUT', name: 'Standard VAT', rateBps: 2000 };
+    const updatedVat = await changeVat({ tax_override: nextVat }, keptVat.updated_at);
+    assert.deepEqual(updatedVat.tax_override, nextVat);
+    const clearedVat = await changeVat({ tax_override: null }, updatedVat.updated_at);
+    assert.equal(clearedVat.tax_override, null);
+    for (const invalid of [{}, { ...vat, rateBps: -1 }, { ...vat, rateBps: 1.2 }, { ...vat, provider: 'other' }]) {
+      await assert.rejects(create('bundles', { ...record, code: 'BAD_OVERRIDE', tax_override: invalid }, items),
+        error => error.code === '23514');
+    }
+    const copiedVat = await create('bundles', { ...record, code: 'COPIED_OVERRIDE', tax_override: vat }, items);
+    assert.deepEqual(copiedVat.tax_override, vat);
     assert.deepEqual(bundle.billing_groups, groups);
     const update = async (r, i = items, expected = bundle.updated_at) => (await a.query('SELECT update_sales_catalogue_bundle($1,$2,$3,$4,$5,$6,$7) AS record',
       [id(1), bundle.id, expected, r, JSON.stringify(i), 'actor', 'tenant_user'])).rows[0].record;

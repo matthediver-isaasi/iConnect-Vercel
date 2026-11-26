@@ -34,3 +34,9 @@ VAT dropdown labels show the provider's natural-language name only, not internal
 **Why:** The user found combined names/internal codes confusing and requested pre-populated VAT for new products.
 
 **How to apply:** Keep provider/code identity internally. Default only new-product initialization; never replace existing or copied product tax, or a user's in-progress selection. Validate the default against the active provider's synced revenue codes.
+
+Sales bundles may have an optional tenant-accounting VAT override. When configured, that one code and rate apply to the entire bundle on proposal/quote lines, ignoring included products' VAT rates.
+
+**Why:** The owner explicitly requested bundle-level VAT authority rather than inherited product tax. The accounting identity remains significant even when two codes share a percentage.
+
+**How to apply:** Resolve against the tenant's active provider and synced revenue codes, preserve the code in quote and invoice evidence, and retain existing saved quote tax on unrelated edits. Clearing an override restores existing non-override behavior. This request does not change form-commerce bundle tax policy or authorize rewriting issued quotes.

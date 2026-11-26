@@ -3,6 +3,7 @@ import {
 } from '../../shared/salesContracts.js';
 import { SalesHttpError } from './salesAccess.js';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
+import { resolveCatalogueQuoteTax } from './salesQuoteCatalogueTax.js';
 import { quoteSalespersonSnapshot } from './quoteSalespeople.js';
 import { randomUUID } from 'node:crypto';
 import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/salesBilling.js';
@@ -132,13 +133,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   // Catalogue tax is authoritative. A quote editor may display and submit the
   // rate it read from the catalogue, but it must not be able to alter the
   // financial tax treatment of a catalogue-backed line.
-  const taxCode = preserveTax ? previous.catalogue_snapshot?.tax_code || null : line.kind === 'product'
-    ? item.tax_code ? await resolveSalesTaxCode(db, tenantId, item.tax_code) : null
-    : line.taxCode ? await resolveSalesTaxCode(db, tenantId, line.taxCode) : null;
-  const taxRateBps = preserveTax ? Number(previous.tax_rate_bps) : taxCode ? taxCode.rateBps : line.kind === 'product' ? Number(item.tax_rate_bps) : 0;
-  if (!Number.isInteger(taxRateBps) || taxRateBps < 0 || taxRateBps > 100000) {
-    throw new SalesHttpError(400, `Quote line ${index + 1} catalogue tax rate is invalid`);
-  }
+  const { taxCode, taxRateBps } = await resolveCatalogueQuoteTax(db, tenantId, item, line, preserveTax ? previous : null);
   const amounts = calculateQuoteLine({ quantity: line.quantity, quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps });
   let components = [];
   let snapshot = item;

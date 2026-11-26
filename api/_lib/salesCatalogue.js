@@ -99,6 +99,7 @@ const mapProduct = (row) => ({
 });
 const mapBundle = (row) => ({
   categoryId: row.category_id || null,
+  taxOverride: row.tax_override || null,
   billingGroups: row.billing_groups || [],
   id: row.id, code: row.code, name: row.name, description: row.description, currency: row.currency,
   sellingPriceMinor: Number(row.selling_price_minor),
@@ -285,6 +286,7 @@ const productRow = (value) => ({
 });
 const bundleRow = (value) => ({
   category_id: value.categoryId ?? null,
+  ...('taxOverride' in value ? { tax_override: value.taxOverride } : {}),
   ...(value.copySourceId ? { copy_source_id: value.copySourceId } : {}),
   billing_groups: value.billingGroups || [],
   code: value.code, name: value.name.trim(), description: value.description ?? null,
@@ -335,7 +337,20 @@ async function audit(db, tenantId, actor, action, type, id, before, after) {
   throwDb(result.error);
 }
 
+async function assertBundleTaxOverrideInstalled(db, tenantId, value) {
+  if (!('taxOverride' in value)) return;
+  const { error } = await db.from(TABLES.bundles).select('tax_override').eq('tenant_id', tenantId).limit(0);
+  if (error?.code === '42703' || error?.code === 'PGRST204') {
+    throw new SalesHttpError(409, 'The bundle VAT override database update must be installed before saving this setting.');
+  }
+  throwDb(error);
+}
+
 export async function createCatalogueRecord(db, tenantId, actor, type, value, options = {}) {
+  if (type === 'bundles') await assertBundleTaxOverrideInstalled(db, tenantId, value);
+  if (type === 'bundles' && value.taxOverride != null) {
+    value = { ...value, taxOverride: await resolveSalesTaxCode(db, tenantId, value.taxOverride, options) };
+  }
   let eventReference;
   if (type === 'products') {
     if (value.eventReference?.kind || value.eventReference?.eventId || value.eventReference?.ticketTypeId) {
@@ -397,6 +412,10 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
   const current = await db.from(TABLES[type]).select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
   throwDb(current.error);
   if (!current.data) throw new SalesHttpError(404, 'Catalogue record not found');
+  if (type === 'bundles') await assertBundleTaxOverrideInstalled(db, tenantId, value);
+  if (type === 'bundles' && 'taxOverride' in value && value.taxOverride !== null) {
+    value = { ...value, taxOverride: await resolveSalesTaxCode(db, tenantId, value.taxOverride) };
+  }
   if (type === 'products') {
     const membershipId = 'membershipScheduleId' in value ? value.membershipScheduleId : current.data.membership_schedule_id;
     const event = 'eventReference' in value ? value.eventReference : current.data.event_reference_kind;

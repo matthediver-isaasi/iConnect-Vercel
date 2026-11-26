@@ -17,6 +17,7 @@ export function catalogueCopyForEditing(type, source, freshCode) {
     Object.assign(copy, productPricesForEditing(source));
   }
   if (type === "bundles") {
+    copy.taxOverride = source.taxOverride ? structuredClone(source.taxOverride) : null;
     copy.copySourceId = source.id;
     Object.assign(copy, bundlePricesForEditing(source));
     const componentIds = new Map();

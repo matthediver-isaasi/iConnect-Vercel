@@ -15,6 +15,13 @@ export function taxCodeKey(code) {
   return code?.provider && code?.id != null ? JSON.stringify([code.provider, String(code.id)]) : "";
 }
 
+export function catalogueTaxForNewQuoteLine(kind, source) {
+  const taxCode = (kind === "product" ? source?.taxCode : source?.taxOverride) || null;
+  return { taxCode, taxRateBps: kind === "product"
+    ? source?.taxRateBps ?? source?.tax_rate_bps ?? 0 : taxCode?.rateBps ?? 0,
+    legacyTax: false, taxChanged: false };
+}
+
 export function providerTaxOptions(payload) {
   const provider = typeof payload?.provider === "string" ? payload.provider : payload?.provider?.key || payload?.provider?.id;
   return (payload?.items || []).map((code) => ({ ...code, provider: code.provider || provider }));

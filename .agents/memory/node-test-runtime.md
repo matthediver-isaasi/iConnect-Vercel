@@ -23,6 +23,12 @@ this applies to bundled SSR or mounted test harnesses, not production imports.
 
 Always assign a string filename before compiling an in-memory CommonJS test module.
 
+Avoid extensionless imports when colocated module basenames differ only by case, even if their extensions differ.
+
+**Why:** esbuild resolved a lowercase helper import to a same-named uppercase JSX component on this Linux workspace, producing a missing-export build failure despite passing direct Node helper tests.
+
+**How to apply:** Give related helpers and components distinct basenames and compile their importing page, not just standalone helper tests.
+
 **Why:** On Node 24, passing an undefined filename to `Module._compile` can
 abort the entire process with a native assertion rather than report a JavaScript
 test failure.
