@@ -20,3 +20,9 @@ Owner-authorised corrections may replace the served PDF only while retaining the
 **Why:** The owner requested corrected member-area downloads, not a second delivery or a new points award. A correction timestamp must not be confused with the original capture or delivery date.
 
 **How to apply:** Scope explicitly to the approved event and existing certificates, compare-and-swap publication, preserve original dates/signatures/values, and store separate correction provenance. Active templates are deliberately non-editable: use a corrected copy for future event issuance rather than bypassing the editing guard. Verify both corrected and retained PDFs and the normal member download resolver.
+
+Automatic attendance certificate emails run once, inside the CPD points outbox item. If the certificate is not eligible at that moment (for example, the CPD certificate configuration is incomplete), the email is skipped silently and the outbox item still completes; saving the configuration later never re-triggers it.
+
+**Why:** A BNMS event awarded points to 55 attendees with no certificate delivery rows; its CPD configuration was saved after processing, and the owner then sent certificates manually from the event registration report.
+
+**How to apply:** When investigating a missing CPD email, compare award and outbox timestamps with `event_cpd_certificate_config.updated_at`, and run the read-only eligibility resolver. Do not resend automatically; admins can send through the registration report.
