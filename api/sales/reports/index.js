@@ -3,6 +3,7 @@ import { getTenantContext } from '../../_lib/tenantContext.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../../shared/salesContracts.js';
 import { loadSalesDashboardActivity } from '../../_lib/salesDashboardActivity.js';
+import { loadSalesTaskProgress } from '../../_lib/salesTaskProgress.js';
 import {
   buildEventCommercial, buildOrganisationCommercial, buildSalesDashboard, buildSalesReport,
   loadSalesReportData, paginateSalesReport, parseSalesReportQuery, reportColumns, reportTotals,
@@ -23,8 +24,14 @@ export function createSalesReportsHandler(dependencies = {}) {
       if (!db && !dependencies.loadSalesReportData) throw new SalesHttpError(503, 'Database not configured');
       const filters = parseSalesReportQuery(req.query || {});
       const context = await getContext(req);
-      const capability = filters.mode === 'dashboard' ? 'sales.dashboard' : SALES_CAPABILITIES.VIEW_REPORTS;
+      const capability = ['dashboard', 'task-progress'].includes(filters.mode) ? 'sales.dashboard' : SALES_CAPABILITIES.VIEW_REPORTS;
       const actor = await requireSalesContext(context, capability, dependencies);
+      if (filters.mode === 'task-progress') {
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(await (dependencies.loadSalesTaskProgress || loadSalesTaskProgress)(
+          db, context, filters, dependencies,
+        ));
+      }
       const data = await load(db, actor.tenantId, filters);
       if (filters.mode === 'dashboard') {
         data.recentActivity = await (dependencies.loadSalesDashboardActivity || loadSalesDashboardActivity)(

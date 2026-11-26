@@ -37,8 +37,8 @@ const byId = (rows) => new Map((rows || []).map((row) => [String(row.id), row]))
 export function parseSalesReportQuery(query = {}) {
   const requestedMode = query.mode || query.view || 'dashboard';
   const mode = query.export === 'csv' || query.format === 'csv' ? 'export' : requestedMode;
-  if (!['dashboard', 'report', 'organisation', 'organization', 'event', 'export'].includes(mode)) {
-    throw new SalesHttpError(400, 'mode must be dashboard, report, organisation, event, or export');
+  if (!['dashboard', 'task-progress', 'report', 'organisation', 'organization', 'event', 'export'].includes(mode)) {
+    throw new SalesHttpError(400, 'mode must be dashboard, task-progress, report, organisation, event, or export');
   }
   const requestedReport = query.report || (mode === 'organisation' || mode === 'organization' ? 'organisations'
     : mode === 'event' ? 'events' : mode === 'dashboard' ? 'pipeline' : 'sales');
@@ -46,6 +46,12 @@ export function parseSalesReportQuery(query = {}) {
   if (!REPORTS.has(report)) throw new SalesHttpError(400, 'Unknown Sales report');
   const page = Number(query.page || 1);
   const pageSize = Number(query.pageSize || 25);
+  const taskProgressPage = Number(query.taskProgressPage || 1);
+  const taskProgressPageSize = Number(query.taskProgressPageSize || 10);
+  if (!Number.isSafeInteger(taskProgressPage) || taskProgressPage < 1 || taskProgressPage > 1000000
+      || !Number.isInteger(taskProgressPageSize) || taskProgressPageSize < 1 || taskProgressPageSize > 100) {
+    throw new SalesHttpError(400, 'Invalid task progress pagination');
+  }
   if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize)
       || pageSize < 1 || pageSize > SALES_REPORT_MAX_PAGE_SIZE) {
     throw new SalesHttpError(400, `page and pageSize (maximum ${SALES_REPORT_MAX_PAGE_SIZE}) are invalid`);
@@ -88,7 +94,7 @@ export function parseSalesReportQuery(query = {}) {
   const currency = text(['currency']).map((item) => item.toUpperCase());
   if (currency.some((item) => !/^[A-Z]{3}$/.test(item))) throw new SalesHttpError(400, 'currency must contain ISO-4217 codes');
   return {
-    mode, report, requestedReport, page, pageSize, from, to, currency,
+    mode, report, requestedReport, page, pageSize, taskProgressPage, taskProgressPageSize, from, to, currency,
     expectedCloseFrom, expectedCloseTo, expectedCloseSort,
     owner: text(['owner', 'ownerId']), organisation: text(['organisation', 'organisationId', 'organizationId']),
     event: text(['event', 'eventId']), product: text(['product', 'productId']),
@@ -501,9 +507,6 @@ export function buildSalesDashboard(data, result, filters = {}) {
     }))).sort((a, b) => (filters.expectedCloseSort === 'desc' ? -1 : 1)
       * (dateValue(a.date) - dateValue(b.date))) : [];
   const expectedCloses = matchingCloses.slice(0, 8);
-  const overdueTasks = (data.tasks || []).filter((row) => !row.completed_at && row.due_at
-    && dateValue(row.due_at) < now).sort((a, b) => dateValue(a.due_at) - dateValue(b.due_at)).slice(0, 8)
-    .map((row) => ({ id: row.id, title: row.title, opportunityId: row.opportunity_id, date: row.due_at }));
   return {
     summary: {
       currency: primary?.currency || null, pipelineValue: primary?.pipelineValue ?? null,
@@ -512,7 +515,7 @@ export function buildSalesDashboard(data, result, filters = {}) {
       openOpportunities: pipelineByCurrency.reduce((sum, row) => sum + row.count, 0),
       wonCount: result.prepared.sales.length, outstandingQuotes: outstandingQuotes.length,
     },
-    byCurrency, recentActivity, recentWins, expectedCloses, expectedClosesTotal: matchingCloses.length, overdueTasks, outstandingQuotes,
+    byCurrency, recentActivity, recentWins, expectedCloses, expectedClosesTotal: matchingCloses.length, outstandingQuotes,
   };
 }
 
@@ -639,7 +642,7 @@ export async function loadSalesReportData(db, tenantId, filters = {}) {
   const commercial = ['quotes', 'versions', 'lines', 'sales', 'invoices', 'allocations'];
   const needed = new Set(core);
   if (filters.mode === 'dashboard') {
-    [...commercial, 'tasks'].forEach((key) => needed.add(key));
+    commercial.forEach((key) => needed.add(key));
   } else if (filters.mode === 'organisation' || filters.mode === 'organization') {
     commercial.forEach((key) => needed.add(key));
   } else if (filters.mode === 'event' || filters.report === 'events') {

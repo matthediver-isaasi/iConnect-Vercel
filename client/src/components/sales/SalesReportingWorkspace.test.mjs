@@ -53,9 +53,20 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
   const { MemoryRouter } = mod.require("react-router-dom");
   const { QueryClient, QueryClientProvider } = mod.require("@tanstack/react-query");
   const requests = [];
+  const progressRequests = [];
   let fail = false;
   let emptyActivity = false;
   globalThis.fetch = async (url) => {
+    const params = new URL(url, "http://localhost").searchParams;
+    if (params.get("view") === "task-progress") {
+      progressRequests.push(params);
+      return { ok: true, status: 200, json: async () => ({
+        items: [{ id: "progress-1", name: "Independent opportunity", status: "available",
+          totalTasks: 5, openTasks: 3, overdueTasks: 1, completedTasks: 2, completionPercent: 40 }],
+        total: 1, page: 1, pageSize: 10, pages: 1,
+        summary: { opportunityCount: 1, totalTasks: 5, openTasks: 3, overdueTasks: 1, completionPercent: 40 },
+      }) };
+    }
     requests.push(new URL(url, "http://localhost").searchParams);
     return { ok: !fail, status: fail ? 503 : 200, json: async () => fail ? { message: "Reporting unavailable" } : {
       summary: { currency: "GBP", pipelineValue: 1234 },
@@ -146,6 +157,9 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
     assert.match(document.body.textContent, /Applied range: Today onwards/);
     assert.match(document.body.textContent, /No sales milestones yet/);
     assert.match(document.body.textContent, /sent training proposals and recorded outcomes/);
+    assert.equal(progressRequests.length, 1, "expected-close controls never filter or refetch task totals");
+    assert.match(document.body.textContent, /Independent opportunity/);
+    assert.match(document.body.textContent, /Weighted completion40%/);
   } finally {
     await act(async () => root.unmount());
     cache.clear();

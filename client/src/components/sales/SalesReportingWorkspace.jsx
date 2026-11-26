@@ -19,6 +19,7 @@ import { dashboardReportParams, formatDashboardDate, validateExpectedCloseRange 
 import { SalesRecentActivity } from "./SalesRecentActivity";
 import { OutstandingProposalSummary } from "./OutstandingProposalSummary";
 import { netMoney } from "./salesNetMoney.mjs";
+import { OpportunityTaskProgress } from "./OpportunityTaskProgress";
 
 const REPORTS = [
   ["pipeline", "Pipeline"], ["owners", "Owners"], ["products", "Products"],
@@ -126,7 +127,7 @@ export function SalesDashboard() {
     {currencyRows.length > 0 && <Card><CardHeader><CardTitle className="text-base">Pipeline by currency</CardTitle></CardHeader><CardContent className="space-y-4">{currencyRows.map((row, index) => {
       return <div key={row.currency || index} className="rounded-lg border p-3"><p className="font-medium">{row.currency || "Unspecified"}</p><dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">{[["Open pipeline", row.pipelineValue], ["Weighted pipeline", row.weightedPipeline], ["Won", row.wonValue], [`Outstanding ${naming.plural}`, row.outstandingQuoteValue]].map(([name, amount]) => <div key={name}><dt className="text-slate-500">{name} (net)</dt><dd>{netMoney(amount, row.currency)}</dd></div>)}</dl></div>;
     })}</CardContent></Card>}
-    <div className="grid gap-5 xl:grid-cols-2"><div className="min-w-0 space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><SalesRecentActivity rows={data.recentActivity} query={query} /></div><div className="min-w-0 space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
+    <div className="grid gap-5 xl:grid-cols-2"><div className="min-w-0 space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><SalesRecentActivity rows={data.recentActivity} query={query} /></div><div className="min-w-0 space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><OpportunityTaskProgress /></div></div>
     <OutstandingProposalSummary rows={list(data.outstandingQuotes)} total={summary.outstandingQuotes ?? list(data.outstandingQuotes).length} />
   </div>;
 }

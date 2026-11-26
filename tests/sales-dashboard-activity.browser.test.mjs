@@ -53,8 +53,28 @@ for (const width of [1280, 390]) {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const requests = [];
+    const progressRequests = [];
     await page.route('**/api/sales/reports?*', route => {
-      requests.push(new URL(route.request().url()));
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('view') === 'task-progress') {
+        progressRequests.push(url);
+        const currentPage = Number(url.searchParams.get('taskProgressPage'));
+        const items = Array.from({length:13}, (_,i)=>({
+          id:`progress/${i}`,name:i===0?'Annual conference sponsorship and professional training programme':`Opportunity ${i+1}`,
+          taskMode:'standard',status:'available',totalTasks:i===1?0:4,openTasks:i===1?0:2,overdueTasks:i===1?0:1,
+          completedTasks:i===1?0:2,completionPercent:i===1?null:50,
+          latestCompletion:i===1?null:{at:'2026-11-25T15:04:00Z',actorName:i===2?null:'Alex Smith'},
+        }));
+        items[3]={...items[3],status:'restricted',totalTasks:null,latestCompletion:null};
+        items[4]={...items[4],status:'unavailable',totalTasks:null,latestCompletion:null};
+        return route.fulfill({json:{items:items.slice((currentPage-1)*10,currentPage*10),
+          page:currentPage,pageSize:10,total:13,pages:2,
+          summary:{opportunityCount:13,availableOpportunities:11,restrictedOpportunities:1,unavailableOpportunities:1,
+            totalTasks:40,openTasks:20,overdueTasks:10,completedTasks:20,completionPercent:50,partial:true}}});
+      }
+      assert.equal(url.searchParams.get('view'), 'dashboard');
+      assert.equal(route.request().method(), 'GET', 'fixture never authorizes mutations');
+      requests.push(url);
       return route.fulfill({ json: {
         summary: { currency: 'GBP', pipelineValue: 123456, weightedPipeline: 50000, wonValue: 90000, wonCount: 1, outstandingQuoteValue: 80000 },
         expectedCloses: [{ id: 'close', title: 'Autumn sponsorship', opportunityId: 'opp', date: '2026-12-12' }],
@@ -90,8 +110,28 @@ for (const width of [1280, 390]) {
       assert.equal(requests.at(-1).searchParams.has('dateFrom'), false);
       assert.match(await page.locator('body').innerText(), /£1,234.56/);
       assert.match(await sent.innerText(), /25\/11\/2026/);
-      assert.deepEqual(errors, []);
+      assert.equal(progressRequests.length,1,'expected-close controls never change progress requests');
+      const progress = page.getByRole('region',{name:'Opportunity task progress'});
+      assert.match(await progress.innerText(),/Partial totals: 1 restricted and 1 unavailable opportunities excluded/);
+      assert.match(await progress.innerText(),/25\/11\/2026 15:04 UTC · Recorded by: Alex Smith/);
+      assert.match(await progress.innerText(),/Not recorded/);
+      assert.match(await progress.innerText(),/No tasks completed/);
+      assert.equal(await progress.getByRole('link').first().getAttribute('href'),'/sales/opportunities/progress%2F0');
+      const layout = await progress.evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth}));
+      assert.ok(layout.scrollWidth<=layout.width,JSON.stringify(layout));
+      await progress.getByRole('link').first().focus();
+      assert.equal(await progress.getByRole('link').first().evaluate(el=>el===document.activeElement),true);
       await mkdir('generated-artifacts/sales-activity', { recursive: true });
+      await progress.screenshot({path:`generated-artifacts/sales-activity/progress-${width}.png`});
+      const next = progress.getByRole('button',{name:'Next opportunity task progress page'});
+      await next.focus();
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>document.body.textContent.includes('Page 2 of 2'));
+      assert.equal(await progress.getByRole('link').count(),3);
+      assert.match(await progress.innerText(),/Opportunity 13/);
+      assert.match(await progress.innerText(),/Weighted completion\s*50%/);
+      assert.equal(requests.length,3,'progress pagination leaves dashboard and financial requests unchanged');
+      assert.deepEqual(errors, []);
       await page.screenshot({ path: `generated-artifacts/sales-activity/dashboard-${width}.png`, fullPage: true });
     } finally { await page.close(); }
   });

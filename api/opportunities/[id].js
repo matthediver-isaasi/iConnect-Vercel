@@ -320,6 +320,27 @@ export function createOpportunityDetailHandler(dependencies = {}) {
         : { title: 'title', description: 'description', dueAt: 'due_at', completedAt: 'completed_at' };
       const patch = Object.fromEntries(Object.entries(mapping)
         .filter(([key]) => key in body).map(([key, column]) => [column, body[key]]));
+      if (resource === 'tasks' && 'completedAt' in body) {
+        if (body.completedAt !== null && (typeof body.completedAt !== 'string'
+            || !body.completedAt || !Number.isFinite(Date.parse(body.completedAt)))) {
+          throw new OpportunityHttpError(400, 'completedAt must be a timestamp or null');
+        }
+        // Timestamp and actor are server-owned. Locking in the RPC preserves the
+        // original evidence on repeated completion requests and unrelated edits.
+        const { completed_at: _ignored, ...details } = patch;
+        const { data, error } = await db.rpc('set_sales_task_completion', {
+          p_tenant: context.tenantId, p_opportunity: id, p_task: req.query.itemId,
+          p_kind: access.principal.kind, p_actor: access.principal.id,
+          p_complete: body.completedAt !== null, p_patch: details,
+        });
+        if (['PGRST202', '42883'].includes(error?.code)) {
+          throw new OpportunityHttpError(503, 'Task completion requires the database update.');
+        }
+        if (error?.code === 'P0002') throw new OpportunityHttpError(404, 'Item not found');
+        if (error) throw error;
+        await appendActivity(db, access.opportunity, access.principal, 'tasks.updated', 'tasks updated');
+        return res.status(200).json(data);
+      }
       patch.updated_at = new Date().toISOString();
       const { data, error } = await db.from(config.table).update(patch)
         .eq('tenant_id', context.tenantId).eq('opportunity_id', id).eq('id', req.query.itemId)

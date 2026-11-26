@@ -226,3 +226,49 @@ test('explicit owner updates and task assignees use the same scoped unified prin
     }
   }
 });
+
+test('standard completion and reopening use authenticated server attribution and an atomic transition', async () => {
+  for (const completedAt of ['2001-01-01T00:00:00Z', null]) {
+    for (const principal of ['owner-a','collab-a','outsider']) {
+      const db=fakeDb(principal),res=response();
+      await handlerFor(principal,db)({method:'PATCH',
+        query:{id:'opp-a',resource:'tasks',itemId:'task-a'},
+        body:{completedAt,title:'Changed',completed_by_id:'forged',completed_by_kind:'tenant_user'}},res);
+      assert.equal(res.statusCode,principal==='outsider'?404:200);
+      const rpc=db.calls.find(c=>c.rpc);
+      if (principal==='outsider') assert.equal(rpc,undefined);
+      else assert.deepEqual(rpc,{rpc:'set_sales_task_completion',args:{
+        p_tenant:'tenant-a',p_opportunity:'opp-a',p_task:'task-a',
+        p_kind:'member',p_actor:principal,p_complete:completedAt!==null,p_patch:{title:'Changed'},
+      }});
+      assert.equal(db.calls.some(c=>c.table==='opportunity_task'&&c.update),false);
+    }
+  }
+});
+
+test('ordinary standard task edits never alter completion evidence, invalid completion values never write', async () => {
+  const db=fakeDb('owner-a'),res=response();
+  await handlerFor('owner-a',db)({method:'PATCH',query:{id:'opp-a',resource:'tasks',itemId:'task-a'},
+    body:{title:'Rename',completed_by_id:'forged'}},res);
+  const patch=db.calls.find(c=>c.table==='opportunity_task'&&c.update).update;
+  assert.equal(patch.completed_by_id,undefined);
+  assert.equal(patch.completed_at,undefined);
+  for (const completedAt of [false,{},'', 'not a date']) {
+    const f=fakeDb('owner-a'),r=response();
+    await handlerFor('owner-a',f)({method:'PATCH',query:{id:'opp-a',resource:'tasks',itemId:'task-a'},body:{completedAt}},r);
+    assert.equal(r.statusCode,400);
+    assert.equal(f.calls.some(c=>c.rpc||c.update),false);
+  }
+});
+
+test('staff completion uses the authenticated staff principal rather than a supplied actor', async () => {
+  const db=fakeDb('admin-a'),res=response();
+  const handler=createOpportunityDetailHandler({db,
+    getTenantContext:async()=>({isAuthenticated:true,tenantId:'tenant-a',tenantUserId:'staff-a'}),
+    hasAdminAccess:async()=>true});
+  await handler({method:'PATCH',query:{id:'opp-a',resource:'tasks',itemId:'task-a'},
+    body:{completedAt:'2026-01-01Z',actorId:'forged'}},res);
+  assert.equal(res.statusCode,200);
+  assert.equal(db.calls.find(c=>c.rpc).args.p_actor,'staff-a');
+  assert.equal(db.calls.find(c=>c.rpc).args.p_kind,'tenant_user');
+});

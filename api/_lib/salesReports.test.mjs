@@ -173,7 +173,7 @@ test('dashboard, organisation, and event builders expose frontend contract secti
   assert.equal(dashboard.byCurrency.find((row) => row.currency === 'USD').wonValue, 1000);
   assert.equal(dashboard.recentWins.length, 1);
   assert.equal(dashboard.recentActivity.length, 1);
-  assert.equal(dashboard.overdueTasks.length, 1);
+  assert.equal(dashboard.overdueTasks, undefined, 'task progress uses its own access-scoped aggregate');
   assert.ok(Array.isArray(dashboard.outstandingQuotes));
 
   const organisation = buildOrganisationCommercial(fixture, result, 'org-b');

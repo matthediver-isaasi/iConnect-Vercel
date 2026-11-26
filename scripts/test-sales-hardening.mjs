@@ -78,6 +78,11 @@ const groups = [
     name: '7. reports and commercial visibility',
     files: [
       'api/_lib/salesReports.test.mjs',
+      'api/_lib/salesDashboardActivity.test.mjs',
+      'api/_lib/salesTaskProgress.test.mjs',
+      'api/_lib/salesTaskProgress.postgres.test.mjs',
+      'client/src/components/sales/SalesReportingWorkspace.test.mjs',
+      'client/src/components/sales/OpportunityTaskProgress.test.mjs',
       'api/_lib/salesReconciliation.test.mjs',
     ],
   },
