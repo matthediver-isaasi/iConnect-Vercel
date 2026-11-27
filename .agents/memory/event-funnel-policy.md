@@ -290,3 +290,15 @@ a layout-only lock, while requiring every step to remain inspectable.
 **How to apply:** Keep the editing lock separate from permissions and live
 checkout activation. Do not turn inspection or simulation into an editing
 bypass, and continue retaining display measurements while editing is locked.
+
+Event add-on offers belong in a modal over their current event step, not a
+replacement event page. Each add-on may have its own optional header image,
+heading and rich-text description.
+
+**Why:** On 2026-11-27 the owner requested contextual offers that administrators
+can visually author for each step's purpose.
+
+**How to apply:** Keep the underlying event read-only while the add-on is
+offered. Closing an offer is not declining it; only an explicit choice changes
+the reservation. Retain all-funnel editing-lock protection for its presentation
+controls and keep presentation separate from ticket, price and routing authority.

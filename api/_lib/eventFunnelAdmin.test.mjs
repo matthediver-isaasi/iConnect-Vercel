@@ -46,6 +46,27 @@ function harness(overrides = {}, eventRow = { id: eventId, start_date: '2099-01-
   return { invoke, calls, db };
 }
 const save = () => ({ action: 'save', id, name: 'Admissions', expectedRevision: 0, graph: graph(), layout: { positions: {} } });
+test('addon modal content is saved safely in the versioned graph without changing destinations', async () => {
+  const h = harness({}, { id: eventId, start_date: '2099-01-01T12:00:00Z',
+    pricing_config: { ticket_classes: [{ id: 'standard' }, { id: 'extra' }] } });
+  const input = save();
+  input.graph.nodes[0].accept = 'extra';
+  input.graph.nodes.splice(1, 0, {
+    id: 'extra', type: 'addon', event: input.graph.nodes[0].event, ticketIds: ['extra'],
+    requires: ['source'], accept: 'checkout', skip: 'checkout',
+    presentation: { heading: 'Add a workshop', imageUrl: '/uploads/workshop.jpg',
+      bodyHtml: '<p><strong>Join us</strong><script>bad()</script><a href="javascript:bad()">More</a></p>' },
+  });
+  const response = await h.invoke(input);
+  assert.equal(response.code, 200);
+  const saved = h.calls.find(([name]) => name === 'event_funnel_save_definition')[1].p_graph;
+  assert.equal(saved.nodes[1].presentation.heading, 'Add a workshop');
+  assert.equal(saved.nodes[1].presentation.imageUrl, '/uploads/workshop.jpg');
+  assert.match(saved.nodes[1].presentation.bodyHtml, /<strong>Join us<\/strong>/);
+  assert.doesNotMatch(saved.nodes[1].presentation.bodyHtml, /script|javascript:/);
+  assert.equal(saved.nodes[1].accept, 'checkout');
+  assert.equal(saved.nodes[1].skip, 'checkout');
+});
 test('individual step widths save as layout only, with bounded tenant-graph references', async () => {
   const input = save();
   input.layout.nodeWidths = { source: 320, checkout: 160 };

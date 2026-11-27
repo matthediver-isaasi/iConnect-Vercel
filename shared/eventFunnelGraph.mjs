@@ -1,3 +1,5 @@
+import { funnelPresentationIssue } from './eventFunnelPresentation.mjs';
+
 /**
  * Version-one domain graph, independent of React Flow positions and edges.
  * This pure evaluator does NOT authorize purchases or reserve inventory.
@@ -54,6 +56,8 @@ export function validateFunnelGraph(graph) {
   for (const node of graph.nodes) {
     if (!node || !identifier(node.id) || nodes.has(node.id)) fail('Invalid or duplicate node ID');
     if (!['source', 'event', 'addon', 'membership', 'condition', 'checkout'].includes(node.type)) fail('Unknown node type');
+    const presentationIssue = funnelPresentationIssue(node);
+    if (presentationIssue) fail(presentationIssue);
     nodes.set(node.id, node);
     if (node.type === 'membership') validateMembershipStage(node);
     if (purchasing(node)) {

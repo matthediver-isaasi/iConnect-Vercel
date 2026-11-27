@@ -165,11 +165,18 @@ function OwnedJourneyFrame({ sessionId, enabled, sourceLabel, onBack, children, 
     canSubmitNow: () => checkoutAllowed && !lock.current && !expiredLatch.current
       && remainingAt(clock.current) > 0,
   };
+  const canMutateOffer = () => {
+    if (lock.current || pending || !enabled || blocked || frozen || expired) return false;
+    if (state === 'draft') return true;
+    return state === 'held' && !unverifiableHold && !expiredLatch.current
+      && remainingAt(clock.current) > 0;
+  };
   const renderEventFields = content => <fieldset className="event-journey-frame__fields" disabled={frozen || blocked}
     aria-label={frozen ? 'Saved event details, read only' : 'Event details'}>
     <div inert={frozen || blocked ? '' : undefined}>{content}</div>
   </fieldset>;
-  const journey = { snapshot, change, saveAnswers, pending, refresh, checkoutEligibility, renderEventFields };
+  const journey = { snapshot, change, saveAnswers, pending, refresh, checkoutEligibility, renderEventFields,
+    frozen, expired, blocked, canMutateOffer };
 
   let title = held ? `Your places for ${sourceLabel} are held` : 'Your saved reservation';
   let description = held

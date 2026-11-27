@@ -14,6 +14,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { isFunnelImageUrl } from "../../../../shared/eventFunnelPresentation.mjs";
 
 export default function EventImageUpload({ 
   value, 
@@ -21,7 +22,8 @@ export default function EventImageUpload({
   disabled = false,
   className = "",
   label = "Event Image",
-  helpText = "Optional: Add an image to display on the event card"
+  helpText = "Optional: Add an image to display on the event card",
+  allowRelativeUrl = false
 }) {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState(value ? "preview" : "upload");
@@ -71,9 +73,14 @@ export default function EventImageUpload({
       return;
     }
 
+    const candidate = urlInput.trim();
     try {
-      new URL(urlInput);
-      onChange(urlInput.trim());
+      if (allowRelativeUrl) {
+        if (!isFunnelImageUrl(candidate) || !candidate) throw new Error("invalid image URL");
+      } else {
+        new URL(candidate);
+      }
+      onChange(candidate);
       setActiveTab("preview");
       setUrlInput("");
       toast.success('Image URL set successfully');
@@ -212,10 +219,10 @@ export default function EventImageUpload({
           <TabsContent value="url" className="mt-3">
             <div className="space-y-3">
               <Input
-                type="url"
+                type={allowRelativeUrl ? "text" : "url"}
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://example.com/image.jpg"
+                placeholder={allowRelativeUrl ? "https://example.com/image.jpg or /uploads/image.jpg" : "https://example.com/image.jpg"}
                 data-testid="input-image-url"
               />
               <Button

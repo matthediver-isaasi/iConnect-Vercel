@@ -32,13 +32,16 @@ const built = await build({
     setup(builder) {
       builder.onResolve({ filter: /^react(\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^@\/components\/ui\/button$/ }, () => ({ path: 'button', namespace: 'funnel-test' }));
+      builder.onResolve({ filter: /^@\/components\/booking\/AddonPresentationFields$/ }, () => ({ path: 'addon-presentation', namespace: 'funnel-test' }));
       builder.onResolve({ filter: /^@xyflow\/react$/ }, () => ({ path: 'flow', namespace: 'funnel-test' }));
       builder.onResolve({ filter: /^lucide-react$/ }, () => ({ path: 'icons', namespace: 'funnel-test' }));
       builder.onResolve({ filter: /\.css$/ }, () => ({ path: 'empty-css', namespace: 'funnel-test' }));
       builder.onLoad({ filter: /.*/, namespace: 'funnel-test' }, ({ path }) => ({
-        loader: path === 'button' || path === 'flow' || path === 'icons' ? 'jsx' : 'js',
+        loader: path === 'button' || path === 'flow' || path === 'icons' || path === 'addon-presentation' ? 'jsx' : 'js',
         contents: path === 'button'
           ? 'export function Button({children, ...props}) { return <button {...props}>{children}</button>; }'
+          : path === 'addon-presentation'
+            ? 'export default function AddonPresentationFields() { return null; }'
           : path === 'flow'
             ? `export const Position = {Top: 'top', Bottom: 'bottom'};
                export const MarkerType = {ArrowClosed: 'arrowclosed'};

@@ -194,9 +194,14 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
       if (!UUID.test(body.id || '') || !Number.isInteger(body.expectedRevision) || body.expectedRevision < 0
         || typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 120) fail('Invalid definition details.');
       const layout = validateFunnelLayout(body.layout, body.graph);
+      // Load the HTML parser only for authored modal content, not ordinary
+      // readiness, catalogue, preview or existing funnel requests.
+      const graph = body.graph.nodes.some(node => node.presentation)
+        ? (await import('./eventFunnelPresentation.js')).sanitizeFunnelPresentation(body.graph)
+        : body.graph;
       const definition = check(await db.rpc('event_funnel_save_definition', {
         p_tenant: context.tenantId, p_id: body.id, p_actor: actor, p_expected_revision: body.expectedRevision,
-        p_name: body.name.trim(), p_graph: body.graph, p_layout: layout,
+        p_name: body.name.trim(), p_graph: graph, p_layout: layout,
       }));
       return res.status(200).json(definition);
     } catch (error) {

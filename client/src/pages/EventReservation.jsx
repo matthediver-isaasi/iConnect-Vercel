@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import DOMPurify from 'dompurify';
 import EventFunnelMembershipOffer, { AcceptedMembershipSummary } from '@/components/booking/EventFunnelMembershipOffer';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -10,8 +11,11 @@ import { Button } from '@/components/ui/button';
 import { EventDetailsExperience } from './EventDetails';
 import { ComplexEventDetailExperience } from './ComplexEventDetail';
 import '@/components/booking/EventReservationIntegration.css';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { isAddonModalVisible, previousSameEventPurchase, safeAddonImageUrl } from '@/components/booking/addonPresentation.mjs';
+import { FUNNEL_PRESENTATION_ATTRS, FUNNEL_PRESENTATION_TAGS } from '../../../shared/eventFunnelPresentation.mjs';
 
-export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, onNormal }) {
+export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, onNormal, readOnly = false, canSubmitNow = () => true }) {
   const navigate = useNavigate();
   const request = useRef(null);
   const switching = useRef(false);
@@ -40,6 +44,7 @@ export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, o
     </div>;
   }
   async function select({ tickets, answers }) {
+    if (readOnly || !canSubmitNow()) return null;
     if (offer.sourceSwitch && tickets[0]?.id !== snapshot.session.source_ticket_id) {
       if (switching.current) return null;
       switching.current = true; setSwitchPending(true); setSwitchError(null);
@@ -62,7 +67,7 @@ export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, o
     return result;
   }
   const Experience = offer.eventKind === 'complex' ? ComplexEventDetailExperience : EventDetailsExperience;
-  return <EventReservationProvider value={{ snapshot, offer, pending: pending || switchPending, select }}>
+  return <EventReservationProvider value={{ snapshot, offer, pending: pending || switchPending || readOnly, select }}>
     {offer.sourceSwitch && <p className="event-reservation-notice">Changing the initial class restarts routing and releases all previous optional selections only after the new choice succeeds. The reservation deadline is not extended.</p>}
     {switchError && <p role="alert">{switchError} Your previous reservation has been kept.</p>}
     <div className="event-reservation-reveal">
@@ -71,10 +76,12 @@ export function ReservationOffer({ snapshot, change, pending, nodeId, onSaved, o
   </EventReservationProvider>;
 }
 
-function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibility, renderEventFields, onNormal }) {
+export function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibility, renderEventFields, onNormal,
+  frozen = false, expired = false, blocked = false, canMutateOffer = () => true }) {
   // Navigation changes the display only. It never mutates the route or sends
   // a client-selected destination; the server recomputes after every selection.
   const [displayed, setDisplayed] = useState(null);
+  const [closedAddonId, setClosedAddonId] = useState(null);
   useEffect(() => { setDisplayed(null); }, [snapshot.session.revision]);
   const routeIds = Array.isArray(snapshot.route.route) ? snapshot.route.route : [];
   const reachable = snapshot.graph.nodes.filter(node =>
@@ -84,6 +91,26 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
   const checkout = !displayed && snapshot.route.atCheckout;
   const index = reachable.findIndex(node => node.id === currentId);
   const historicalNode = displayed && reachable.find(node => node.id === currentId);
+  const currentPurchase = !displayed && !checkout
+    ? snapshot.graph.nodes.find(node => node.id === snapshot.route.currentNodeId && ['source', 'event', 'addon'].includes(node.type))
+    : null;
+  const activeAddon = currentPurchase?.type === 'addon' ? currentPurchase : null;
+  const addonModalOpen = isAddonModalVisible(activeAddon?.id, closedAddonId);
+  const previousEvent = activeAddon
+    ? previousSameEventPurchase(snapshot.graph.nodes, activeAddon, routeIds)
+    : null;
+  const presentation = activeAddon?.presentation || {};
+  const presentationHeading = typeof presentation.heading === 'string' ? presentation.heading.trim() : '';
+  const presentationBody = typeof presentation.bodyHtml === 'string' ? presentation.bodyHtml : '';
+  const addonImage = safeAddonImageUrl(presentation.imageUrl);
+  const addonReadOnly = pending || frozen || expired || blocked;
+  const addonSkipDisabled = pending || blocked || frozen
+    || !['draft', 'held', 'expired'].includes(snapshot.session.state);
+  const skipAddon = async () => {
+    if (!activeAddon || addonSkipDisabled) return;
+    const result = await change({ type: 'skip', nodeId: activeAddon.id });
+    if (result) setClosedAddonId(activeAddon.id);
+  };
   const membershipNode = !displayed && !checkout
     && snapshot.graph.nodes.find(node => node.id === snapshot.route.currentNodeId && node.type === 'membership');
   return <div data-viewing-history={Boolean(displayed)}>
@@ -103,7 +130,54 @@ function ReservationBody({ snapshot, change, pending, refresh, checkoutEligibili
       }}>Remove this optional event</Button>}
     {membershipNode && <EventFunnelMembershipOffer node={membershipNode}
       offer={snapshot.membershipOffers?.[membershipNode.id]} change={change} pending={pending} />}
-    {!checkout && !membershipNode && (reachable.some(node => node.id === currentId)
+    {!checkout && !membershipNode && activeAddon && <>
+      {previousEvent && <fieldset disabled className="min-w-0" aria-label="Previous event step, read only">
+        <div inert="">
+          <ReservationOffer key={`backdrop:${previousEvent.id}`} snapshot={snapshot} change={change}
+            pending nodeId={previousEvent.id} readOnly canSubmitNow={() => false} />
+        </div>
+      </fieldset>}
+      {!addonModalOpen && <Button type="button" variant="outline" className="mt-4"
+        onClick={() => setClosedAddonId(null)} data-testid="addon-reopen">
+        Reopen optional add-on
+      </Button>}
+      <Dialog open={addonModalOpen} onOpenChange={open => {
+        if (!activeAddon) return;
+        setClosedAddonId(open ? previous => previous === activeAddon.id ? null : previous : activeAddon.id);
+      }}>
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto" data-testid="addon-offer-dialog">
+          <DialogHeader>
+            <DialogTitle>{presentationHeading || 'An optional extra for your event'}</DialogTitle>
+            <DialogDescription>Choose whether to add this to your current event reservation. Closing this window keeps your reservation unchanged.</DialogDescription>
+          </DialogHeader>
+          {addonImage && <img src={addonImage} alt="" className="max-h-64 w-full rounded-md object-cover" />}
+          {presentationBody && <div className="prose prose-sm max-w-none"
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(presentationBody, {
+              ALLOWED_TAGS: FUNNEL_PRESENTATION_TAGS,
+              ALLOWED_ATTR: FUNNEL_PRESENTATION_ATTRS,
+              ALLOW_DATA_ATTR: false,
+              ALLOW_ARIA_ATTR: false,
+            }) }} />}
+          {addonReadOnly && <p className="event-reservation-notice" role="status">
+            Ticket and attendee controls are read-only in this reservation state.
+          </p>}
+          <fieldset disabled={addonReadOnly} aria-label={addonReadOnly ? 'Saved add-on, read only' : 'Add-on selection'}
+            className="min-w-0">
+            <div inert={addonReadOnly ? '' : undefined}>
+              <ReservationOffer key={currentId} snapshot={snapshot} change={change} pending={pending}
+                nodeId={currentId} canSubmitNow={canMutateOffer}
+                onSaved={() => setDisplayed(null)} onNormal={onNormal} />
+            </div>
+          </fieldset>
+          <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-between">
+            <p className="text-sm text-muted-foreground">No booking or payment is made by choosing this offer.</p>
+            <Button type="button" variant="outline" disabled={addonSkipDisabled} onClick={skipAddon}
+              data-testid="addon-skip">Skip this optional extra</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>}
+    {!checkout && !membershipNode && !activeAddon && (reachable.some(node => node.id === currentId)
         ? <ReservationOffer key={currentId} snapshot={snapshot} change={change} pending={pending}
           nodeId={currentId} onSaved={() => setDisplayed(null)} onNormal={onNormal} />
         : <div className="event-reservation-notice" role="status">

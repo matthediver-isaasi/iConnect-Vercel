@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType, NodeResizeControl } from '@xyflow/react';
 import EventFunnelConnector from './EventFunnelConnector';
 import EventFunnelStepWidth from './EventFunnelStepWidth';
@@ -10,9 +10,11 @@ import { createFunnelDraft, draftFingerprint, eventKey, eventReference, findEven
 import '@xyflow/react/dist/style.css';
 import './EventFunnelBuilder.css';
 import { autoLayoutFunnel } from './eventFunnelLayout.mjs';
+import { updateAddonPresentationNode } from '@/components/booking/addonPresentation.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const typeNames = { source: 'Source event', event: 'Further event', addon: 'Event add-on', membership: 'Membership', condition: 'Condition', checkout: 'Checkout' };
+const AddonPresentationFields = lazy(() => import('@/components/booking/AddonPresentationFields'));
 // Tenant membership tiers, supplied by the admin endpoint (names only for labels).
 const TiersContext = createContext([]);
 
@@ -88,7 +90,7 @@ function FunnelNode({ data, selected }) {
 const nodeTypes = { funnel: FunnelNode };
 const edgeTypes = { funnelConnector: EventFunnelConnector };
 
-function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
+function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update, updatePresentation, locked }) {
   const tiers = useContext(TiersContext);
   const event = findEvent(catalog, node.event);
   const tickets = event?.tickets || [];
@@ -106,6 +108,10 @@ function PurchaseInspector({ node, nodes, graph, catalog, tenantId, update }) {
       Source-ticket mappings: each checked class starts this funnel after normal registration.
       A class can belong to only one published funnel for this event.
     </p>}
+    {node.type === 'addon' && <Suspense fallback={<p className="efb-muted" role="status">Loading add-on presentation…</p>}>
+      <AddonPresentationFields presentation={node.presentation || {}} locked={locked}
+        updatePresentation={updatePresentation} />
+    </Suspense>}
     <Field label="Ticket choice at this step"><select aria-label="Ticket choice at this step"
       value={node.selectionMode || 'multiple'} disabled={node.type === 'source' && graph.entryMode === 'ticket_single'}
       onChange={event => update({ selectionMode: event.target.value })}>
@@ -338,6 +344,13 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
   function updateNode(patch) {
     changeDraft(current => ({ ...current, graph: { ...current.graph, nodes: current.graph.nodes.map(node => node.id === selectedId ? { ...node, ...patch } : node) } }));
   }
+  function updatePresentation(nodeId, key, value) {
+    if (editGuard.current) return;
+    changeDraft(current => current.id !== draft.id ? current : ({ ...current, graph: {
+      ...current.graph,
+      nodes: updateAddonPresentationNode(current.graph.nodes, nodeId, key, value),
+    } }));
+  }
   function loadDefinition(definition, isNew = false) {
     if (dirty && !window.confirm('Discard unsaved changes to this funnel?')) return;
     const next = clone(definition);
@@ -550,9 +563,9 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
         <aside className="efb-inspector" aria-label="Selected node settings" data-testid="funnel-inspector">
           {!selected ? <div className="efb-empty"><h4>Select a node</h4><p className="efb-muted">Choose an offer, condition or checkout to inspect its configuration.</p></div> : <fieldset disabled={locked}>
              <h4>{nodeLabel(selected, graphNodes, catalog, tiers)}</h4>
-            <EventFunnelStepWidth key={selected.id} width={draft.layout?.nodeWidths?.[selected.id] ?? DEFAULT_FUNNEL_STEP_WIDTH}
+            <EventFunnelStepWidth key={`width:${selected.id}`} width={draft.layout?.nodeWidths?.[selected.id] ?? DEFAULT_FUNNEL_STEP_WIDTH}
               locked={locked} onChange={width => updateStepWidth(selected.id, width)} />
-            {isPurchase(selected) && <PurchaseInspector node={selected} nodes={graphNodes} graph={graph} catalog={catalog} tenantId={tenantId} update={updateNode} />}
+             {isPurchase(selected) && <PurchaseInspector key={`inspector:${selected.id}`} node={selected} nodes={graphNodes} graph={graph} catalog={catalog} tenantId={tenantId} update={updateNode} updatePresentation={(key, value) => updatePresentation(selected.id, key, value)} locked={locked} />}
             {selected.type === 'membership' && <MembershipInspector node={selected} nodes={graphNodes} catalog={catalog} update={updateNode} />}
             {selected.type === 'condition' && <ConditionInspector node={selected} nodes={graphNodes} catalog={catalog} tenantId={tenantId} update={updateNode} />}
             {selected.type === 'checkout' && <p className="efb-muted">All routes must end at this checkout. Only eligible retained purchases are included. The reservation and invoice settings above apply to this funnel.</p>}
