@@ -54,6 +54,8 @@ before(async()=>{
       let data='';for await(const chunk of req)data+=chunk;
       const body=JSON.parse(data);fixture.invoiceRequests??=[];fixture.invoiceRequests.push(body);
       if(fixture.invoiceFailure){res.statusCode=503;return res.end('{}');}
+      if(body.action==='list'&&fixture.invoicesPending>0){fixture.invoicesPending--;res.setHeader('Content-Type','application/json');
+        return res.end(JSON.stringify({state:'pending',invoices:[{id:'00000000-0000-4000-8000-000000000003',number:null,status:'processing',available:false}]}));}
       if(body.action==='download'){res.setHeader('Content-Type','application/pdf');return res.end('%PDF-1.4 fixture');}
       res.setHeader('Content-Type','application/json');
       return res.end(JSON.stringify({state:'delivered',invoices:[{id:'00000000-0000-4000-8000-000000000003',
@@ -72,30 +74,43 @@ async function open(closed=false,overrides={}){
   await page.goto(origin);await page.getByTestId('event-funnel-checkout').waitFor();
   return page;
 }
-test('mounted checkout does not prepare before review and confirms only through server status',async()=>{
-  const page=await open();
+test('one submit confirms silently and invoices show per-line progress',async()=>{
+  const page=await open(false,{invoicesPending:1});
   await page.waitForTimeout(300);
   assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,0);
+  // Record every text that appears while submitting; interim panels must not flash.
+  await page.evaluate(()=>{window.seen=new Set();new MutationObserver(()=>window.seen.add(document.body.innerText))
+    .observe(document.body,{subtree:true,childList:true,characterData:true});});
   await page.getByTestId('event-funnel-submit').click();
   await page.getByRole('heading',{name:'Booking confirmed'}).waitFor();
+  const seen=[...await page.evaluate(()=>[...window.seen])].join('\n');
+  for(const text of ['Your booking is not confirmed yet','Checking the original reservation','Your original checkout','Server status'])
+    assert.ok(!seen.includes(text),`unexpected interim text: ${text}`);
   const preparations=fixture.requests.filter(r=>r.action==='prepare');
   assert.equal(preparations.length,1);assert.equal(preparations[0].command.expectedPayableMinor,0);
   assert.equal(preparations[0].command.submissionAccepted,true);
   assert.ok(fixture.requests.some(r=>r.action==='status'));
-  await page.getByRole('button',{name:'Download invoice'}).waitFor();
+  // First the invoice row is being prepared with a wait helper, then it updates by itself.
+  await page.locator('[data-testid="event-funnel-invoice-row"][data-status="preparing"]').waitFor();
+  await page.getByTestId('event-funnel-invoices-helper').waitFor();
+  await page.locator('[data-testid="event-funnel-invoice-row"][data-status="ready"]').getByText('Invoice INV-FIXTURE').waitFor({timeout:10000});
+  assert.equal(await page.getByTestId('event-funnel-invoices-helper').count(),0);
   const downloaded=page.waitForEvent('download');
   await page.getByRole('button',{name:'Download invoice'}).click();
-  assert.equal((await downloaded).suggestedFilename(),'invoice.pdf');
+  assert.equal((await downloaded).suggestedFilename(),'INV-FIXTURE.pdf');
   assert.deepEqual(fixture.invoiceRequests.at(-1),{action:'download',sessionId:id,orderId,
     invoiceId:'00000000-0000-4000-8000-000000000003'});
-  fixture.invoiceFailure=true;
-  await page.getByRole('button',{name:'Check invoices again'}).click();
+  await page.close();
+});
+test('an invoice list failure can be checked again without affecting the booking',async()=>{
+  const page=await open(false,{invoiceFailure:true});
+  await page.getByTestId('event-funnel-submit').click();
   await page.getByText('Invoices are not available right now. Your confirmed bookings have not changed.').waitFor();
   assert.equal(await page.getByRole('heading',{name:'Booking confirmed'}).count(),1);
-  assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,1);
   fixture.invoiceFailure=false;
   await page.getByRole('button',{name:'Check invoices again'}).click();
   await page.getByRole('button',{name:'Download invoice'}).waitFor();
+  assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,1);
   await page.close();
 });
 test('closed activation never presents confirmation',async()=>{

@@ -163,9 +163,10 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       }
       const prepared = await checkout.prepare({ ...finalCommand, submissionAccepted: true, expectedPayableMinor: fresh.payableMinor });
       if (!prepared) setReview(null);
-      // Non-card methods require server reconciliation too. Card payment
-      // instructions are obtained separately for this exact order.
-      if (prepared && prepared.paymentMethod !== 'card') await checkout.status();
+      // Continue without another click: card orders open the payment form for
+      // this exact order; other methods are reconciled to their final state.
+      if (prepared?.paymentMethod === 'card') await checkout.startPayment();
+      else if (prepared) await checkout.status();
     } finally {
       confirmationLock.current = false;
       setFinalizing(false);
@@ -207,6 +208,11 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const ticketCount = (summary?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
   const uncertain = checkout.fence.startsWith('submitted:') || checkout.fence.startsWith('uncertain:');
   const confirmed = order?.state === 'confirmed';
+  // Submitting stays quiet: no interim order or status panels flash up while
+  // the booking (or a card payment) is being submitted. Errors, uncertainty
+  // and recovery are always shown.
+  const quiet = Boolean(order && !checkoutTerminal(order.state) && !error && !cancelRequested
+    && (finalizing || checkout.cardSubmitting));
   // Remove provider return parameters, retaining the exact owned session route.
   const returnUrl = new URL(window.location.href);
   ['payment_intent', 'payment_intent_client_secret', 'redirect_status'].forEach(key => returnUrl.searchParams.delete(key));
@@ -216,7 +222,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
     data-checkout-eligible={eligible} aria-busy={blocked}>
     <header>
       <div className="flex items-center gap-2"><ShieldCheck size={19} aria-hidden="true" />
-        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order ? 'Your original checkout' : 'Your basket'}</h3>
+        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order && !quiet ? 'Your original checkout' : 'Your basket'}</h3>
       </div>
       <p className="event-funnel-checkout__muted mt-1">{confirmed
         ? 'Your payment or invoice submission has been verified and your event bookings are confirmed.'
@@ -236,7 +242,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" /><p>Checking checkout details…</p>
     </div>}
 
-    {order && <section className="event-funnel-checkout__panel" aria-label="Original order status">
+    {order && !quiet && <section className="event-funnel-checkout__panel" aria-label="Original order status">
       <h4>{confirmed ? 'Your places are booked' : order.state === 'cancelled' ? 'Reservation cancelled'
         : order.state === 'failed' ? 'Original checkout has stopped' : 'Your booking is not confirmed yet'}</h4>
       <p className="event-funnel-checkout__reference">Order reference: {order.id}</p>
@@ -375,12 +381,12 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
             </dl>
           </section>}
 
-          {!order && <div className="space-y-2">
+          {(!order || finalizing) && <div className="space-y-2">
             <Button type="submit" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
               disabled={!editable || blocked || summary.lines.length === 0} data-testid="event-funnel-submit">
               {finalizing ? 'Submitting your booking…' : 'Submit booking'}
             </Button>
-            {quote && <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setMessage(''); }}>
+            {quote && !finalizing && <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setMessage(''); }}>
               Change details
             </Button>}
           </div>}
@@ -399,7 +405,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
         Back to options
       </Button>}
     </footer>
-    {blocked && <p role="status" className="event-funnel-checkout__muted">Checking the original reservation. Please wait…</p>}
   </section>;
 }
 export default EventFunnelCheckoutSlot;
