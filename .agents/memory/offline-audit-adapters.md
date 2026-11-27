@@ -14,6 +14,19 @@ evidence appear unavailable for a whole cohort without throwing to the audit.
 with fixtures; cross-check representative unavailable outcomes against the actual
 helper query path. Keep missing tables and unsupported operations explicit.
 
+An offline adapter must reproduce schema errors, selected-column projection and
+SQL NULL semantics, not just return matching full objects.
+
+**Why:** A live reminder helper ignored an error from a nonexistent contact
+column. Inventing that field or returning a successful empty lookup would hide
+the actual routing failure. Returning extra snapshot fields can also let a
+calculation use data that its real SELECT never loads.
+
+**How to apply:** Verify schema before capture; reproduce observed provider
+errors at the corresponding query, project the requested columns, and exclude
+NULL values from ordinary SQL inequality matches. Keep these adapter checks
+separate from the application's own financial checks.
+
 Pure renewal assessments also need the successor schedule effective at the
 renewal boundary, not simply today's schedule.
 
