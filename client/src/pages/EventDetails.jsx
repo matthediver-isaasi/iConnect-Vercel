@@ -978,12 +978,8 @@ export function EventDetailsExperience({
       if (visibilityMode !== 'public_only' && visibilityMode !== 'members_and_public') {
         return false;
       }
-      // If the ticket is restricted to specific roles/groups, guests can never qualify
-      if (ticket.role_match_only) {
-        const ticketRoleIds = Array.isArray(ticket.role_ids) ? ticket.role_ids : [];
-        const ticketGroupIds = Array.isArray(ticket.member_group_ids) ? ticket.member_group_ids : [];
-        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
-      }
+      // Role/group restrictions apply to authenticated members only. Public
+      // visibility independently authorizes the guest audience.
       return true;
     }
     
@@ -1052,13 +1048,6 @@ export function EventDetailsExperience({
       if (tc.organization_type_enabled) return false;
       if (tc.visibility_mode !== 'members_and_public' && tc.visibility_mode !== 'public_only') {
         return false;
-      }
-      // Restricted tickets (role_match_only with non-empty roles/groups) are
-      // not visible to guests since guests can never satisfy a role/group rule.
-      if (tc.role_match_only) {
-        const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
-        const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
-        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
       }
       return true;
     });

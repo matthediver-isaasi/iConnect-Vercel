@@ -511,16 +511,14 @@ async function processBooking(req, res) {
 
       if (ticketClass && !isPrivateTicket(ticketClass) && ticketHasAccessRestrictions(ticketClass)
         && !isPurchasedTicketAllocation(allocationContext, event, ticketClass, 'complex')) {
-        if (!isMember) {
-          return res.status(403).json({ error: 'You do not have access to this ticket class' });
-        }
-        const memberGroupIds = await loadMemberGroupIds();
+        const memberGroupIds = isMember ? await loadMemberGroupIds() : [];
         const allowed = isTicketAccessibleToMember({
           ticketClass,
+          isAuthenticated: isMember,
           organizationTypeViewer: ticketClass.organization_type_enabled
             ? await loadPrivateTicketViewer(req, event.tenant_id, supabase) : null,
           tenantId: event.tenant_id,
-          memberRoleId: authenticatedMember.role_id,
+          memberRoleId: authenticatedMember?.role_id,
           memberGroupIds
         });
         if (!allowed) {

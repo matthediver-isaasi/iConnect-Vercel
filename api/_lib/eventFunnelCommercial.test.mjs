@@ -82,6 +82,19 @@ test('currency and account changes reject optional additions', () => {
     { quantity: 1, priceSnapshot: { ...source, commercial: { ...authority, accounting: { name: 'quickbooks', company: 'two' } } } }]),
   { code: 'INCOMPATIBLE_COMPANY' });
 });
+test('public funnel selections accept guests but still enforce signed-in role restrictions', async () => {
+  const guest = fixture({ guest: true, ticketChanges: { role_match_only: true, role_ids: [uuid(6)] } });
+  assert.equal((await guest.resolve(guest.input)).lines.length, 1);
+  const matching = fixture({ ticketChanges: { role_match_only: true, role_ids: [uuid(6)] } });
+  assert.equal((await matching.resolve(matching.input)).lines.length, 1);
+  const denied = fixture({ ticketChanges: { role_match_only: true, role_ids: [uuid(99)] } });
+  await assert.rejects(denied.resolve(denied.input), /eligibility/);
+  const memberOnly = fixture({ guest: true, ticketChanges: {
+    visibility_mode: 'members_only', role_match_only: true, role_ids: [uuid(6)],
+  } });
+  await assert.rejects(memberOnly.resolve(memberOnly.input), /access/);
+});
+
 test('selection reloads canonical prices and normalizes attendee fields without trusting injected authority', async () => {
   const f = fixture();
   f.input.answers.priceSnapshot = { unitMinor: 1 };

@@ -186,7 +186,7 @@ export function createFunnelSelectionResolver({ db, loadAuthority = loadFunnelCo
       if (isPrivateTicket(ticket)) {
         if (!isPrivateTicketEligible(ticket, viewer, owner.tenantId)) deny('You do not have access to this ticket.');
       } else if (!isTicketVisibleToUser(ticket, !!member)) deny('You do not have access to this ticket.');
-      if (!isTicketAccessibleToMember({ ticketClass: ticket, memberRoleId: member?.role_id, memberGroupIds: groups,
+      if (!isTicketAccessibleToMember({ ticketClass: ticket, isAuthenticated: !!member, memberRoleId: member?.role_id, memberGroupIds: groups,
         memberId: member?.id, tenantId: owner.tenantId, ticketTenantId: owner.tenantId, organizationTypeViewer: viewer })) {
         deny('You do not meet this ticket’s eligibility requirements.');
       }

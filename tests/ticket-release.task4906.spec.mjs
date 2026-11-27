@@ -11,9 +11,12 @@ const stubs = {
   '@stripe/react-stripe-js': `
     export const Elements = ({ children }) => children;
     export const PaymentElement = () => null;
+    export const AddressElement = () => null;
     export const useElements = () => ({});
     export const useStripe = () => ({ confirmPayment: async () => ({}) });`,
   '@/api/base44Client': `
+    export const getActiveTenantId = () => 'tenant-a';
+    export const subscribeToActiveTenantId = () => () => {};
     const empty = async () => [];
     export const base44 = {
       entities: new Proxy({}, { get: () => ({ list: empty, filter: empty, get: async () => null }) }),
@@ -29,6 +32,7 @@ const stubs = {
     };`,
   '@/api/publicClient': `
     export const publicClient = {
+      getTenantSlug: () => 'fixture',
       getComplexEvent: async () => structuredClone(window.fixture.event),
       getComplexEventSessions: async () => [],
       submitComplexEventBooking: async payload => {
@@ -129,7 +133,9 @@ const message = 'Tickets available from 1 June 2026 at 10:01 (Europe/London)';
 async function mount(page, {
   complex = false, embedded = false, tickets = [upcoming], allocation = false,
   legacy = null, price = 0, backendEnabled = false, group = false, publicFlag = true, signedIn = false, activeGroup = false,
+  memberRoleId = null,
 } = {}) {
+  page.on('pageerror', error => console.error('Isolated event fixture:', error.message));
   const event = (complex ? complexEvent : simpleEvent)('release-fixture', 'hidden', 'hidden');
   event.start_date = '2099-06-01T09:00:00Z';
   event.end_date = '2099-06-01T10:00:00Z';
@@ -148,6 +154,7 @@ async function mount(page, {
   }
   const member = legacy || signedIn ? {
     id: 'legacy-member', email: 'legacy@example.invalid', first_name: 'Legacy', last_name: 'Member',
+    role_id: memberRoleId,
   } : null;
   await page.route('**/*', route => route.request().url().startsWith('http://ticket-release.fixture/')
     ? route.fulfill({ contentType: 'text/html', body: '<html><body><div id="root"></div></body></html>' })
@@ -166,6 +173,36 @@ async function mount(page, {
     };
   }, { event, complex, embedded, allocation, member, backendEnabled, activeGroup });
   await page.addScriptTag({ content: script });
+}
+
+for (const complex of [false, true]) {
+  for (const visibility of ['members_only', 'public_only']) {
+    test(`${complex ? 'complex' : 'simple'} public role audience excludes ${visibility === 'members_only' ? 'guests from member-only' : 'members from public-only'} tickets`, async ({ page }) => {
+      const ticket = { ...available, name: 'Excluded audience ticket', visibility_mode: visibility,
+        role_match_only: true, role_ids: ['eligible-role'] };
+      await mount(page, { complex, tickets: [ticket], signedIn: visibility === 'public_only',
+        memberRoleId: 'eligible-role' });
+      await expect(page.getByText('Excluded audience ticket', { exact: true })).toHaveCount(0);
+    });
+  }
+  for (const audience of ['guest', 'matching member', 'other member', 'member without role']) {
+    test(`${complex ? 'complex' : 'simple'} public role audience: ${audience}`, async ({ page }) => {
+      const ticket = { ...available, id: 'audience', name: 'Audience restricted ticket',
+        role_match_only: true, role_ids: ['eligible-role'] };
+      await mount(page, { complex, tickets: [ticket], signedIn: audience !== 'guest',
+        memberRoleId: audience === 'matching member' ? 'eligible-role' : audience === 'other member' ? 'other-role' : null });
+      if (audience === 'guest' || audience === 'matching member') {
+        await expect(page.getByText('Audience restricted ticket', { exact: true }).first()).toBeVisible();
+        await expect(page.getByText('Member Only Event', { exact: true })).toHaveCount(0);
+        if (!complex && audience === 'guest') {
+          await fs.promises.mkdir('generated-artifacts/ticket-public-role', { recursive: true });
+          await page.screenshot({ path: 'generated-artifacts/ticket-public-role/guest-ticket.png', fullPage: true });
+        }
+      } else {
+        await expect(page.getByText('Audience restricted ticket', { exact: true })).toHaveCount(0);
+      }
+    });
+  }
 }
 
 for (const complex of [false, true]) {

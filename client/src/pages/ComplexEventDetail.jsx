@@ -664,8 +664,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const hasRestrictions = tc.role_match_only && (ticketRoleIds.length > 0 || ticketGroupIds.length > 0);
       if (isGuest) {
         if (vis === 'members_only') return false;
-        // Guests can never satisfy a role/group restriction
-        if (hasRestrictions) return false;
+        // Public visibility is independent of signed-in role/group matching.
         return true;
       }
       if (vis === 'public_only') return false;
@@ -1551,8 +1550,7 @@ export function ComplexEventDetailExperience({
       const hasRestrictions = tc.role_match_only && (ticketRoleIds.length > 0 || ticketGroupIds.length > 0);
       if (isGuest) {
         if (vis === 'members_only') return false;
-        // Guests can never satisfy a role/group restriction
-        if (hasRestrictions) return false;
+        // Public visibility is independent of signed-in role/group matching.
         return true;
       }
       if (vis === 'public_only') return false;

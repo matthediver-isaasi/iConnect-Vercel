@@ -78,7 +78,7 @@ export async function loadFunnelOffer(db, owner, snapshot, nodeId) {
   const sourceSwitch = node.type === 'source' && snapshot.session.source_ticket_id;
   const tickets = filterViewerTickets(catalog.filter(ticket => sourceSwitch || node.ticketIds.includes(String(ticket.id))), viewer, owner.tenantId)
     .filter(ticket => (isPrivateTicket(ticket) || isTicketVisibleToUser(ticket, !!member))
-      && isTicketAccessibleToMember({ ticketClass: ticket, memberRoleId: member?.role_id, memberGroupIds: groups,
+      && isTicketAccessibleToMember({ ticketClass: ticket, isAuthenticated: !!member, memberRoleId: member?.role_id, memberGroupIds: groups,
         memberId: member?.id, tenantId: owner.tenantId, ticketTenantId: owner.tenantId, organizationTypeViewer: viewer }))
     .map(ticket => {
       const remaining = capacity.tickets.find(row => row.ticketId === String(ticket.id));

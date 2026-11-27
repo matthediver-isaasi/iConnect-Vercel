@@ -2504,24 +2504,22 @@ const functionHandlers = {
       const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
       if (selectedTicketClass && !isPrivateTicket(selectedTicketClass) && ticketHasAccessRestrictions(selectedTicketClass)
         && !isPurchasedTicketAllocation(allocationContext, event, selectedTicketClass)) {
-        if (isGuestBooking || !member) {
-          console.log('[createOneOffEventBooking] Blocking guest from restricted ticket:', ticketClassId);
-          return { success: false, error: 'You do not have access to this ticket class' };
-        }
-        const memberGroupIds = await getMemberGroupIdsForMember(supabase, member.id);
+        const memberGroupIds = bookingSessionMember
+          ? await getMemberGroupIdsForMember(supabase, bookingSessionMember.id) : [];
         const allowed = isTicketAccessibleToMember({
           ticketClass: selectedTicketClass,
+          isAuthenticated: !!bookingSessionMember,
           organizationTypeViewer: selectedTicketClass.organization_type_enabled
             ? await loadPrivateTicketViewer(req, event.tenant_id, supabase) : null,
           tenantId: event.tenant_id,
-          memberRoleId: member.role_id,
+          memberRoleId: bookingSessionMember?.role_id,
           memberGroupIds
         });
         if (!allowed) {
           console.log('[createOneOffEventBooking] Member does not match ticket roles/groups:', {
-            memberId: member.id,
+            memberId: bookingSessionMember?.id,
             ticketClassId,
-            memberRoleId: member.role_id,
+            memberRoleId: bookingSessionMember?.role_id,
             ticketRoleIds: selectedTicketClass.role_ids || [],
             ticketGroupIds: selectedTicketClass.member_group_ids || []
           });

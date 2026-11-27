@@ -3,6 +3,7 @@
 // may be restricted by roles AND/OR member groups (OR logic).
 import { isPrivateTicket, isPrivateTicketEligible } from '../../shared/ticketAudience.js';
 import { ticketOrganizationTypeAllowed } from '../../shared/ticketOrganizationType.js';
+import { ticketRoleAudienceAllowed } from '../../shared/ticketRoleAudience.mjs';
 
 export function getTicketRoleIds(ticketClass) {
   return Array.isArray(ticketClass?.role_ids) ? ticketClass.role_ids : [];
@@ -55,17 +56,12 @@ export async function isActiveMemberOfGroup(supabase, memberId, groupId) {
   return group.is_active !== false;
 }
 
-export function isTicketAccessibleToMember({ ticketClass, memberRoleId, memberGroupIds, memberId, tenantId, ticketTenantId, organizationTypeViewer }) {
+export function isTicketAccessibleToMember({ ticketClass, memberRoleId, memberGroupIds, memberId, tenantId, ticketTenantId, organizationTypeViewer, isAuthenticated = true }) {
   if (isPrivateTicket(ticketClass)) {
     return isPrivateTicketEligible(ticketClass, { memberId, tenantId }, ticketTenantId || ticketClass.tenant_id);
   }
   if (!ticketOrganizationTypeAllowed(ticketClass, organizationTypeViewer, ticketTenantId || tenantId)) return false;
-  if (!ticketClass?.role_match_only) return true;
-  const roleIds = getTicketRoleIds(ticketClass);
-  const groupIds = getTicketMemberGroupIds(ticketClass);
-  if (!roleIds.length && !groupIds.length) return true;
-  if (memberRoleId && roleIds.includes(memberRoleId)) return true;
-  const memberGroups = Array.isArray(memberGroupIds) ? memberGroupIds : [];
-  if (memberGroups.some(g => groupIds.includes(g))) return true;
-  return false;
+  return ticketRoleAudienceAllowed(ticketClass, {
+    authenticated: isAuthenticated, roleId: memberRoleId, groupIds: memberGroupIds,
+  });
 }

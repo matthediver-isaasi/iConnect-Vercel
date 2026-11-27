@@ -6,3 +6,4 @@ description: Capacity, audience, organisation type and guest contact boundaries.
 - [Private purchase authority](private-ticket-purchase-authority.md) — selected members, purchased entitlements and sibling tickets.
 - [Organisation Type](ticket-organization-type-policy.md) — primary organisation type AND the legacy audience.
 - [Public ticket contacts](public-ticket-contact-boundary.md) — contact creation never implies membership or consent.
+- [Public and member-role audiences](ticket-public-role-policy.md) — public visitors qualify independently; signed-in members still require configured role/group matches.
