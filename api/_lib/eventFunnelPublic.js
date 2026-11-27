@@ -54,15 +54,34 @@ export async function findFunnelEntry(db, tenantId, kind, eventId, ticketId = nu
 
 // Lets the event page decide, before submission, which ticket classes start a
 // funnel. Each mapping is confirmed through the same resolver used at start, so
-// out-of-scope or unpublished mappings are never advertised.
+// out-of-scope or unpublished mappings are never advertised. The mapping table
+// is intentionally RPC-only, including for service_role: enumerate candidates
+// from the event catalogue, never from the protected routing tables.
 export async function listRoutedTickets(db, tenantId, kind, eventId) {
-  const rows = check(await db.from('event_funnel_ticket_entry').select('ticket_id')
-    .eq('tenant_id', tenantId).eq('event_kind', kind).eq('event_id', eventId).limit(100));
-  const ids = [...new Set(rows.map(row => String(row.ticket_id)))];
+  let tickets;
+  if (kind === 'simple') {
+    const event = check(await db.from('event').select('*')
+      .eq('tenant_id', tenantId).eq('id', eventId).maybeSingle());
+    tickets = funnelSimpleTickets(event);
+  } else {
+    tickets = [];
+    // Do not silently classify tickets beyond a PostgREST page as unmapped.
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const page = check(await db.from('complex_event_ticket_class').select('id')
+        .eq('tenant_id', tenantId).eq('complex_event_id', eventId)
+        .order('id').range(offset, offset + pageSize - 1));
+      tickets.push(...page);
+      if (page.length < pageSize) break;
+    }
+  }
+  const ids = [...new Set(tickets.filter(ticket => ticket.id != null).map(ticket => String(ticket.id)))];
   const routed = [];
-  for (const id of ids) {
-    const entry = await findFunnelEntry(db, tenantId, kind, eventId, id);
-    if (entry.active === true) routed.push(id);
+  // Bound parallelism while avoiding one network round trip per ticket.
+  for (let offset = 0; offset < ids.length; offset += 8) {
+    const batch = ids.slice(offset, offset + 8);
+    const entries = await Promise.all(batch.map(id => findFunnelEntry(db, tenantId, kind, eventId, id)));
+    batch.forEach((id, index) => { if (entries[index].active === true) routed.push(id); });
   }
   return routed;
 }

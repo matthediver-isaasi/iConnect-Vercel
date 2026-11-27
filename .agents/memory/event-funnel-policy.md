@@ -317,3 +317,15 @@ event screens inside add-on modals.
 and reuse its purchaser/terms/conduct answers; server checks are unchanged. A
 per-event "Ticket funnels" switch that is off makes every ticket use normal
 checkout — check it first when a funnel "doesn't trigger".
+
+Keep ticket-route discovery within the existing RPC-only security boundary;
+do not broaden routing-table grants just to support the event-page UI.
+
+**Why:** The in-page discovery change exposed a mismatch between unit-test
+database mocks and the intentionally restricted server role. Installing the
+existing migration again cannot repair a caller that violates that boundary.
+
+**How to apply:** Discover candidate tickets from the tenant's event catalogue
+and ask the authorised resolver about each candidate. Test with direct mapping
+reads denied, and retain failure states rather than interpreting errors as
+unmapped tickets.

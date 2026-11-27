@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createFunnelPublicHandler, loadFunnelOffer } from './eventFunnelPublic.js';
+import { createFunnelPublicHandler, listRoutedTickets, loadFunnelOffer } from './eventFunnelPublic.js';
 import { funnelSimpleTickets } from '../../shared/eventFunnelCatalog.mjs';
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const tenant = uuid(1), eventId = uuid(2), version = uuid(3), memberId = uuid(4);
@@ -119,13 +119,86 @@ test('normal outcomes never create or reserve a journey and source routing uses 
   assert.equal(routed.args.p_tenant, tenant);
 });
 
-test('ticket-routed entry lists only mappings the resolver confirms', async () => {
-  const { listRoutedTickets } = await import('./eventFunnelPublic.js');
+function catalogueFixture({ kind = 'simple', pricing = { ticket_classes: [{ id: 'A' }, { id: 'B' }, { id: 'A' }] },
+  complexIds = ['A', 'B'], catalogueError = false, resolverError = false } = {}) {
+  const resolved = [], reads = [];
   const db = {
-    from: () => ({ select: () => ({ eq() { return this; }, limit: async () => ({ data: [{ ticket_id: 'A' }, { ticket_id: 'B' }, { ticket_id: 'A' }] }) }) }),
-    rpc: async (name, args) => ({ data: args.p_ticket === 'A'
-      ? { active: true, routing: 'ticket', outcome: 'funnel', versionId: version, sourceNodeId: 'source' }
-      : { active: false, outcome: 'normal', reason: 'no_match' } }),
+    from(table) {
+      assert.equal(table, kind === 'simple' ? 'event' : 'complex_event_ticket_class',
+        'routing tables deny direct reads to service_role');
+      const filters = {};
+      reads.push({ table, filters });
+      return {
+        select() { return this; },
+        eq(key, value) { filters[key] = value; return this; },
+        order(key) { assert.equal(key, 'id'); return this; },
+        async maybeSingle() {
+          return catalogueError ? { error: { code: 'XX000' } }
+            : { data: { id: eventId, tenant_id: tenant, pricing_config: pricing } };
+        },
+        async range(start, end) {
+          return catalogueError ? { error: { code: 'XX000' } }
+            : { data: complexIds.slice(start, end + 1).map(id => ({ id })) };
+        },
+      };
+    },
+    async rpc(name, args) {
+      assert.equal(name, 'event_funnel_resolve_entry');
+      assert.equal(args.p_tenant, tenant);
+      assert.equal(args.p_event_id, eventId);
+      assert.equal(args.p_event_kind, kind);
+      if (args.p_ticket === null) return { data: { active: true, routing: 'ticket', selectionMode: 'single' } };
+      resolved.push(args.p_ticket);
+      if (resolverError) return { error: { code: 'XX000' } };
+      return { data: args.p_ticket === 'A'
+        ? { active: true, routing: 'ticket', outcome: 'funnel', versionId: version, sourceNodeId: 'source' }
+        : { active: false, outcome: 'normal', reason: 'no_match' } };
+    },
   };
-  assert.deepEqual(await listRoutedTickets(db, tenant, 'simple', eventId), ['A']);
+  return { db, resolved, reads };
+}
+
+test('ticket-routed entry works with direct routing-table reads denied', async () => {
+  for (const kind of ['simple', 'complex']) {
+    const f = catalogueFixture({ kind });
+    const handler = createFunnelPublicHandler('entry', { db: f.db, resolveTenant: async () => ({ id: tenant }),
+      loadViewer: async () => null });
+    const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; },
+      status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+    await handler({ method: 'GET', query: { eventKind: kind, eventId } }, res);
+    assert.equal(res.code, 200);
+    assert.deepEqual(res.body.routedTicketIds, ['A']);
+    assert.equal(res.body.selectionMode, 'single');
+    assert.match(res.headers['Cache-Control'], /no-store/);
+    assert.deepEqual(f.resolved, ['A', 'B']);
+    assert.deepEqual(f.reads[0].filters, { tenant_id: tenant, [kind === 'simple' ? 'id' : 'complex_event_id']: eventId });
+  }
+});
+
+test('catalogue discovery preserves legacy, empty and JSON pricing semantics', async () => {
+  for (const [pricing, expected] of [[null, ['default']], ['', ['default']],
+    [{ ticket_classes: [] }, []], ['{"ticket_classes":[{"id":"A"}]}', ['A']]]) {
+    const f = catalogueFixture({ pricing });
+    await listRoutedTickets(f.db, tenant, 'simple', eventId);
+    assert.deepEqual(f.resolved, expected);
+  }
+});
+
+test('complex discovery checks all pages rather than silently truncating mapped tickets', async () => {
+  const f = catalogueFixture({ kind: 'complex', complexIds: [...Array.from({ length: 500 }, (_, i) => `T${i}`), 'A'] });
+  assert.deepEqual(await listRoutedTickets(f.db, tenant, 'complex', eventId), ['A']);
+  assert.equal(f.resolved.length, 501);
+  assert.equal(f.reads.length, 2);
+});
+
+test('catalogue and resolver failures never become a verified unmapped result', async () => {
+  for (const kind of ['simple', 'complex']) {
+    for (const failure of [{ catalogueError: true }, { resolverError: true }]) {
+      const f = catalogueFixture({ kind, ...failure });
+      await assert.rejects(listRoutedTickets(f.db, tenant, kind, eventId), { code: 'JOURNEY_UNAVAILABLE' });
+    }
+  }
+  const f = catalogueFixture({ pricing: 'invalid JSON' });
+  await assert.rejects(listRoutedTickets(f.db, tenant, 'simple', eventId));
+  assert.deepEqual(f.resolved, []);
 });
