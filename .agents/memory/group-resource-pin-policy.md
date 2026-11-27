@@ -11,6 +11,8 @@ tenant-wide pin metadata is present.
 **Why:** The owner explicitly required independent group and tenant editorial
 choices; legacy metadata or a resource appearing on both surfaces must not
 leak group priorities into the tenant library.
+On 2026-11-27 the owner explicitly confirmed that hiding group pin controls for
+linked library resources is expected behaviour, not a missing feature.
 
 **How to apply:** Apply ownership-aware pin ordering to complete eligible matches
 before pagination, preserving the chosen normal sort within each partition.
