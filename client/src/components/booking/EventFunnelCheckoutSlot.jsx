@@ -1,17 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 import EventFunnelInvoices from './EventFunnelInvoices';
-import { ShieldCheck } from 'lucide-react';
+import { CreditCard, PoundSterling, Receipt, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { invoiceAddressDraft } from '@/lib/eventInvoiceAddress.mjs';
 import EventFunnelBilling from './EventFunnelBilling';
 import EventFunnelCart from './EventFunnelCart';
-import EventFunnelCheckoutFunding from './EventFunnelCheckoutFunding';
+import EventFunnelVouchers, { EventFunnelTrainingFund } from './EventFunnelCheckoutFunding';
 import EventFunnelCheckoutPayment from './EventFunnelCheckoutPayment';
 import { checkoutTerminal, useEventFunnelCheckout } from './useEventFunnelCheckout';
 import './EventReservationIntegration.css';
 import './EventFunnelCheckout.css';
 
 const methodNames = { card: 'Card', account: 'Invoice to account', public_invoice_po: 'Invoice / PO', free: 'No payment required' };
+const methodLabels = { card: 'Pay by Credit/Debit Card', account: 'Pay by Invoice', public_invoice_po: 'Invoice / PO' };
+const methodHints = {
+  card: 'Secure payment via Stripe',
+  account: 'The remaining amount is invoiced, not deducted from a stored balance.',
+  public_invoice_po: 'Register now and receive an invoice. No online payment is taken.',
+};
 const invoiceMethod = method => method === 'account' || method === 'public_invoice_po';
 const canPay = state => ['pending', 'prepared', 'payable', 'requires_payment_method', 'requires_confirmation', 'requires_action'].includes(state);
 const quoteSignature = quote => JSON.stringify({
@@ -204,6 +210,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
     ? quotedMethods.methods : summary?.paymentMethods || [];
   const includedTaxMinor = (summary?.lines || []).reduce((sum, line) => sum + (Number.isSafeInteger(line.includedTaxMinor) ? line.includedTaxMinor : 0), 0);
   const hasFunding = Boolean(summary?.memberFunding);
+  const ticketCount = (summary?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
   const uncertain = checkout.fence.startsWith('submitted:') || checkout.fence.startsWith('uncertain:');
   const confirmed = order?.state === 'confirmed';
   // Remove provider return parameters, retaining the exact owned session route.
@@ -293,55 +300,87 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
       <form onSubmit={reviewQuote} className="event-funnel-checkout__columns" aria-label="Checkout details">
         <div className="event-funnel-checkout__fields">
           {!order && <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked}>
-            <legend className="sr-only">Billing and funding</legend>
+            <legend className="sr-only">Billing</legend>
             {summary.incomplete && <p className="event-funnel-checkout__notice">Some invoice customers could not be verified. Only verified customers are listed. You can check the reservation again before proceeding.</p>}
             <EventFunnelBilling summary={summary} value={draft.customer} onChange={customer => edit({ customer })}
               disabled={!editable || blocked} />
-            {summary.memberFunding && <EventFunnelCheckoutFunding summary={summary} session={snapshot.session}
-              value={draft} onChange={edit} money={money} />}
           </fieldset>}
           {!order && !editable && !checkout.fence && <p className="event-funnel-checkout__notice" role="status">
             {checkoutEligibility?.reason || 'Checkout requires a current held reservation at the checkout step. Use the reservation controls to check availability or return to your event details.'}
           </p>}
         </div>
 
-        <aside className="event-funnel-checkout__panel event-funnel-checkout__summary" aria-label="Order summary"
+        <aside className="event-funnel-checkout__summary space-y-4" aria-label="Order summary"
           id={`funnel-order-summary-${snapshot.session.id}`}>
-          <h4>Order summary</h4>
-          <dl className="event-funnel-checkout__totals">
-            <div><dt>Subtotal</dt><dd className="event-funnel-checkout__amount">{money(summary.totalMinor)}</dd></div>
-            {quote && quote.voucherMinor > 0 && <div><dt>Vouchers</dt><dd className="event-funnel-checkout__amount">−{money(quote.voucherMinor)}</dd></div>}
-            {quote && quote.trainingFundMinor > 0 && <div><dt>Training fund</dt><dd className="event-funnel-checkout__amount">−{money(quote.trainingFundMinor)}</dd></div>}
-            {includedTaxMinor > 0 && <div className="event-funnel-checkout__muted"><dt>Includes VAT</dt><dd className="event-funnel-checkout__amount">{money(includedTaxMinor)}</dd></div>}
-            <div><dt>{quote ? 'Total due' : 'Total'}</dt>
-              <dd className="event-funnel-checkout__amount" data-testid="event-funnel-total">{money(quote ? quote.payableMinor : summary.totalMinor)}</dd></div>
-          </dl>
-          {!quote && !order && hasFunding && <p className="event-funnel-checkout__muted">Vouchers and training fund are applied when you review your order.</p>}
+          <section className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4" aria-label="Ticket pricing">
+            <div className="mb-3 flex items-center gap-2">
+              <PoundSterling className="h-5 w-5 text-blue-600" aria-hidden="true" />
+              <h4 className="font-semibold text-blue-900">Ticket Pricing</h4>
+            </div>
+            <dl className="space-y-2 text-sm">
+              <div className="flex items-center justify-between"><dt className="text-blue-700">Tickets:</dt>
+                <dd className="font-bold text-blue-900">{ticketCount}</dd></div>
+              {includedTaxMinor > 0 && <div className="flex items-center justify-between"><dt className="text-blue-700">Includes VAT:</dt>
+                <dd className="font-bold text-blue-900 tabular-nums">{money(includedTaxMinor)}</dd></div>}
+              <div className="flex items-center justify-between border-t border-blue-200 pt-2"><dt className="font-medium text-blue-700">Total Cost:</dt>
+                <dd className="text-lg font-bold text-blue-900 tabular-nums" data-testid="event-funnel-total">{money(summary.totalMinor)}</dd></div>
+            </dl>
+          </section>
 
-          {!order && <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked || Boolean(quote)}>
-            <legend className="event-funnel-checkout__label">Payment method</legend>
-            {paymentMethods.length === 1 && paymentMethods[0] === 'free' ? <p className="event-funnel-checkout__muted">No payment is required. Your booking still needs final confirmation.</p>
-              : <div className="event-funnel-checkout__methods" role="radiogroup" aria-label="Payment method">
-                {!draft.paymentMethod && <p className="event-funnel-checkout__muted">No verified payment method.</p>}
-                {paymentMethods.filter(method => methodNames[method] && method !== 'free').map(method =>
-                  <label key={method} className="event-funnel-checkout__method" data-checked={draft.paymentMethod === method}>
-                    <input type="radio" name={`funnel-method-${snapshot.session.id}`} value={method}
-                      checked={draft.paymentMethod === method} onChange={() => edit({ paymentMethod: method })} />
-                    <span>{methodNames[method]}</span>
-                  </label>)}
-              </div>}
-            {invoiceMethod(draft.paymentMethod) && <label className="event-funnel-checkout__label">Purchase order number (optional)
-              <input value={draft.purchaseOrderNumber} maxLength={250} onChange={event => edit({ purchaseOrderNumber: event.target.value })} />
-            </label>}
+          {!order && <fieldset className="space-y-4" disabled={!editable || blocked || Boolean(quote)}>
+            <legend className="sr-only">Funding and payment</legend>
+            <EventFunnelVouchers summary={summary} session={snapshot.session} value={draft} onChange={edit} />
+            <EventFunnelTrainingFund summary={summary} value={draft} onChange={edit} money={money} />
+
+            {paymentMethods.length === 1 && paymentMethods[0] === 'free'
+              ? <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">No payment is required. Your booking still needs final confirmation.</p>
+              : <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-label="Pay balance">
+                <div className="mb-4 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+                  <span className="text-sm font-medium">Pay Balance</span>
+                </div>
+                <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600">Amount Due:</span>
+                    <span className="text-lg font-bold text-slate-900 tabular-nums">{money(quote ? quote.payableMinor : summary.totalMinor)}</span>
+                  </div>
+                  {!quote && hasFunding && <p className="mt-1 text-xs text-slate-500">Credit and training fund are deducted when you review your order.</p>}
+                </div>
+                <div className="space-y-3" role="radiogroup" aria-label="Payment method">
+                  {!draft.paymentMethod && <p className="text-xs text-slate-500">No verified payment method.</p>}
+                  {paymentMethods.filter(method => methodNames[method] && method !== 'free').map(method =>
+                    <label key={method} className="event-funnel-checkout__method" data-checked={draft.paymentMethod === method}>
+                      <input type="radio" name={`funnel-method-${snapshot.session.id}`} value={method}
+                        checked={draft.paymentMethod === method} onChange={() => edit({ paymentMethod: method })} />
+                      {method === 'card' ? <CreditCard className="mt-0.5 h-5 w-5 text-indigo-600" aria-hidden="true" />
+                        : <Receipt className="mt-0.5 h-5 w-5 text-indigo-600" aria-hidden="true" />}
+                      <span className="flex-1"><span className="block text-sm font-medium">{methodLabels[method]}</span>
+                        <span className="mt-1 block text-xs font-normal text-slate-500">{methodHints[method]}</span></span>
+                    </label>)}
+                  {invoiceMethod(draft.paymentMethod) && <label className="event-funnel-checkout__label">Purchase order number (optional)
+                    <input value={draft.purchaseOrderNumber} maxLength={250} onChange={event => edit({ purchaseOrderNumber: event.target.value })} />
+                  </label>}
+                </div>
+              </section>}
           </fieldset>}
 
-          {!order && !quote && <Button type="submit" size="lg" className="w-full" disabled={!editable || blocked || summary.lines.length === 0}
-            data-testid="event-funnel-review">
+          {quote && (quote.voucherMinor > 0 || quote.trainingFundMinor > 0) && <section className="rounded-lg border-2 border-green-200 bg-green-50 p-4" aria-label="Payment summary">
+            <h4 className="mb-2 text-sm font-medium text-green-900">Payment Summary</h4>
+            <dl className="space-y-1 text-sm tabular-nums">
+              <div className="flex justify-between text-green-700"><dt>Total Cost:</dt><dd>{money(summary.totalMinor)}</dd></div>
+              {quote.voucherMinor > 0 && <div className="flex justify-between text-green-700"><dt>Vouchers:</dt><dd>−{money(quote.voucherMinor)}</dd></div>}
+              {quote.trainingFundMinor > 0 && <div className="flex justify-between text-green-700"><dt>Training Fund:</dt><dd>−{money(quote.trainingFundMinor)}</dd></div>}
+              <div className="flex justify-between border-t border-green-200 pt-2 font-bold text-green-900"><dt>Balance to Pay:</dt><dd>{money(quote.payableMinor)}</dd></div>
+            </dl>
+          </section>}
+
+          {!order && !quote && <Button type="submit" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
+            disabled={!editable || blocked || summary.lines.length === 0} data-testid="event-funnel-review">
             {busy === 'quote' ? 'Checking your order…' : 'Review order'}
           </Button>}
 
-          {quote && <div className="space-y-3 border-t pt-4" data-testid="event-funnel-quote">
-            <p className="text-sm"><strong>{methodNames[quote.paymentMethod]}</strong>
+          {quote && <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4" data-testid="event-funnel-quote" aria-label="Confirm booking">
+            <p className="text-sm"><strong>{methodLabels[quote.paymentMethod] || methodNames[quote.paymentMethod]}</strong>
               {quote.invoiceMode && <span className="event-funnel-checkout__muted"> · Invoice: {quote.invoiceMode.replaceAll('_', ' ')}</span>}</p>
             <p className="event-funnel-checkout__muted">Billed to {summary.customers.find(choice => choice.kind === draft.customer.kind && choice.id === draft.customer.id)?.name || 'you'}.
               {quote.paymentMethod !== 'card' && draft.purchaseOrderNumber && <> PO: {draft.purchaseOrderNumber}.</>}</p>
@@ -349,7 +388,8 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
               <input type="checkbox" checked={accepted} disabled={blocked || !editable} onChange={event => setAccepted(event.target.checked)} />
               <span>I have reviewed my tickets, billing details, funding and the total due, and agree to submit this booking.</span>
             </label>
-            <Button type="button" size="lg" className="w-full" onClick={confirm} disabled={!accepted || !editable || blocked} data-testid="event-funnel-confirm">
+            <Button type="button" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
+              onClick={confirm} disabled={!accepted || !editable || blocked} data-testid="event-funnel-confirm">
               {finalizing ? 'Verifying your order…' : quote.paymentMethod === 'card' ? `Pay ${money(quote.payableMinor)} by card`
                 : quote.payableMinor === 0 ? 'Confirm booking' : 'Submit booking'}
             </Button>
@@ -357,7 +397,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
               Change details
             </Button>
             <p className="event-funnel-checkout__muted">We check this total again before submitting. Any change must be reviewed first.</p>
-          </div>}
+          </section>}
         </aside>
       </form>
       {!order && editable && <div className="event-funnel-checkout__paybar" aria-hidden="true">

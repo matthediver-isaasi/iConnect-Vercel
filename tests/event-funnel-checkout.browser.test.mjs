@@ -18,7 +18,7 @@ before(async()=>{
   `},bundle:true,write:false,outdir:'out',format:'esm',jsx:'automatic',
     alias:{'@':path.resolve('client/src')},plugins:[{name:'isolated-funding-and-provider-ui',setup(b){
       b.onResolve({filter:/EventFunnelCheckout(Funding|Payment)$/},args=>({path:args.path,namespace:'fixture'}));
-      b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export default function Fixture(){return null}',loader:'js'}));
+      b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export default function Fixture(){return null}; export const EventFunnelTrainingFund = Fixture;',loader:'js'}));
     }}]});
   const js=output.outputFiles.find(file=>file.path.endsWith('.js')).text;
   server=createServer(async(req,res)=>{

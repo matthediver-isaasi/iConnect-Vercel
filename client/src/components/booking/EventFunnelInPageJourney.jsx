@@ -64,7 +64,7 @@ export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibi
       <Dialog open={!checkoutClosed} onOpenChange={open => { if (!open) setCheckoutClosed(true); }}>
         <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0"
           onInteractOutside={event => event.preventDefault()} data-testid="journey-checkout-dialog">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-6 py-4 pr-14">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 bg-white px-6 py-4 pr-14 shadow-sm">
             <DialogHeader className="flex-1 space-y-0.5 text-left">
               <DialogTitle className="text-xl">{confirmed ? 'Booking confirmed' : 'Checkout'}</DialogTitle>
               <DialogDescription className="max-sm:sr-only">Closing this window keeps your reservation. You can resume from the event page.</DialogDescription>
@@ -72,7 +72,7 @@ export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibi
             {timer && !confirmed && <span className="event-funnel-cart__timer" data-urgent={timer.urgent}
               data-testid="journey-checkout-timer">{timer.label}</span>}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          <div className="event-funnel-checkout-modal min-h-0 flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6">
             <AcceptedMembershipSummary snapshot={snapshot} change={change} pending={pending} />
             <EventFunnelCheckoutSlot snapshot={snapshot} change={change} refresh={refresh}
               checkoutEligibility={checkoutEligibility} />

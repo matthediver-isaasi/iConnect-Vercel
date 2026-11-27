@@ -24,13 +24,23 @@
 .event-funnel-checkout__reference { font-size: .8rem; overflow-wrap: anywhere; color: hsl(var(--muted-foreground)); }
 
 /* Order summary and payment choice */
-.event-funnel-checkout__summary { background: hsl(var(--muted) / .35); }
-.event-funnel-checkout__summary .event-funnel-checkout__totals > div.event-funnel-checkout__muted { font-size: .8rem; }
-.event-funnel-checkout__summary .event-funnel-checkout__totals > div:last-child { font-size: 1.25rem; }
+/* Inside the checkout modal: tinted canvas with white, bordered cards. */
+.event-funnel-checkout-modal .event-funnel-checkout__panel { background: #fff; border-color: #e2e8f0; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
+.event-funnel-checkout-modal .event-funnel-checkout__notice { background: #fff; }
+.event-funnel-checkout-modal .event-funnel-cart__table { background: #fff; border: 1px solid #e2e8f0; border-radius: .5rem; border-collapse: separate; border-spacing: 0; overflow: hidden; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
+.event-funnel-checkout-modal .event-funnel-cart__table th { background: #f1f5f9; color: #475569; border-bottom-color: #e2e8f0; }
+.event-funnel-checkout-modal .event-funnel-cart__table td { border-bottom-color: #e2e8f0; }
+.event-funnel-checkout-modal .event-funnel-cart__table tbody tr:last-child td { border-bottom: 0; }
+.event-funnel-checkout-modal .event-funnel-cart__table tr[data-depth]:not([data-depth="0"]) td { background: #f8fafc; }
+.event-funnel-checkout-modal .event-funnel-cart__meta { color: #64748b; }
+.event-funnel-checkout-modal .event-funnel-checkout__muted { color: #64748b; }
+.event-funnel-checkout-modal .event-funnel-cart__tag { background: #e0e7ff; color: #4338ca; }
+.event-funnel-checkout-modal .event-funnel-cart__remove { color: #4f46e5; }
 .event-funnel-checkout__methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .5rem; }
-.event-funnel-checkout__method { display: flex; align-items: center; gap: .55rem; border: 1px solid hsl(var(--input)); border-radius: calc(var(--radius) - 2px); padding: .7rem .8rem; font-size: .875rem; font-weight: 500; cursor: pointer; background: hsl(var(--background)); }
-.event-funnel-checkout__method[data-checked="true"] { border-color: hsl(var(--primary)); box-shadow: 0 0 0 1px hsl(var(--primary)); }
-.event-funnel-checkout__method input { accent-color: hsl(var(--primary)); }
+.event-funnel-checkout__method { display: flex; align-items: flex-start; gap: .75rem; border: 2px solid #e2e8f0; border-radius: .5rem; padding: .75rem; cursor: pointer; background: #fff; transition: background-color .15s, border-color .15s; }
+.event-funnel-checkout__method:hover { background: #f1f5f9; }
+.event-funnel-checkout__method[data-checked="true"] { border-color: #6366f1; }
+.event-funnel-checkout__method input { margin-top: .3rem; accent-color: #6366f1; flex-shrink: 0; }
 .event-funnel-checkout__paybar { display: none; }
 
 /* Cart table */
@@ -67,4 +77,13 @@
   .event-funnel-cart__table td[data-label="Ticket"] { display: block; text-align: left; }
   .event-funnel-cart__table td[data-label="Ticket"]::before { content: none; }
   .event-funnel-checkout__paybar { display: flex; position: sticky; bottom: -1.25rem; z-index: 2; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem 1rem; margin-inline: -1rem; background: hsl(var(--background)); border-top: 1px solid hsl(var(--border)); box-shadow: 0 -4px 12px hsl(var(--foreground) / .06); }
+}
+.event-funnel-checkout-modal section[aria-label="Invoice customer"] { background: #fff; border-color: #e2e8f0; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
+.event-funnel-checkout-modal input:not([type="radio"]):not([type="checkbox"]), .event-funnel-checkout-modal select { background: #fff; border: 1px solid #cbd5e1; }
+.event-funnel-checkout-modal .event-funnel-checkout__panel { border: 1px solid #e2e8f0; }
+@media (max-width: 767px) {
+  .event-funnel-checkout-modal .event-funnel-cart__table { background: transparent; border: 0; box-shadow: none; overflow: visible; }
+  .event-funnel-checkout-modal .event-funnel-cart__table tr { background: #fff; border: 1px solid #e2e8f0; border-radius: .5rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
+  .event-funnel-checkout-modal .event-funnel-cart__table td, .event-funnel-checkout-modal .event-funnel-cart__table tr[data-depth]:not([data-depth="0"]) td { background: transparent; }
+  .event-funnel-checkout-modal .event-funnel-checkout__paybar { background: #fff; border-top-color: #e2e8f0; }
 }
