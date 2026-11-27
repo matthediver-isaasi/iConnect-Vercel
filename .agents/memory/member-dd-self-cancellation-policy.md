@@ -8,4 +8,4 @@ description: Owner-confirmed rules for member-initiated Direct Debit cancellatio
 - Renewals keep predecessor agreements `active` and finished subscriptions leave plans `expired`; eligibility and DB admission must both treat these as normal, not as competing or outstanding.
 - Member-mode requests cannot be withdrawn; late receipts go to manual review and never reactivate.
 **Why:** owner confirmed these in the task brief; the existing admin cancellation blocks login entirely, which this mode must not do.
-**How to apply:** any change to cancellation guards/readers must branch on request mode; the member-mode migration is not in the pinned foundation installer and needs separate live approval.
+**How to apply:** any change to cancellation guards/readers must branch on request mode. The member-mode migration is not in the pinned foundation installer; the owner approved it and it was installed on live DEST on 2026-11-27, so the readiness probe now returns true there. Any later change to it needs its own new migration, never a replay.
