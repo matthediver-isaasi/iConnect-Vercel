@@ -22,10 +22,10 @@ export default function EventFunnelBilling({ summary, value, onChange, disabled 
         onClick={() => setEditing(false)}>Done</button>}
     </div>;
   }
-  return <section aria-label="Invoice customer" className="event-funnel-checkout__panel">
+  return <section aria-label="Billing details" className="event-funnel-checkout__panel">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h4>Billing</h4>
+        <h4>Billing details</h4>
         <p className="text-sm font-medium">{choice?.name || 'You'}{choice?.kind === 'organization' ? ' (organisation)'
           : choice?.kind === 'organization_group' ? ' (group / trust)' : ''}</p>
         <p className="event-funnel-checkout__muted break-words">{line || 'No billing address saved'}</p>

@@ -4,8 +4,8 @@ import { invoiceAddressDraft } from '../../lib/eventInvoiceAddress.mjs';
 
 export default function UnifiedBookingCustomer({ choices = [], value, onChange, guest = false, required = false }) {
   const selected = choices.find(choice => choice.kind === value?.kind && choice.id === value?.id) || choices[0];
-  return <section aria-label="Invoice customer" className="rounded-md border p-4 space-y-3">
-    <h3 className="text-sm font-semibold">Invoice customer</h3>
+  return <section aria-label="Billing details" className="rounded-md border p-4 space-y-3">
+    <h3 className="text-sm font-semibold">Billing details</h3>
     <p className="text-xs text-muted-foreground">{guest
       ? 'Your invoice is made out to you. Organisation details are optional reference information and do not create an account or relationship.'
       : 'Choose who is billed, whether you pay by card or Invoice / PO. This does not change your membership or saved address.'}</p>

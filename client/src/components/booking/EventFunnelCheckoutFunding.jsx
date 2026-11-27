@@ -19,6 +19,11 @@ function CheckoutVouchers({ summary, session, selected, onChange }) {
     member ? { id: member.id, tenant_id: session.tenant_id } : null, organization, true,
   );
   const vouchers = (query.data || []).filter(voucher => !isMembershipChangeVoucher(voucher));
+  // Nothing to choose: hide the card rather than showing an empty credit box.
+  // Keep it while loading, on error, when a selection needs clearing, or when
+  // another organisation's list could still be chosen.
+  if (!query.isLoading && !query.error && vouchers.length === 0 && selected.length === 0
+    && organizations.length <= 1) return null;
   return <section aria-label="Available vouchers" className="rounded-lg border border-slate-200 bg-blue-50 p-4">
     <div className="mb-3 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2">
@@ -62,6 +67,7 @@ function CheckoutVouchers({ summary, session, selected, onChange }) {
 
 export function EventFunnelTrainingFund({ summary, value, onChange, money }) {
   if (!summary.memberFunding || !summary.trainingFund?.enabled) return null;
+  if (!(summary.trainingFund.availableMinor > 0) && !String(value.training || '').trim()) return null;
   return <section aria-label="Training fund" className="rounded-lg border border-slate-200 bg-green-50 p-4">
     <div className="mb-3 flex items-center justify-between gap-2">
       <label htmlFor="funnel-training-amount" className="flex items-center gap-2 text-sm font-medium">

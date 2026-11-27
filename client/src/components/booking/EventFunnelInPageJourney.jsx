@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
-import { Ticket } from 'lucide-react';
+import { Clock3, Ticket } from 'lucide-react';
 import EventFunnelJourneyFrame from './EventFunnelJourneyFrame';
 import EventFunnelCheckoutSlot from './EventFunnelCheckoutSlot';
 import EventFunnelMembershipOffer, { AcceptedMembershipSummary } from './EventFunnelMembershipOffer';
@@ -73,9 +73,17 @@ export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibi
               data-testid="journey-checkout-timer">{timer.label}</span>}
           </div>
           <div className="event-funnel-checkout-modal min-h-0 flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6">
+            {expired && !confirmed && <div className="event-funnel-expired-banner" role="alert" data-testid="journey-checkout-expired">
+              <Clock3 className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <div className="min-w-0 flex-1 basis-56">
+                <h4>Your reservation has ended</h4>
+                <p>Your places are no longer held and this checkout can't be completed. Start your registration again to check availability and prices.</p>
+              </div>
+              <Button type="button" className="w-full bg-red-700 text-white hover:bg-red-800 sm:w-auto" onClick={onExit} data-testid="journey-checkout-restart">Start registration again</Button>
+            </div>}
             <AcceptedMembershipSummary snapshot={snapshot} change={change} pending={pending} />
             <EventFunnelCheckoutSlot snapshot={snapshot} change={change} refresh={refresh}
-              checkoutEligibility={checkoutEligibility} />
+              checkoutEligibility={checkoutEligibility} expired={expired} />
             {confirmed && <Button type="button" variant="outline" className="mt-4" onClick={onExit}>Back to event</Button>}
           </div>
         </DialogContent>

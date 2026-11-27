@@ -43,11 +43,17 @@ export function useEventReservation({ eventId, eventKind, viewerKey, selectedTic
     next.set(IN_PAGE_RESERVATION_PARAM, sessionId);
     return next;
   });
-  const closeJourney = () => setSearchParams(previous => {
-    const next = new URLSearchParams(previous);
-    next.delete(IN_PAGE_RESERVATION_PARAM);
-    return next;
-  });
+  const closeJourney = () => {
+    // Leaving a journey (finished or expired) must never replay its entry:
+    // the next registration gets a fresh request and a fresh reservation.
+    request.current = null;
+    draft.current = null;
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete(IN_PAGE_RESERVATION_PARAM);
+      return next;
+    });
+  };
 
   async function submit({ tickets, answers }) {
     if (busy.current || !active || (!journeyOwned && (entry.isError || entry.isFetching))) return null;

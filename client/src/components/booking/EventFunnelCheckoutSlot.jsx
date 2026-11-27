@@ -43,7 +43,7 @@ export function EventFunnelCheckoutSlot(props) {
   return <OwnedCheckout key={props.snapshot.session.id} {...props} />;
 }
 
-function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
+function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired = false }) {
   const eligibilityRef = useRef(checkoutEligibility);
   eligibilityRef.current = checkoutEligibility;
   const canSubmitNow = () => eligibilityRef.current?.allowed === true
@@ -305,7 +305,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
             <EventFunnelBilling summary={summary} value={draft.customer} onChange={customer => edit({ customer })}
               disabled={!editable || blocked} />
           </fieldset>}
-          {!order && !editable && !checkout.fence && <p className="event-funnel-checkout__notice" role="status">
+          {!order && !editable && !checkout.fence && !expired && <p className="event-funnel-checkout__notice" role="status">
             {checkoutEligibility?.reason || 'Checkout requires a current held reservation at the checkout step. Use the reservation controls to check availability or return to your event details.'}
           </p>}
         </div>
@@ -408,8 +408,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
       </div>}
     </>}
     <footer className="event-funnel-checkout__actions">
-      <Button type="button" variant="outline" disabled={blocked} onClick={checkOriginal}>Check reservation status</Button>
-      {!order && !checkout.fence && snapshot.session.journey?.checkoutNow && <Button type="button" variant="ghost"
+      {!order && !checkout.fence && !expired && snapshot.session.journey?.checkoutNow && <Button type="button" variant="ghost"
         disabled={blocked || !editable} onClick={async () => { setReview(null); setAccepted(false); await change({ type: 'resume_offers' }); }}>
         Back to options
       </Button>}

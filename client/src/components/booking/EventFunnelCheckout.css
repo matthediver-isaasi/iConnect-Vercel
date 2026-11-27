@@ -78,7 +78,7 @@
   .event-funnel-cart__table td[data-label="Ticket"]::before { content: none; }
   .event-funnel-checkout__paybar { display: flex; position: sticky; bottom: -1.25rem; z-index: 2; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem 1rem; margin-inline: -1rem; background: hsl(var(--background)); border-top: 1px solid hsl(var(--border)); box-shadow: 0 -4px 12px hsl(var(--foreground) / .06); }
 }
-.event-funnel-checkout-modal section[aria-label="Invoice customer"] { background: #fff; border-color: #e2e8f0; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
+.event-funnel-checkout-modal section[aria-label="Billing details"] { background: #fff; border-color: #e2e8f0; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
 .event-funnel-checkout-modal input:not([type="radio"]):not([type="checkbox"]), .event-funnel-checkout-modal select { background: #fff; border: 1px solid #cbd5e1; }
 .event-funnel-checkout-modal .event-funnel-checkout__panel { border: 1px solid #e2e8f0; }
 @media (max-width: 767px) {
@@ -87,3 +87,6 @@
   .event-funnel-checkout-modal .event-funnel-cart__table td, .event-funnel-checkout-modal .event-funnel-cart__table tr[data-depth]:not([data-depth="0"]) td { background: transparent; }
   .event-funnel-checkout-modal .event-funnel-checkout__paybar { background: #fff; border-top-color: #e2e8f0; }
 }
+.event-funnel-expired-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1rem; margin-bottom: 1rem; padding: 1rem 1.1rem; border: 1px solid #fca5a5; border-left-width: 4px; border-radius: .5rem; background: #fef2f2; color: #7f1d1d; }
+.event-funnel-expired-banner h4 { font-weight: 600; font-size: 1rem; color: #7f1d1d; }
+.event-funnel-expired-banner p { font-size: .875rem; color: #991b1b; }
