@@ -15,6 +15,9 @@ export async function guardGenericResourcePin({ entity, req, res, ctx, db, id, .
     }
     return false;
   }
+  // Group pins also have a dedicated action. Editor snapshots must not reset
+  // another administrator's later decision, including on bulk create.
+  if (req.body) delete req.body.is_group_pinned;
   if (!Object.hasOwn(req.body || {}, 'is_pinned')) return false;
   const requested = req.body.is_pinned;
   if (typeof requested !== 'boolean') {

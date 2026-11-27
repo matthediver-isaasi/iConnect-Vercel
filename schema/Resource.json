@@ -56,7 +56,12 @@
         "default": false,
         "description": "Shared editorial pin. Prioritizes matching library cards only; does not grant access."
       },
-      "allowed_role_ids": {
+       "is_group_pinned": {
+         "type": "boolean",
+         "default": false,
+         "description": "Shared pin within the owning member group only; independent of tenant-wide pins and visibility."
+       },
+       "allowed_role_ids": {
         "type": "array",
         "items": {
           "type": "string"

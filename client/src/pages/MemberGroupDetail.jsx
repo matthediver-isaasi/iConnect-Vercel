@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useLayoutContext, usePageLayoutDecision } from "@/contexts/LayoutContext";
@@ -94,7 +94,9 @@ import { parseEventTypes } from "@/lib/utils";
 import { fetchEventAttendeeCounts } from "@/lib/eventAttendeeCounts";
 import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
-import { resourceQueryOptions, RESOURCE_READ_CACHE_KEYS } from "@/lib/resourceQueryOptions.mjs";
+import { listAllResources } from "@/lib/listAllResources";
+import { groupPinnedResourcesFirst } from "../../../shared/resourcePinOrder.mjs";
+import { RESOURCE_READ_CACHE_KEYS } from "@/lib/resourceQueryOptions.mjs";
 import ForumThreadList from "@/components/forum/ForumThreadList";
 import GroupEmailManager from "@/components/group-email/GroupEmailManager";
 import GroupAdminSupportSection from "@/components/support/GroupAdminSupportSection";
@@ -453,7 +455,7 @@ export default function MemberGroupDetailPage() {
 }
 
 function AuthenticatedMemberGroupDetail() {
-  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberInfo, isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const {
     eventsPerPage: EVENTS_PER_PAGE_CFG,
     resourcesPerPage: RESOURCES_PER_PAGE_CFG,
@@ -1603,8 +1605,8 @@ function AuthenticatedMemberGroupDetail() {
 
   // --- Group resources section ---
   const { data: groupResources = [], isLoading: loadingResources } = useQuery({
-    queryKey: ["member-group-resources", groupId, isGroupAdmin ? "management" : "read"],
-    queryFn: () => base44.entities.Resource.list(resourceQueryOptions({ groupId, management: isGroupAdmin })),
+    queryKey: ["member-group-resources", groupId, isGroupAdmin || isAdmin ? "management" : "read"],
+    queryFn: () => listAllResources({ groupId, management: isGroupAdmin || isAdmin }),
     enabled: accessChecked && !!groupId,
     staleTime: 0,
     refetchOnMount: true,
@@ -1628,7 +1630,7 @@ function AuthenticatedMemberGroupDetail() {
   const { data: linkedTenantResources = [] } = useQuery({
     queryKey: ["member-group-linked-resources", groupId, linkedSubcategories],
     queryFn: async () => {
-      const all = await base44.entities.Resource.list("-release_date");
+      const all = await listAllResources();
       return all.filter((r) => {
         if (r.member_group_id) return false; // tenant-wide resources only
         if (r.status === "draft") return false;
@@ -1715,7 +1717,7 @@ function AuthenticatedMemberGroupDetail() {
 
   const filteredResources = useMemo(() => {
     const q = resourceSearch.trim().toLowerCase();
-    return visibleResources
+    return groupPinnedResourcesFirst(visibleResources
       .filter((r) => {
         if (!q) return true;
         return (
@@ -1733,8 +1735,34 @@ function AuthenticatedMemberGroupDetail() {
         const aDate = new Date(a.published_date || a.created_date || 0).getTime();
         const bDate = new Date(b.published_date || b.created_date || 0).getTime();
         return resourceSort === "date-asc" ? aDate - bDate : bDate - aDate;
+      }), groupId);
+  }, [visibleResources, resourceSearch, resourceSort, groupId]);
+
+  const groupPinInFlight = useRef(false);
+  const groupPinMutation = useMutation({
+    mutationFn: async ({ id, is_group_pinned }) => {
+      const response = await fetch('/api/resources/group-pin', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_group_pinned }),
       });
-  }, [visibleResources, resourceSearch, resourceSort]);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to save group pin');
+      return data;
+    },
+    onSuccess: async () => {
+      setResourcePage(1);
+      await queryClient.invalidateQueries({ queryKey: ['member-group-resources', groupId] });
+      await queryClient.invalidateQueries({ queryKey: ['guest-group-reading'] });
+    },
+    onError: (error) => toast.error(error.message || 'Unable to save group pin'),
+    onSettled: () => { groupPinInFlight.current = false; },
+  });
+  const toggleGroupPin = (resource) => {
+    if (groupPinInFlight.current || resource.member_group_id !== groupId) return;
+    groupPinInFlight.current = true;
+    groupPinMutation.mutate({ id: resource.id, is_group_pinned: resource.is_group_pinned !== true });
+  };
 
   useEffect(() => {
     setResourcePage(1);
@@ -2903,6 +2931,9 @@ function AuthenticatedMemberGroupDetail() {
                             resource={resource}
                             isAuthenticated={isAuthenticated}
                             joinLocked={!canAccessGroupContent}
+                            groupPinned={isOwnGroupResource && resource.is_group_pinned === true}
+                            onToggleGroupPin={isOwnGroupResource && (isGroupAdmin || isAdmin) ? toggleGroupPin : undefined}
+                            groupPinPending={groupPinMutation.isPending}
                             onEdit={canManage ? openEditResourceDialog : undefined}
                             onDelete={
                               canManage

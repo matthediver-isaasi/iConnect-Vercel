@@ -57,6 +57,7 @@ function ContentList({ groupId, section, page }) {
           <h3 className="font-semibold">{row.name}</h3><p>{row.group_role}</p><p>{row.job_title}</p><p>{row.organization_name}</p>
         </> : <>
           <h3 className="font-semibold text-lg">{row.title || row.role_title}</h3>
+          {section === 'resources' && row.is_group_pinned === true && <p className="text-sm font-medium">Pinned in group</p>}
           {section === 'resources' ? <Link className="underline" to={groupUrl(groupId, { resourceId: row.id })}>Read resource</Link>
             : section === 'threads' ? <Link className="underline" to={groupUrl(groupId, { threadId: row.id })}>Read discussion</Link>
             : <>{html(row.description || row.role_description)}

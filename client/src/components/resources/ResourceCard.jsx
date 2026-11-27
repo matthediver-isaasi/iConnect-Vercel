@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, ClipboardList, Plus, Copy, Check, Bookmark, Pencil, Trash2 } from "lucide-react";
+import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, ClipboardList, Plus, Copy, Check, Bookmark, Pencil, Trash2, Pin, PinOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -42,7 +42,7 @@ const iconMap = {
 // existing caller render byte-identically; the Canvas Resource list block
 // passes a clamped value through. overflow-hidden on the Card already clips
 // the image/top edge to the rounded corners.
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab, cornerRadius = null }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab, cornerRadius = null, groupPinned = false, onToggleGroupPin, groupPinPending = false }) {
   const [copied, setCopied] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   // Video resources store raw iframe embed code in target_url (see Resource
@@ -511,6 +511,28 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
         </div>
       )}
       
+      {(groupPinned || onToggleGroupPin) && (
+        <div className={`flex items-center justify-end gap-2 px-3 pb-2 ${onEdit || onDelete ? 'pt-14' : 'pt-3'}`}>
+          {groupPinned && <Badge variant="secondary" data-testid={`group-pinned-${resource.id}`}><Pin className="w-3 h-3 mr-1" />Pinned in group</Badge>}
+          {onToggleGroupPin && <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={groupPinPending}
+            aria-pressed={groupPinned}
+            aria-label={`${groupPinned ? 'Unpin' : 'Pin'} ${resource.title} in group`}
+            data-testid={`button-group-pin-${resource.id}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleGroupPin(resource);
+            }}
+          >
+            {groupPinPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : groupPinned ? <PinOff className="w-4 h-4 mr-1" /> : <Pin className="w-4 h-4 mr-1" />}
+            {groupPinPending ? 'Saving…' : groupPinned ? 'Unpin' : 'Pin'}
+          </Button>}
+        </div>
+      )}
       {resource.image_url && (
         <>
           <div className="h-48 overflow-hidden bg-slate-100 relative">

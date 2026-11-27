@@ -11,9 +11,9 @@
 import { base44 } from '@/api/base44Client';
 import { resourceQueryOptions } from './resourceQueryOptions.mjs';
 
-export async function listAllResources({ management = false } = {}) {
+export async function listAllResources({ management = false, groupId } = {}) {
   return base44.entities.Resource.listAll({
     sort: { release_date: 'desc', id: 'asc' },
-    ...resourceQueryOptions({ management }),
+    ...resourceQueryOptions({ management, groupId }),
   });
 }

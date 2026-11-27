@@ -61,13 +61,13 @@ export async function applyGroupResourceSubcategoryDefaults(body) {
  * for a group when they have an active (non-expired) assignment flagged
  * is_group_admin, and the group is active and in the caller's tenant.
  */
-async function getCallerAdminGroupIds(tenantCtx) {
-  if (!supabase) return new Set();
+async function getCallerAdminGroupIds(tenantCtx, db = supabase) {
+  if (!db) return new Set();
   const memberId = tenantCtx?.memberId;
   if (!memberId) return new Set();
 
   const nowIso = new Date().toISOString();
-  const { data: assignments, error: assignErr } = await supabase
+  const { data: assignments, error: assignErr } = await db
     .from('member_group_assignment')
     .select('group_id, expires_at, is_group_admin')
     .eq('member_id', memberId);
@@ -77,12 +77,12 @@ async function getCallerAdminGroupIds(tenantCtx) {
     if (!a.group_id) return false;
     if (a.is_group_admin !== true) return false;
     if (!a.expires_at) return true;
-    return new Date(a.expires_at).toISOString() > nowIso;
+    return new Date(a.expires_at).getTime() > Date.parse(nowIso);
   });
   if (liveAdmin.length === 0) return new Set();
 
   const groupIds = [...new Set(liveAdmin.map((a) => a.group_id))];
-  let query = supabase
+  let query = db
     .from('member_group')
     .select('id, is_active, tenant_id')
     .in('id', groupIds);
@@ -110,11 +110,14 @@ async function getCallerAdminGroupIds(tenantCtx) {
  * @param {object} [args.body] - sanitized update payload (update only)
  * @param {object} args.tenantCtx
  */
-export async function authorizeGroupAdminResourceWrite({ op, existingRow, body = {}, tenantCtx }) {
+export async function authorizeGroupAdminResourceWrite({ op, existingRow, body = {}, tenantCtx,
+  db = supabase, checkAdmin = hasAdminAccess }) {
   // Editorial-only changes use the dedicated pin action, never group writes.
   delete body.is_pinned;
-  // Tenant admins keep the full, unchanged write path.
-  if (await hasAdminAccess(tenantCtx)) return { ok: true };
+  delete body.is_group_pinned;
+  if (!tenantCtx?.isAuthenticated || !tenantCtx.tenantId || tenantCtx.tenantMismatch) {
+    return { ok: false, status: 403, error: 'Authenticated tenant access required' };
+  }
 
   if (!existingRow) {
     return { ok: false, status: 404, error: 'Resource not found' };
@@ -123,6 +126,8 @@ export async function authorizeGroupAdminResourceWrite({ op, existingRow, body =
   if (tenantCtx.tenantId && existingRow.tenant_id && existingRow.tenant_id !== tenantCtx.tenantId) {
     return { ok: false, status: 404, error: 'Resource not found in this tenant' };
   }
+  // Check tenant ownership even for tenant administrators.
+  if (await checkAdmin(tenantCtx)) return { ok: true };
 
   const groupId = existingRow.member_group_id || null;
   if (!groupId) {
@@ -130,7 +135,7 @@ export async function authorizeGroupAdminResourceWrite({ op, existingRow, body =
     return { ok: false, status: 403, error: 'You do not have permission to manage this resource' };
   }
 
-  const adminGroupIds = await getCallerAdminGroupIds(tenantCtx);
+  const adminGroupIds = await getCallerAdminGroupIds(tenantCtx, db);
   if (adminGroupIds.size === 0) {
     return { ok: false, status: 403, error: 'You do not have permission to manage this resource' };
   }
@@ -139,7 +144,7 @@ export async function authorizeGroupAdminResourceWrite({ op, existingRow, body =
   }
 
   // On update, a non-admin may not move the resource to a different group.
-  if (op === 'update' && 'member_group_id' in body && body.member_group_id && body.member_group_id !== groupId) {
+  if (op === 'update' && 'member_group_id' in body && body.member_group_id !== groupId) {
     return { ok: false, status: 403, error: 'Cannot move a group resource to a different group' };
   }
 

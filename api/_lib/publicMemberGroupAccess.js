@@ -36,8 +36,11 @@ export async function readGroupResource(db, tenantId, group, id) {
 }
 export function projectGroupResource(resource) {
   // Never expose a private storage locator, role/category rules, or form metadata.
-  return Object.fromEntries(['id', 'title', 'description', 'image_url', 'resource_type', 'author_name']
-    .map(key => [key, resource[key] ?? null]));
+  return {
+    ...Object.fromEntries(['id', 'title', 'description', 'image_url', 'resource_type', 'author_name']
+      .map(key => [key, resource[key] ?? null])),
+    is_group_pinned: !!resource.member_group_id && resource.is_group_pinned === true,
+  };
 }
 export function persistedResourceStorageTarget(target, tenantId, storageOrigin) {
   if (typeof target !== 'string') return null;

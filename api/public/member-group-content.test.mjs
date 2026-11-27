@@ -54,6 +54,33 @@ function fixture(overrides = {}) {
   }
   return { tables, signs, request };
 }
+test('public group pins order the complete eligible set before pagination without promoting linked tenant pins', async () => {
+  const f = fixture();
+  const template = f.tables.resource[0];
+  f.tables.resource = Array.from({length:1010}, (_,i)=>({
+    ...template, id:`row-${i}`, title:`Guide ${i}`, member_group_id:groupId,
+    is_public:true,status:'active',release_date:'2020-01-01',
+    created_date:new Date(Date.UTC(2020,0,1)+i*1000).toISOString(),
+    is_group_pinned:[1,1005].includes(i),allowed_role_ids:[],linked_events:[],
+  }));
+  f.tables.resource.push({...template,id:'linked-pin',member_group_id:null,
+    is_public:true,status:'active',release_date:'2020-01-01',subcategories:['Library'],
+    is_group_pinned:true,is_pinned:true,allowed_role_ids:[],linked_events:[]});
+  f.tables.resource.push({...f.tables.resource[0],id:'hidden-pin',is_group_pinned:true,is_public:false});
+  const first = await f.request({action:'resources'});
+  assert.equal(first.body.records.length,24);
+  assert.deepEqual(first.body.records.slice(0,2).map(r=>r.id),['row-1005','row-1']);
+  assert.equal(first.body.records[0].is_group_pinned,true);
+  assert.equal(first.body.hasMore,true);
+  const second = await f.request({action:'resources',page:2});
+  assert.equal(second.body.records.some(r=>['row-1005','row-1','hidden-pin'].includes(r.id)),false);
+  assert.equal(second.body.records.length,24);
+  const last = await f.request({action:'resources',page:43});
+  assert.equal(last.body.hasMore,false);
+  assert.equal(last.body.records.some(r=>r.id==='hidden-pin'),false);
+  assert.equal(last.body.records.find(r=>r.id==='linked-pin').is_group_pinned,false);
+});
+
 test('public group detail is allowlisted, uncached and tenant scoped', async () => {
   const f = fixture();
   const res = await f.request();

@@ -3,6 +3,7 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { handleMemberGroupMembers } from './member-group-members.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories } from '../_lib/resourceCategoryAccess.js';
 import { extractVideoEmbedSrc } from '../../client/src/lib/resourceVideoEmbed.mjs';
+import { groupPinnedResourcesFirst } from '../../shared/resourcePinOrder.mjs';
 import {
   readRows, readPublicGroup, readGroupResource, guestResourceEligible,
   projectGroupResource, persistedResourceStorageTarget, guestForumVisible,
@@ -48,14 +49,27 @@ export function createPublicGroupContentHandler({
       }
       if (action === 'resources') {
         const hidden = computeHiddenSubcategories(await fetchCategoriesWithAccess(db, tenant.id), { isGuest: true });
-        // Two independently bounded sources; no interpolated category names.
-        const owned = await readRows(db.from('resource').select('*').eq('tenant_id', tenant.id)
-          .eq('member_group_id', group.id).eq('status', 'active').order('id').range(start, end));
+        // Load complete eligible sources before editorial ordering/pagination.
+        // Keep category names in a bound overlaps parameter, never raw filters.
+        const readAll = async (makeQuery) => {
+          const rows = [];
+          for (let offset = 0; ; offset += 1000) {
+            const batch = await readRows(makeQuery().order('id').range(offset, offset + 999));
+            rows.push(...batch);
+            if (batch.length < 1000) return rows;
+          }
+        };
+        const owned = await readAll(() => db.from('resource').select('*').eq('tenant_id', tenant.id)
+          .eq('member_group_id', group.id).eq('status', 'active'));
         const linked = group.resource_subcategories?.length
-          ? await readRows(db.from('resource').select('*').eq('tenant_id', tenant.id).is('member_group_id', null)
-            .eq('status', 'active').overlaps('subcategories', group.resource_subcategories).order('id').range(start, end)) : [];
-        return res.json({ records: [...owned, ...linked].filter(r => guestResourceEligible(r, group, hidden)).map(projectGroupResource),
-          hasMore: owned.length === 24 || linked.length === 24 });
+          ? await readAll(() => db.from('resource').select('*').eq('tenant_id', tenant.id).is('member_group_id', null)
+            .eq('status', 'active').overlaps('subcategories', group.resource_subcategories)) : [];
+        const matches = groupPinnedResourcesFirst([...owned, ...linked]
+          .filter(r => guestResourceEligible(r, group, hidden))
+          .sort((a, b) => new Date(b.published_date || b.created_date || 0).getTime()
+            - new Date(a.published_date || a.created_date || 0).getTime()), group.id);
+        return res.json({ records: matches.slice(start, end + 1).map(projectGroupResource),
+          hasMore: matches.length > end + 1 });
       }
       if (action === 'resource' || action === 'download') {
         if (typeof req.query.resourceId !== 'string' || !/^[0-9a-f-]{36}$/i.test(req.query.resourceId)) return missing();
