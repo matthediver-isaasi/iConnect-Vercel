@@ -59,6 +59,7 @@ export function createPublicResourcesHandler({
           subcategories,
           tags,
           is_public,
+          is_pinned,
           open_in_new_tab,
           allowed_role_ids,
           linked_events

@@ -111,6 +111,8 @@ async function getCallerAdminGroupIds(tenantCtx) {
  * @param {object} args.tenantCtx
  */
 export async function authorizeGroupAdminResourceWrite({ op, existingRow, body = {}, tenantCtx }) {
+  // Editorial-only changes use the dedicated pin action, never group writes.
+  delete body.is_pinned;
   // Tenant admins keep the full, unchanged write path.
   if (await hasAdminAccess(tenantCtx)) return { ok: true };
 

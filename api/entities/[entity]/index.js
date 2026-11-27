@@ -23,6 +23,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkfl
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { applyResourceReadReleaseScope } from '../../_lib/resourceReleaseAccess.js';
+import { guardGenericResourcePin } from '../../_lib/resourcePins.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { enforceInvoicingAddressBoundary } from '../../_lib/invoicingAddressBoundary.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
@@ -488,6 +489,8 @@ export default async function handler(req, res) {
     // Only protected consumers interpret this header; public responses do not.
     res.setHeader('X-Session-Status', 'invalid');
   }
+  if (await guardGenericResourcePin({ entity, req, res, ctx: tenantCtx, db: supabase,
+    hasAdminAccess, hasFeatureAccess })) return;
   if (await rejectGenericAffiliationWrite({ entity, req, res, context: tenantCtx, hasAdminAccess })) return;
   if (await handleProgramEntitlementEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await handleVoucherEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;

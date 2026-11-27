@@ -26,6 +26,7 @@ import {
 } from '../../_lib/organisationLoginGate.js';
 import { supabase } from '../../_lib/database.js';
 import { applyResourceReadReleaseScope } from '../../_lib/resourceReleaseAccess.js';
+import { guardGenericResourcePin } from '../../_lib/resourcePins.js';
 import { deleteRepositoryFile } from '../../_lib/fileRepositoryDelete.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
@@ -346,6 +347,9 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (await guardGenericResourcePin({ entity, req, res, id, ctx: tenantCtx, db: requestDatabase,
+    hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,
+    hasFeatureAccess: dependencies.hasFeatureAccess || hasFeatureAccess })) return;
   if (await rejectGenericAffiliationWrite({ entity, req, res, context: tenantCtx,
     hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess })) return;
   if (await handleProgramEntitlementEntity({ entity: entityNorm, id, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;

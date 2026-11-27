@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { listAllResources } from "@/lib/listAllResources";
+import { pinnedResourcesFirst } from "../../../shared/resourcePinOrder.mjs";
 import { matchesResourceSubcategories } from "../../../shared/resourceSubcategoryFilter.mjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -627,7 +628,7 @@ function ResourceLibraryPage() {
       default:
         break;
     }
-    return sorted;
+    return pinnedResourcesFirst(sorted);
   }, [filteredResources, sortBy]);
 
   const totalPages = Math.ceil(sortedResources.length / itemsPerPage);

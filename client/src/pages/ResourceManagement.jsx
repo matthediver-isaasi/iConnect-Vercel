@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { listAllResources } from "@/lib/listAllResources";
+import { pinnedResourcesFirst } from "../../../shared/resourcePinOrder.mjs";
 import { resourceReleaseLocalValue, resourceReleaseInstant } from "@/lib/resourceReleaseTime.mjs";
 import { RESOURCE_READ_CACHE_KEYS } from "@/lib/resourceQueryOptions.mjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check, Copy, Code, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check, Copy, Code, ExternalLink, Pin, PinOff } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import SEOSettings from "@/components/blog/SEOSettings";
@@ -363,7 +364,7 @@ export default function ResourceManagementPage() {
   }, [categories, subcategorySearch]);
 
   const filteredResources = useMemo(() => {
-    return resources.filter(resource => {
+    return pinnedResourcesFirst(resources.filter(resource => {
       const matchesFolder = selectedFolder === null
         ? !resource.folder_id
         : resource.folder_id === selectedFolder;
@@ -379,7 +380,7 @@ export default function ResourceManagementPage() {
         resource.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         resource.description?.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesFolder && matchesCategory && matchesSearch;
-    });
+    }));
   }, [resources, selectedFolder, filterCategory, searchQuery, categories]);
 
   // Filter files in file selector by selected folder and search
@@ -575,6 +576,30 @@ export default function ResourceManagementPage() {
     onError: (error) => {
       toast.error('Failed to move folder: ' + error.message);
     }
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: async ({ id, is_pinned }) => {
+      const response = await fetch('/api/resources/pin', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_pinned }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to save resource pin');
+      return result;
+    },
+    onSuccess: async ({ id, is_pinned }) => {
+      // Apply only confirmed server state; failed saves never alter the card.
+      queryClient.setQueryData(['admin-resources', 'management'], current =>
+        current?.map(resource => resource.id === id ? { ...resource, is_pinned } : resource));
+      setCurrentPage(1);
+      await Promise.all(['admin-resources', ...RESOURCE_READ_CACHE_KEYS].map(key =>
+        queryClient.invalidateQueries({ queryKey: [key] })));
+      toast.success(is_pinned ? 'Resource pinned' : 'Resource unpinned');
+    },
+    onError: error => toast.error(error.message || 'Unable to save resource pin'),
   });
 
   const createMutation = useMutation({
@@ -1623,6 +1648,12 @@ export default function ResourceManagementPage() {
                           </div>
                         )}
                         <div className="flex items-center gap-1 shrink-0">
+                          {resource.is_pinned === true && (
+                            <Badge variant="outline" className="text-blue-700 border-blue-300">
+                              <Pin className="w-3 h-3 mr-1" aria-hidden="true" />
+                              Pinned
+                            </Badge>
+                          )}
                           <Badge variant="outline">
                             <Shield className="w-3 h-3 mr-1" />
                             {accessText}
@@ -1654,6 +1685,27 @@ export default function ResourceManagementPage() {
                       )}
                     </CardHeader>
                     <CardContent className="pt-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mb-2"
+                        aria-label={`${resource.is_pinned === true ? 'Unpin' : 'Pin'} ${resource.title}`}
+                        aria-pressed={resource.is_pinned === true}
+                        disabled={pinMutation.isPending}
+                        draggable={false}
+                        onPointerDown={e => e.stopPropagation()}
+                        onDragStart={e => { e.preventDefault(); e.stopPropagation(); }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          pinMutation.mutate({ id: resource.id, is_pinned: resource.is_pinned !== true });
+                        }}
+                      >
+                        {resource.is_pinned === true
+                          ? <PinOff className="w-3 h-3 mr-1" aria-hidden="true" />
+                          : <Pin className="w-3 h-3 mr-1" aria-hidden="true" />}
+                        {pinMutation.isPending && pinMutation.variables?.id === resource.id
+                          ? 'Saving…' : resource.is_pinned === true ? 'Unpin' : 'Pin'}
+                      </Button>
                       <div className="flex gap-2">
                         <Button
                           variant="outline"

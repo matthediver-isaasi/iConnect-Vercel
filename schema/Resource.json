@@ -51,6 +51,11 @@
         "default": true,
         "description": "A flag to control visibility - if false, only members can see it"
       },
+      "is_pinned": {
+        "type": "boolean",
+        "default": false,
+        "description": "Shared editorial pin. Prioritizes matching library cards only; does not grant access."
+      },
       "allowed_role_ids": {
         "type": "array",
         "items": {
