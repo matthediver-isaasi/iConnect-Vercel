@@ -472,6 +472,7 @@ import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
 import { MemberTerminologyProvider } from '@/contexts/MemberTerminologyContext';
 import { DynamicMemberRedirector } from '@/components/routing/DynamicMemberRedirector';
 import { memberPageForPath } from '@/lib/memberDetailState.mjs';
+import { buildComponentPageNames, resolveRoutePageName } from '@/lib/routePageClassification';
 import { useQuery } from '@tanstack/react-query';
 import { useSessionMemberRole } from '@/hooks/useSessionMemberRole';
 import { publicClient } from '@/api/publicClient';
@@ -893,6 +894,16 @@ const PAGES = {
     PublicComplexEvents: PublicComplexEvents,
     ComplexEventDetail: ComplexEventDetail,
 }
+
+// Matched-route classification for parameterised routes the URL classifier
+// cannot name (e.g. /FormSubmission/:id). ProjectBoard is not in PAGES but
+// uses the projects.board-view page key.
+const ROUTE_COMPONENT_PAGE_NAMES = buildComponentPageNames(PAGES, [[ProjectBoard, 'ProjectBoard']]);
+const DYNAMIC_ROUTE_COMPONENTS = new Set([DynamicPage]);
+// Parameterised routes that are intentionally guest-readable keep the hybrid
+// "_DynamicPage" policy: unknown multi-segment URLs, article author listings
+// and folder article URLs, dynamic directories and shared news previews.
+const HYBRID_ROUTE_COMPONENTS = new Set([CatchAllNotFound, Articles, ArticleView, DynamicDirectoryView, NewsPreview]);
 
 function _getCurrentPage(url, quoteNaming) {
     if (url.split('?')[0].replace(/\/$/, '').toLowerCase() === '/eventreservation') return 'EventReservation';
@@ -1512,7 +1523,14 @@ function PagesContent() {
     const pageComponent = matches?.at(-1)?.route.element?.type;
     const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute, AwardApplication, MemberGroupDetail].includes(pageComponent)
         || (pageComponent === FormView && new URLSearchParams(location.search).has('externalApplicant'));
-    const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname, quoteNaming);
+    const currentPage = resolveRoutePageName({
+        pathPageName: pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname, quoteNaming),
+        component: pageComponent,
+        routePath: matches?.at(-1)?.route.path,
+        componentPageNames: ROUTE_COMPONENT_PAGE_NAMES,
+        dynamicComponents: DYNAMIC_ROUTE_COMPONENTS,
+        retainDynamicComponents: HYBRID_ROUTE_COMPONENTS,
+    });
     const navigationScope = JSON.stringify([
         window.location.host, getTenantSlugFromLocation(), branding?.id,
         authResolved, sessionValidated, memberInfo?.id, memberInfo?.tenant_id,

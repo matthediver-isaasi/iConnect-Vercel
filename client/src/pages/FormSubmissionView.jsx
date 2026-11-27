@@ -132,12 +132,17 @@ export default function FormSubmissionView() {
   const backPath = safeBackPath || defaultBackPath;
   const backLabel = fromOrg ? 'Back to Organisation' : 'Back to Submissions';
 
+  // Protected reads wait for a validated session. A signed-out visitor is
+  // redirected to login by Layout; firing these first would 401 and trigger a
+  // session-rejected cache clear (and chrome remount) before that redirect.
+  const canReadProtected = !!memberInfo?.id && sessionValidated;
+
   const { data: submission, isLoading: submissionLoading, error: submissionError } = useQuery({
     queryKey: ['form-submission', submissionId],
     queryFn: async () => {
       return await base44.entities.FormSubmission.get(submissionId);
     },
-    enabled: !!submissionId && !deleted
+    enabled: canReadProtected && !!submissionId && !deleted
   });
 
   const { data: form, isLoading: formLoading, isSuccess: formLoaded, isFetching: formFetching, error: formError, refetch: refetchForm } = useQuery({
@@ -145,7 +150,7 @@ export default function FormSubmissionView() {
     queryFn: async () => {
       return await base44.entities.Form.get(submission.form_id);
     },
-    enabled: !!submission?.form_id
+    enabled: canReadProtected && !!submission?.form_id
   });
 
   const relationshipRecordIds = [
@@ -154,7 +159,7 @@ export default function FormSubmissionView() {
   ].filter((id, index, all) => all.indexOf(id) === index).slice(0, 2000);
   const { data: relationshipLabelsByRecordId = {} } = useQuery({
     queryKey: ['form-submission-relationship-labels', relationshipRecordIds.join(',')],
-    enabled: relationshipRecordIds.length > 0,
+    enabled: canReadProtected && relationshipRecordIds.length > 0,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const response = await fetch('/api/admin/relationship-display-labels', {
@@ -177,11 +182,12 @@ export default function FormSubmissionView() {
     queryFn: async () => {
       return await base44.entities.Organization.get(submission.organization_id);
     },
-    enabled: !!submission?.organization_id
+    enabled: canReadProtected && !!submission?.organization_id
   });
   const { data: organisationsForRepeatableRows = [], isLoading: organisationNamesLoading, error: organisationNamesError } = useQuery({
     queryKey: ['organizations-for-repeatable-submission-display'],
     queryFn: async () => base44.entities.Organization.listAll(),
+    enabled: canReadProtected,
     staleTime: 5 * 60 * 1000,
   });
   const organisationNamesById = Object.fromEntries(
@@ -194,7 +200,7 @@ export default function FormSubmissionView() {
       const results = await base44.entities.Member.filter({ email: submission.submitted_by_email });
       return results?.[0] || null;
     },
-    enabled: !!submission?.submitted_by_email
+    enabled: canReadProtected && !!submission?.submitted_by_email
   });
 
   const toggleSection = (sectionId) => {
@@ -261,7 +267,7 @@ export default function FormSubmissionView() {
 
   if (deleted) return <div role="status" className="p-8">Returning to submissions…</div>;
 
-  if (submissionLoading || formLoading) {
+  if (!canReadProtected || submissionLoading || formLoading) {
     return (
       <div className="min-h-screen dark:from-slate-900 dark:to-slate-800 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />

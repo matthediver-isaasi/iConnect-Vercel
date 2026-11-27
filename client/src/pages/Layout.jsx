@@ -2332,10 +2332,13 @@ useEffect(() => {
       || !visibilitySettingsFetched || visibilitySettingsError) return;
     const visibility = getPageVisibility(currentPageName);
     if (visibility !== 'hybrid' && visibility !== 'public') {
-      window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+      // Preserve the full deep link (query and hash); LoginForm validates it.
+      const returnTo = `${location.pathname}${location.search}${location.hash}`;
+      window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
     }
   }, [authResolved, sessionValidated, sessionError, visibilitySettingsFetched,
-    visibilitySettingsError, pageVisibilitySettings, location.pathname, currentPageName]);
+    visibilitySettingsError, pageVisibilitySettings, location.pathname, location.search,
+    location.hash, currentPageName]);
 
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
