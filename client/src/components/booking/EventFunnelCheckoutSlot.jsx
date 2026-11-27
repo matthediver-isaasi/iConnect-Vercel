@@ -420,7 +420,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
             <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setAccepted(false); setMessage(''); }}>
               Change details
             </Button>
-            <p className="event-funnel-checkout__muted">We check this total again before submitting. Any change must be reviewed first.</p>
           </section>}
         </aside>
       </form>
