@@ -339,3 +339,14 @@ then falsely reports different payment/accounting accounts.
 **How to apply:** Canonicalise object keys recursively while preserving array
 order and all identity values. Test persisted-versus-fresh snapshots as well as
 genuine account, company, connection and payment-mode changes.
+
+## Discount codes (owner decision, 27 Nov 2026)
+A discount code in a funnel checkout applies only to the source (entry) event
+purchase, never to extra events, add-ons or memberships.
+
+**Why:** The owner reasons that the source event is normally the highest-priced
+purchase in a funnel.
+
+**How to apply:** Validate against the source event/ticket only; the server quote
+is the authority; apply before training fund and vouchers; count usage once on
+confirmation.
