@@ -81,8 +81,17 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         trainingFund:training.enabled ? {enabled:true,availableMinor:training.availableMinor} : {enabled:false},
         order: order ? { id:order.id,state:order.state,paymentMethod:order.payment_method,
           currency:order.currency,payableMinor:order.payable_minor } : null,
-        lines: snapshot.holds.map(hold => ({ nodeId: hold.node_id, ticketId: hold.ticket_id,
-          quantity: hold.quantity,eventTitle: hold.price_snapshot.eventTitle,ticketName: hold.price_snapshot.ticketName })) };
+        lines: snapshot.holds.map(hold => {
+          // Display only: held ticket prices are VAT-inclusive. The quote
+          // remains the sole authority for funding and the amount payable.
+          const amountMinor = funnelLineTotal(hold.price_snapshot, hold.quantity);
+          const rate = Number(hold.price_snapshot.tax?.percentage);
+          const taxPercentage = Number.isFinite(rate) && rate > 0 ? rate : null;
+          return { nodeId: hold.node_id, ticketId: hold.ticket_id, quantity: hold.quantity,
+            eventTitle: hold.price_snapshot.eventTitle, ticketName: hold.price_snapshot.ticketName,
+            unitMinor: hold.price_snapshot.unitMinor, amountMinor, taxPercentage,
+            includedTaxMinor: taxPercentage ? Math.round(amountMinor * taxPercentage / (100 + taxPercentage)) : 0 };
+        }) };
     },
     async prepare(owner, command, quoteOnly=false) {
       if (!object(command) || Object.keys(command).some(key => !allowed.has(key))

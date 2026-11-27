@@ -8,3 +8,8 @@ description: Naming and scoping rules for Funnel Groups and per-event funnel lin
 
 **Why:** User asked that events open straight onto their own funnels instead of searching every funnel. Applying the scope only in the client would let different routing paths disagree.
 **How to apply:** Any new routing RPC must call event_funnel_in_event_scope. Never filter only in JS.
+
+## Checkout cart removals (owner-approved 2026-11-27)
+- Removing an optional item from the checkout cart is a journey `skip`, never a line delete. The server re-plans the route; dependants that `require` the removed step are released and the route may leave checkout for new offers.
+- The cart must confirm first and name the dependants, previewed with the shared `planFunnelJourneyChange` planner (fail closed to a generic warning). The source ticket is never removable in the cart.
+- **Why:** owner: "Be careful of removing add ons if they are chained to others that require it, this is the purpose of the funnel."

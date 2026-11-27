@@ -176,7 +176,8 @@ function OwnedJourneyFrame({ sessionId, enabled, sourceLabel, onBack, children, 
     <div inert={frozen || blocked ? '' : undefined}>{content}</div>
   </fieldset>;
   const journey = { snapshot, change, saveAnswers, pending, refresh, checkoutEligibility, renderEventFields, requestError: error,
-    frozen, expired, blocked, canMutateOffer };
+    frozen, expired, blocked, canMutateOffer,
+    timer: timerVisible ? { label: expired ? 'Time ended' : `${timeLabel} remaining`, urgent: seconds <= 300 } : null };
 
   let title = held ? `Your places for ${sourceLabel} are held` : 'Your saved reservation';
   let description = held

@@ -3,7 +3,8 @@ import EventFunnelInvoices from './EventFunnelInvoices';
 import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { invoiceAddressDraft } from '@/lib/eventInvoiceAddress.mjs';
-import UnifiedBookingCustomer from './UnifiedBookingCustomer';
+import EventFunnelBilling from './EventFunnelBilling';
+import EventFunnelCart from './EventFunnelCart';
 import EventFunnelCheckoutFunding from './EventFunnelCheckoutFunding';
 import EventFunnelCheckoutPayment from './EventFunnelCheckoutPayment';
 import { checkoutTerminal, useEventFunnelCheckout } from './useEventFunnelCheckout';
@@ -11,6 +12,7 @@ import './EventReservationIntegration.css';
 import './EventFunnelCheckout.css';
 
 const methodNames = { card: 'Card', account: 'Invoice to account', public_invoice_po: 'Invoice / PO', free: 'No payment required' };
+const invoiceMethod = method => method === 'account' || method === 'public_invoice_po';
 const canPay = state => ['pending', 'prepared', 'payable', 'requires_payment_method', 'requires_confirmation', 'requires_action'].includes(state);
 const quoteSignature = quote => JSON.stringify({
   revision: quote.revision, currency: quote.currency, payableMinor: quote.payableMinor,
@@ -118,7 +120,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
     }
     return {
       expectedRevision: summary.revision, paymentMethod: draft.paymentMethod,
-      customer: draft.customer, purchaseOrderNumber: draft.purchaseOrderNumber,
+      customer: draft.customer, purchaseOrderNumber: invoiceMethod(draft.paymentMethod) ? draft.purchaseOrderNumber : '',
       trainingFundMinor, voucherIds: summary.memberFunding ? draft.voucherIds : [],
     };
   }
@@ -200,6 +202,8 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
   const quote = review?.version === draftVersion.current && currentSummary ? review.quote : null;
   const paymentMethods = quotedMethods?.revision === snapshot.session.revision
     ? quotedMethods.methods : summary?.paymentMethods || [];
+  const includedTaxMinor = (summary?.lines || []).reduce((sum, line) => sum + (Number.isSafeInteger(line.includedTaxMinor) ? line.includedTaxMinor : 0), 0);
+  const hasFunding = Boolean(summary?.memberFunding);
   const uncertain = checkout.fence.startsWith('submitted:') || checkout.fence.startsWith('uncertain:');
   const confirmed = order?.state === 'confirmed';
   // Remove provider return parameters, retaining the exact owned session route.
@@ -211,11 +215,11 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
     data-checkout-eligible={eligible} aria-busy={blocked}>
     <header>
       <div className="flex items-center gap-2"><ShieldCheck size={19} aria-hidden="true" />
-        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order ? 'Your original checkout' : 'Review and confirm your reservation'}</h3>
+        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order ? 'Your original checkout' : 'Your basket'}</h3>
       </div>
-      <p className="event-funnel-checkout__muted mt-2">{confirmed
+      <p className="event-funnel-checkout__muted mt-1">{confirmed
         ? 'Your payment or invoice submission has been verified and your event bookings are confirmed.'
-        : 'Your event tickets and optional extras are checked together. A quote does not confirm a booking or take payment.'}</p>
+        : 'Your tickets and extras are checked together. Nothing is booked or paid until you confirm.'}</p>
     </header>
 
     {error && <div className="event-funnel-checkout__notice" data-error="true" role="alert" data-testid="event-funnel-checkout-error">
@@ -283,81 +287,91 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility }) {
         onClick={returnToReservation} disabled={blocked}>Return to reservation</Button>}
     </div>}
 
-    {summary && draft && <div className="event-funnel-checkout__columns">
-      {!order && <form onSubmit={reviewQuote} className="event-funnel-checkout__fields" aria-label="Checkout details">
-        <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked}>
-          <legend className="sr-only">Invoice and funding choices</legend>
-          {summary.incomplete && <p className="event-funnel-checkout__notice">Some invoice customers could not be verified. Only verified customers are listed. You can check the reservation again before proceeding.</p>}
-          <UnifiedBookingCustomer choices={summary.customers} value={draft.customer} onChange={customer => edit({ customer })}
-            guest={!summary.memberFunding} required={summary.totalMinor > 0} />
-          <section className="event-funnel-checkout__panel">
-            <h4>Payment method</h4>
-            {paymentMethods.length === 1 && paymentMethods[0] === 'free' ? <p>No payment is required. Your booking still needs final confirmation.</p>
-              : <label className="event-funnel-checkout__label">Pay any remaining balance by
-                <select value={draft.paymentMethod} onChange={event => edit({ paymentMethod: event.target.value })} required>
-                  {!draft.paymentMethod && <option value="">No verified payment method</option>}
-                  {paymentMethods.filter(method => methodNames[method]).map(method =>
-                    <option key={method} value={method}>{methodNames[method]}</option>)}
-                </select>
-              </label>}
-            <label className="event-funnel-checkout__label">Purchase order number (optional)
-              <input value={draft.purchaseOrderNumber} maxLength={250} onChange={event => edit({ purchaseOrderNumber: event.target.value })} />
-            </label>
-            <p className="event-funnel-checkout__muted">If member funding covers the full quote, no payment will be required. Review the final method before confirming.</p>
-          </section>
-          {summary.memberFunding && <EventFunnelCheckoutFunding summary={summary} session={snapshot.session}
-            value={draft} onChange={edit} money={money} />}
-          <Button type="submit" disabled={!editable || blocked || summary.lines.length === 0}>
-            {busy === 'quote' ? 'Checking quote…' : 'Review final quote'}
-          </Button>
-        </fieldset>
-        {!editable && !checkout.fence && <p className="event-funnel-checkout__notice" role="status">
-          {checkoutEligibility?.reason || 'Checkout requires a current held reservation at the checkout step. Use the reservation controls to check availability or return to your event details.'}
-        </p>}
-      </form>}
+    {summary && draft && <>
+      <EventFunnelCart snapshot={snapshot} lines={summary.lines} money={money}
+        canRemove={editable && !blocked && !review} onRemove={nodeId => change({ type: 'skip', nodeId })} />
+      <form onSubmit={reviewQuote} className="event-funnel-checkout__columns" aria-label="Checkout details">
+        <div className="event-funnel-checkout__fields">
+          {!order && <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked}>
+            <legend className="sr-only">Billing and funding</legend>
+            {summary.incomplete && <p className="event-funnel-checkout__notice">Some invoice customers could not be verified. Only verified customers are listed. You can check the reservation again before proceeding.</p>}
+            <EventFunnelBilling summary={summary} value={draft.customer} onChange={customer => edit({ customer })}
+              disabled={!editable || blocked} />
+            {summary.memberFunding && <EventFunnelCheckoutFunding summary={summary} session={snapshot.session}
+              value={draft} onChange={edit} money={money} />}
+          </fieldset>}
+          {!order && !editable && !checkout.fence && <p className="event-funnel-checkout__notice" role="status">
+            {checkoutEligibility?.reason || 'Checkout requires a current held reservation at the checkout step. Use the reservation controls to check availability or return to your event details.'}
+          </p>}
+        </div>
 
-      <section className="event-funnel-checkout__panel" aria-label="Reservation summary">
-        <h4>{quote ? 'Your final quote' : 'Your saved selections'}</h4>
-        {summary.lines.length === 0 ? <p>No ticket selections could be verified. Return to the event details in your reservation.</p>
-          : <ul className="event-funnel-checkout__lines">{summary.lines.map(line => {
-            const priced = quote?.lines.find(item => item.nodeId === line.nodeId && item.ticketId === line.ticketId);
-            return <li className="event-funnel-checkout__line" key={`${line.nodeId}:${line.ticketId}`}>
-              <div><strong>{line.eventTitle}</strong><p className="event-funnel-checkout__muted">{line.quantity} × {line.ticketName}</p>
-                {priced && <p className="event-funnel-checkout__muted">
-                  Tickets {money(priced.amountMinor)} · Training fund {money(priced.trainingFundMinor || 0)} · Vouchers {money(priced.voucherMinor || 0)}
-                </p>}</div>
-              {priced && <span className="event-funnel-checkout__amount">{money(priced.payableMinor)}</span>}
-            </li>;
-          })}</ul>}
-        <dl className="event-funnel-checkout__totals">
-          <div><dt>Ticket total</dt><dd className="event-funnel-checkout__amount">{money(summary.totalMinor)}</dd></div>
-          {quote && <>
-            <div><dt>Training fund</dt><dd>−{money(quote.trainingFundMinor)}</dd></div>
-            <div><dt>Voucher credit</dt><dd>−{money(quote.voucherMinor)}</dd></div>
-            <div><dt>Amount payable</dt><dd className="event-funnel-checkout__amount">{money(quote.payableMinor)}</dd></div>
-          </>}
-        </dl>
-        {quote ? <>
-          <p><strong>{methodNames[quote.paymentMethod]}</strong>
-            {quote.invoiceMode && <span className="event-funnel-checkout__muted"> · Invoice: {quote.invoiceMode.replaceAll('_', ' ')}</span>}</p>
-          <p className="event-funnel-checkout__muted">Billed to {summary.customers.find(choice => choice.kind === draft.customer.kind && choice.id === draft.customer.id)?.name || 'you'}.
-            {draft.purchaseOrderNumber && <> PO: {draft.purchaseOrderNumber}.</>}</p>
-          <label className="event-funnel-checkout__choice">
-            <input type="checkbox" checked={accepted} disabled={blocked || !editable} onChange={event => setAccepted(event.target.checked)} />
-            <span>I have reviewed these event selections, invoice details, funding and amount payable. I agree to submit this reservation using the payment method shown.</span>
-          </label>
-          <Button type="button" onClick={confirm} disabled={!accepted || !editable || blocked} data-testid="event-funnel-confirm">
-            {finalizing ? 'Verifying your submission…' : quote.paymentMethod === 'card' ? 'Confirm and continue to card payment' : 'Confirm and submit reservation'}
-          </Button>
-          <p className="event-funnel-checkout__muted">We check this quote again before submitting. Any changes must be reviewed before confirmation.</p>
-        </> : !order && <p className="event-funnel-checkout__muted">Review a final quote to check funding, invoice instructions and the exact amount payable. Nothing has been submitted.</p>}
-      </section>
-    </div>}
+        <aside className="event-funnel-checkout__panel event-funnel-checkout__summary" aria-label="Order summary"
+          id={`funnel-order-summary-${snapshot.session.id}`}>
+          <h4>Order summary</h4>
+          <dl className="event-funnel-checkout__totals">
+            <div><dt>Subtotal</dt><dd className="event-funnel-checkout__amount">{money(summary.totalMinor)}</dd></div>
+            {quote && quote.voucherMinor > 0 && <div><dt>Vouchers</dt><dd className="event-funnel-checkout__amount">−{money(quote.voucherMinor)}</dd></div>}
+            {quote && quote.trainingFundMinor > 0 && <div><dt>Training fund</dt><dd className="event-funnel-checkout__amount">−{money(quote.trainingFundMinor)}</dd></div>}
+            {includedTaxMinor > 0 && <div className="event-funnel-checkout__muted"><dt>Includes VAT</dt><dd className="event-funnel-checkout__amount">{money(includedTaxMinor)}</dd></div>}
+            <div><dt>{quote ? 'Total due' : 'Total'}</dt>
+              <dd className="event-funnel-checkout__amount" data-testid="event-funnel-total">{money(quote ? quote.payableMinor : summary.totalMinor)}</dd></div>
+          </dl>
+          {!quote && !order && hasFunding && <p className="event-funnel-checkout__muted">Vouchers and training fund are applied when you review your order.</p>}
+
+          {!order && <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked || Boolean(quote)}>
+            <legend className="event-funnel-checkout__label">Payment method</legend>
+            {paymentMethods.length === 1 && paymentMethods[0] === 'free' ? <p className="event-funnel-checkout__muted">No payment is required. Your booking still needs final confirmation.</p>
+              : <div className="event-funnel-checkout__methods" role="radiogroup" aria-label="Payment method">
+                {!draft.paymentMethod && <p className="event-funnel-checkout__muted">No verified payment method.</p>}
+                {paymentMethods.filter(method => methodNames[method] && method !== 'free').map(method =>
+                  <label key={method} className="event-funnel-checkout__method" data-checked={draft.paymentMethod === method}>
+                    <input type="radio" name={`funnel-method-${snapshot.session.id}`} value={method}
+                      checked={draft.paymentMethod === method} onChange={() => edit({ paymentMethod: method })} />
+                    <span>{methodNames[method]}</span>
+                  </label>)}
+              </div>}
+            {invoiceMethod(draft.paymentMethod) && <label className="event-funnel-checkout__label">Purchase order number (optional)
+              <input value={draft.purchaseOrderNumber} maxLength={250} onChange={event => edit({ purchaseOrderNumber: event.target.value })} />
+            </label>}
+          </fieldset>}
+
+          {!order && !quote && <Button type="submit" size="lg" className="w-full" disabled={!editable || blocked || summary.lines.length === 0}
+            data-testid="event-funnel-review">
+            {busy === 'quote' ? 'Checking your order…' : 'Review order'}
+          </Button>}
+
+          {quote && <div className="space-y-3 border-t pt-4" data-testid="event-funnel-quote">
+            <p className="text-sm"><strong>{methodNames[quote.paymentMethod]}</strong>
+              {quote.invoiceMode && <span className="event-funnel-checkout__muted"> · Invoice: {quote.invoiceMode.replaceAll('_', ' ')}</span>}</p>
+            <p className="event-funnel-checkout__muted">Billed to {summary.customers.find(choice => choice.kind === draft.customer.kind && choice.id === draft.customer.id)?.name || 'you'}.
+              {quote.paymentMethod !== 'card' && draft.purchaseOrderNumber && <> PO: {draft.purchaseOrderNumber}.</>}</p>
+            <label className="event-funnel-checkout__choice">
+              <input type="checkbox" checked={accepted} disabled={blocked || !editable} onChange={event => setAccepted(event.target.checked)} />
+              <span>I have reviewed my tickets, billing details, funding and the total due, and agree to submit this booking.</span>
+            </label>
+            <Button type="button" size="lg" className="w-full" onClick={confirm} disabled={!accepted || !editable || blocked} data-testid="event-funnel-confirm">
+              {finalizing ? 'Verifying your order…' : quote.paymentMethod === 'card' ? `Pay ${money(quote.payableMinor)} by card`
+                : quote.payableMinor === 0 ? 'Confirm booking' : 'Submit booking'}
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setAccepted(false); setMessage(''); }}>
+              Change details
+            </Button>
+            <p className="event-funnel-checkout__muted">We check this total again before submitting. Any change must be reviewed first.</p>
+          </div>}
+        </aside>
+      </form>
+      {!order && editable && <div className="event-funnel-checkout__paybar" aria-hidden="true">
+        <span><span className="event-funnel-checkout__muted block">{quote ? 'Total due' : 'Total'}</span>
+          <strong className="event-funnel-checkout__amount">{money(quote ? quote.payableMinor : summary.totalMinor)}</strong></span>
+        <Button type="button" tabIndex={-1} onClick={() => document.getElementById(`funnel-order-summary-${snapshot.session.id}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{quote ? 'Confirm' : 'Review order'}</Button>
+      </div>}
+    </>}
     <footer className="event-funnel-checkout__actions">
       <Button type="button" variant="outline" disabled={blocked} onClick={checkOriginal}>Check reservation status</Button>
       {!order && !checkout.fence && snapshot.session.journey?.checkoutNow && <Button type="button" variant="ghost"
         disabled={blocked || !editable} onClick={async () => { setReview(null); setAccepted(false); await change({ type: 'resume_offers' }); }}>
-        Return to optional offers
+        Back to options
       </Button>}
     </footer>
     {blocked && <p role="status" className="event-funnel-checkout__muted">Checking the original reservation. Please wait…</p>}

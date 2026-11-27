@@ -74,7 +74,7 @@ async function open(closed=false,overrides={}){
 }
 test('mounted checkout does not prepare before review and confirms only through server status',async()=>{
   const page=await open();
-  await page.getByRole('button',{name:'Review final quote'}).click();
+  await page.getByRole('button',{name:'Review order'}).click();
   await page.getByTestId('event-funnel-confirm').waitFor();
   assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,0);
   await page.getByRole('checkbox').check();
@@ -102,7 +102,7 @@ test('mounted checkout does not prepare before review and confirms only through 
 });
 test('closed activation never presents confirmation',async()=>{
   const page=await open(true);
-  await page.getByRole('button',{name:'Review final quote'}).click();
+  await page.getByRole('button',{name:'Review order'}).click();
   await page.getByTestId('event-funnel-confirm').waitFor();
   await page.getByRole('checkbox').check();
   await page.getByTestId('event-funnel-confirm').click();
@@ -116,7 +116,7 @@ test('verified cancellation permits an explicit return without preparing another
   await page.getByRole('button',{name:'Request cancellation',exact:true}).click();
   await page.getByRole('button',{name:'Request server cancellation',exact:true}).click();
   await page.getByTestId('event-funnel-return-reservation').click();
-  await page.getByRole('button',{name:'Review final quote'}).waitFor();
+  await page.getByRole('button',{name:'Review order'}).waitFor();
   assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,0);
   assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),`event-funnel-checkout-attempt:${id}`),null);
   await page.close();

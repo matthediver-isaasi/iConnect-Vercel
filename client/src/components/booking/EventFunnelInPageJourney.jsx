@@ -40,8 +40,9 @@ export default function EventFunnelInPageJourney({ sessionId, sourceLabel, onExi
   </div>;
 }
 
-export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibility, frozen, expired, blocked, canMutateOffer, onExit, requestError }) {
+export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibility, frozen, expired, blocked, canMutateOffer, onExit, requestError, timer }) {
   const [closedNodeId, setClosedNodeId] = useState(null);
+  const [checkoutClosed, setCheckoutClosed] = useState(false);
   const atCheckout = snapshot.route.atCheckout;
   const current = snapshot.graph.nodes.find(node => node.id === snapshot.route.currentNodeId);
   const stepNode = !atCheckout && current && ['addon', 'event', 'membership'].includes(current.type) ? current : null;
@@ -49,12 +50,36 @@ export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibi
   const confirmed = snapshot.session.state === 'confirmed';
 
   if (atCheckout) {
-    return <div className="space-y-4" data-testid="event-funnel-in-page-checkout">
-      <h3 className="text-lg font-semibold">Booking Summary</h3>
-      <AcceptedMembershipSummary snapshot={snapshot} change={change} pending={pending} />
-      <EventFunnelCheckoutSlot snapshot={snapshot} change={change} refresh={refresh}
-        checkoutEligibility={checkoutEligibility} />
-      {confirmed && <Button type="button" variant="outline" onClick={onExit}>Back to event</Button>}
+    return <div className="space-y-3" data-testid="event-funnel-in-page-checkout">
+      <div className="event-reservation-notice" role="status">
+        <p className="font-medium">{confirmed ? 'Your booking is confirmed.' : 'Checkout in progress'}</p>
+        <p className="text-sm text-muted-foreground">{confirmed ? 'Your confirmation details are in the checkout window.'
+          : 'Your tickets and extras are listed in the checkout window. Nothing is paid until you confirm.'}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {checkoutClosed && <Button type="button" onClick={() => setCheckoutClosed(false)} data-testid="journey-checkout-reopen">
+            {confirmed ? 'View confirmation' : 'Resume checkout'}</Button>}
+          {confirmed && <Button type="button" variant="outline" onClick={onExit}>Back to event</Button>}
+        </div>
+      </div>
+      <Dialog open={!checkoutClosed} onOpenChange={open => { if (!open) setCheckoutClosed(true); }}>
+        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0"
+          onInteractOutside={event => event.preventDefault()} data-testid="journey-checkout-dialog">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-6 py-4 pr-14">
+            <DialogHeader className="flex-1 space-y-0.5 text-left">
+              <DialogTitle className="text-xl">{confirmed ? 'Booking confirmed' : 'Checkout'}</DialogTitle>
+              <DialogDescription className="max-sm:sr-only">Closing this window keeps your reservation. You can resume from the event page.</DialogDescription>
+            </DialogHeader>
+            {timer && !confirmed && <span className="event-funnel-cart__timer" data-urgent={timer.urgent}
+              data-testid="journey-checkout-timer">{timer.label}</span>}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+            <AcceptedMembershipSummary snapshot={snapshot} change={change} pending={pending} />
+            <EventFunnelCheckoutSlot snapshot={snapshot} change={change} refresh={refresh}
+              checkoutEligibility={checkoutEligibility} />
+            {confirmed && <Button type="button" variant="outline" className="mt-4" onClick={onExit}>Back to event</Button>}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>;
   }
   return <div className="space-y-3">
