@@ -32,7 +32,12 @@ const monetary = value => {
     || !Number.isSafeInteger(Math.round(number * 100))) deny('Ticket pricing is unavailable.', 503);
   return Math.round(number * 100);
 };
-const key = value => JSON.stringify(value);
+// Saved JSONB snapshots may reorder object fields. Compare JSON values, not
+// insertion order, while preserving array order and JSON's optional-field rules.
+const key = value => JSON.stringify(value, (_name, child) =>
+  child && typeof child === 'object' && !Array.isArray(child)
+    ? Object.fromEntries(Object.keys(child).sort().map(name => [name, child[name]]))
+    : child);
 const providerIdentity = context => context?.excluded ? { name: 'none' } : context?.provider
   ? { name: context.provider.name || 'xero', connectionId: context.provider.connectionId,
     company: context.provider.realmId || context.provider.xeroTenantId, environment: context.provider.environment || 'production' }

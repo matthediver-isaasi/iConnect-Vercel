@@ -175,7 +175,7 @@ function OwnedJourneyFrame({ sessionId, enabled, sourceLabel, onBack, children, 
     aria-label={frozen ? 'Saved event details, read only' : 'Event details'}>
     <div inert={frozen || blocked ? '' : undefined}>{content}</div>
   </fieldset>;
-  const journey = { snapshot, change, saveAnswers, pending, refresh, checkoutEligibility, renderEventFields,
+  const journey = { snapshot, change, saveAnswers, pending, refresh, checkoutEligibility, renderEventFields, requestError: error,
     frozen, expired, blocked, canMutateOffer };
 
   let title = held ? `Your places for ${sourceLabel} are held` : 'Your saved reservation';

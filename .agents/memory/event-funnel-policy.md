@@ -329,3 +329,13 @@ existing migration again cannot repair a caller that violates that boundary.
 and ask the authorised resolver about each candidate. Test with direct mapping
 reads denied, and retain failure states rather than interpreting errors as
 unmapped tickets.
+
+Compare financial account identities by JSON value, not object insertion order.
+
+**Why:** Persisting a source ticket through PostgreSQL JSONB can reorder nested
+account fields. Comparing its stringified identity with a fresh add-on identity
+then falsely reports different payment/accounting accounts.
+
+**How to apply:** Canonicalise object keys recursively while preserving array
+order and all identity values. Test persisted-versus-fresh snapshots as well as
+genuine account, company, connection and payment-mode changes.

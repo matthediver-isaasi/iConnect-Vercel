@@ -29,11 +29,20 @@ before(async () => {
       window.calls=[];
       function App(){
         const [step,setStep]=useState('extra'),[revision,setRevision]=useState(1);
+        const [requestError,setRequestError]=useState(null);
         const snapshot={session:{id:'fixture',revision,state:'held'},serverNow:new Date().toISOString(),graph:{nodes,entry:'source'},
           route:{route:['source','extra'],currentNodeId:step,atCheckout:step==='checkout'},holds:[],drafts:{source:sourceAnswers}};
-        async function change(command){window.calls.push(command);setStep('checkout');setRevision(v=>v+1);return {ok:true};}
+        async function change(command){
+          window.calls.push(command);
+          if(window.rejectNextChoice){
+            setRequestError({code:'INCOMPATIBLE_COMPANY',message:'These events use different payment or accounting accounts.'});
+            return null;
+          }
+          setRequestError(null);setStep('checkout');setRevision(v=>v+1);return {ok:true};
+        }
         return <main><h1>Spring Meeting</h1><InPageBody snapshot={snapshot} change={change} refresh={()=>{}} pending={false}
-          frozen={false} expired={false} blocked={false} canMutateOffer={()=>true} checkoutEligibility={{allowed:true}} onExit={()=>{}}/></main>;
+          frozen={false} expired={false} blocked={false} canMutateOffer={()=>true} checkoutEligibility={{allowed:true}}
+          requestError={requestError} onExit={()=>{}}/></main>;
       }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><App/></QueryClientProvider>);
     ` },
@@ -107,5 +116,23 @@ test('skip records an explicit skip and closing keeps the reservation unchanged'
   await dialog.getByTestId('journey-step-skip').click();
   await page.getByTestId('cart').waitFor();
   assert.deepEqual(await page.evaluate(() => window.calls), [{ type: 'skip', nodeId: 'extra' }]);
+  await page.close();
+});
+
+test('a rejected add-on shows its server reason in the modal and keeps the selection for retry', async () => {
+  const page = await browser.newPage();
+  await page.goto(origin);
+  const dialog = page.getByTestId('journey-step-dialog');
+  await dialog.getByTestId('journey-step-ticket-B').waitFor();
+  await dialog.getByTestId('journey-step-ticket-B').getByText('Bob B').click();
+  await page.evaluate(() => { window.rejectNextChoice = true; });
+  await dialog.getByTestId('journey-step-continue').click();
+  await dialog.getByRole('alert').getByText('These events use different payment or accounting accounts.', { exact: true }).waitFor();
+  assert.equal(await dialog.getByText('We could not save that choice. Your reservation is unchanged.').count(), 0);
+  assert.equal(await page.getByTestId('cart').count(), 0);
+  assert.equal(await dialog.getByTestId('journey-step-ticket-B').getByRole('checkbox').nth(1).getAttribute('aria-checked'), 'true');
+  await page.evaluate(() => { window.rejectNextChoice = false; });
+  await dialog.getByTestId('journey-step-continue').click();
+  await page.getByTestId('cart').waitFor();
   await page.close();
 });

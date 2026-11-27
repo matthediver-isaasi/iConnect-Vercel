@@ -40,7 +40,7 @@ export default function EventFunnelInPageJourney({ sessionId, sourceLabel, onExi
   </div>;
 }
 
-export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibility, frozen, expired, blocked, canMutateOffer, onExit }) {
+export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibility, frozen, expired, blocked, canMutateOffer, onExit, requestError }) {
   const [closedNodeId, setClosedNodeId] = useState(null);
   const atCheckout = snapshot.route.atCheckout;
   const current = snapshot.graph.nodes.find(node => node.id === snapshot.route.currentNodeId);
@@ -74,13 +74,14 @@ export function InPageBody({ snapshot, change, pending, refresh, checkoutEligibi
           <EventFunnelMembershipOffer node={stepNode} offer={snapshot.membershipOffers?.[stepNode.id]}
             change={change} pending={pending || blocked} />
         </div> : stepNode ? <StepOffer key={`${stepNode.id}:${snapshot.session.revision}`} snapshot={snapshot}
-          node={stepNode} change={change} disabled={pending || blocked} canMutateOffer={canMutateOffer} /> : null}
+          node={stepNode} change={change} disabled={pending || blocked} canMutateOffer={canMutateOffer}
+          requestError={requestError} /> : null}
       </DialogContent>
     </Dialog>
   </div>;
 }
 
-function StepOffer({ snapshot, node, change, disabled, canMutateOffer }) {
+function StepOffer({ snapshot, node, change, disabled, canMutateOffer, requestError }) {
   const offerQuery = useQuery({
     queryKey: ['owned-event-reservation-offer', snapshot.session.id, node.id, snapshot.session.revision],
     queryFn: () => readEventFunnelOffer(snapshot.session.id, node.id),
@@ -101,6 +102,7 @@ function StepOffer({ snapshot, node, change, disabled, canMutateOffer }) {
   const single = offer?.selectionMode === 'single';
   const selected = choices || {};
   const selection = addonSelection(sourceAnswers, pool, selected);
+  const failureMessage = requestError?.code ? requestError.message : failure;
 
   function toggle(ticketId, index, on) {
     setChoices(previous => {
@@ -175,7 +177,7 @@ function StepOffer({ snapshot, node, change, disabled, canMutateOffer }) {
         {pool.length === 0 && <p role="alert" className="text-sm text-amber-700">Your attendee details could not be found for this reservation. Skip this step or check your reservation.</p>}
       </fieldset>}
 
-      {failure && <p role="alert" className="text-sm text-red-700">{failure}</p>}
+      {failureMessage && <p role="alert" className="text-sm text-red-700">{failureMessage}</p>}
       <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" disabled={disabled} onClick={() => submit({ type: 'skip', nodeId: node.id })}
           data-testid="journey-step-skip">Skip</Button>

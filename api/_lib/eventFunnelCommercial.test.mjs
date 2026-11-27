@@ -82,6 +82,31 @@ test('currency and account changes reject optional additions', () => {
     { quantity: 1, priceSnapshot: { ...source, commercial: { ...authority, accounting: { name: 'quickbooks', company: 'two' } } } }]),
   { code: 'INCOMPATIBLE_COMPANY' });
 });
+test('persisted source and fresh add-on accounts match regardless of JSONB property order', () => {
+  const source = snapshotFunnelTicket(event, ticket, 'simple', authority, person);
+  // PostgreSQL JSONB does not preserve JavaScript object insertion order.
+  const jsonbRoundTrip = value => Array.isArray(value) ? value.map(jsonbRoundTrip)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort()
+      .map(name => [name, jsonbRoundTrip(value[name])])) : value;
+  const savedSource = JSON.parse(JSON.stringify(jsonbRoundTrip(source)));
+  const addon = snapshotFunnelTicket(event, { ...ticket, id: 'wednesday' }, 'simple', authority, person);
+  const result = assertFunnelCommercialCompatibility([
+    { quantity: 1, price_snapshot: savedSource }, { quantity: 1, priceSnapshot: addon },
+  ]);
+  assert.equal(result.totalMinor, 2500);
+  assert.deepEqual(result.paymentMethods, ['card', 'account']);
+  for (const changedAuthority of [
+    { ...authority, stripe: { ...authority.stripe, accountFingerprint: 'different-account' } },
+    { ...authority, stripe: { ...authority.stripe, mode: 'live' } },
+    { ...authority, accounting: { ...authority.accounting, company: 'different-company' } },
+    { ...authority, accounting: { ...authority.accounting, connectionId: uuid(99) } },
+  ]) {
+    const changed = snapshotFunnelTicket(event, ticket, 'simple', changedAuthority, person);
+    assert.throws(() => assertFunnelCommercialCompatibility([
+      { quantity: 1, price_snapshot: savedSource }, { quantity: 1, priceSnapshot: changed },
+    ]), { code: 'INCOMPATIBLE_COMPANY' });
+  }
+});
 test('public funnel selections accept guests but still enforce signed-in role restrictions', async () => {
   const guest = fixture({ guest: true, ticketChanges: { role_match_only: true, role_ids: [uuid(6)] } });
   assert.equal((await guest.resolve(guest.input)).lines.length, 1);
