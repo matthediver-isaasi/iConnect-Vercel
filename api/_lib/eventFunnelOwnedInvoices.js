@@ -23,8 +23,12 @@ export function createFunnelOwnedInvoicesHandler({db,resolveTenant,loadViewer,fe
         .json({error:'The original checkout invoices are not available. Your bookings have not changed.'});
       if(body.action==='list') {
         if(!Array.isArray(result.data.invoices)) throw new Error('Invalid invoice projection');
+        const email=result.data.email;
         return res.status(200).json({state:result.data.state,invoiceMode:result.data.invoiceMode,
-          invoices:result.data.invoices.map(item=>({id:item.id,number:item.number,status:item.status,available:item.available===true}))});
+          invoices:result.data.invoices.map(item=>({id:item.id,number:item.number,status:item.status,available:item.available===true})),
+          // Absent until the invoice email migration is installed.
+          email:email&&typeof email.to==='string'&&['pending','sent','unconfirmed'].includes(email.state)
+            ?{to:email.to,state:email.state}:null});
       }
       const pdf=await fetchPdf({db,tenantId:owner.tenantId,link:result.data});
       const filename=String(result.data.invoiceNumber||'invoice').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,100);

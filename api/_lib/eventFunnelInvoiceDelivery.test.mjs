@@ -9,6 +9,8 @@ function fixture(rows) {
     calls.push([name,args]);
     if(name==='event_funnel_invoice_input') return Promise.resolve({data:{order:{},allocations:[],prepared:[{key:'saved'}]}});
     if(name==='event_funnel_invoice_enqueue') return Promise.resolve({data:rows});
+    // Invoice email journal not installed: invoices behave as before.
+    if(name==='event_funnel_invoice_email_operation') return Promise.resolve({data:null,error:{code:'PGRST202'}});
     throw new Error(name);
   }};
   return {db,calls};
@@ -21,7 +23,19 @@ test('only exact frozen invoice scope is passed to the existing provider recover
     return {status:'complete'};
   }});
   assert.deepEqual(result,{status:'delivered'});
-  assert.equal(f.calls.length,2);
+  assert.equal(f.calls.length,3);assert.equal(f.calls[2][0],'event_funnel_invoice_email_operation');
+});
+test('invoice delivery finishes only once the combined invoice email is sent',async()=>{
+  const rows=[{key:'a',provider:'xero',status:'complete'}];
+  for(const [email,expected] of [['complete','delivered'],['retry','retry'],['waiting','retry'],['needs_review','needs_review']]) {
+    const f=fixture(rows);
+    const result=await deliverFunnelInvoices({db:f.db,job,processInvoice:()=>assert.fail('No provider call'),
+      deliverEmail:async options=>{assert.equal(options.job,job);return {status:email};}});
+    assert.deepEqual(result,{status:expected});
+  }
+  const f=fixture([{key:'a',provider:'xero',status:'needs_review'}]);
+  assert.deepEqual(await deliverFunnelInvoices({db:f.db,job,deliverEmail:()=>assert.fail('No email before all invoices')}),
+    {status:'needs_review'});
 });
 test('mixed invoices continue despite individual review; pending providers are not marked delivered',async()=>{
   const f=fixture([{key:'review',provider:'xero',status:'needs_review'},

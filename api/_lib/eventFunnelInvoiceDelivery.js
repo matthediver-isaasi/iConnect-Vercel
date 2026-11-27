@@ -2,6 +2,7 @@ import { prepareFunnelInvoices } from './eventFunnelInvoicePreparation.js';
 import { processEventInvoiceRecovery } from './eventInvoiceRecovery.js';
 import { deliverFunnelQuickBooks } from './eventFunnelQuickBooks.js';
 import { recordFunnelIssuedInvoice } from './eventFunnelIssuedInvoice.js';
+import { deliverFunnelInvoiceEmail } from './eventFunnelInvoiceEmail.js';
 
 // Reuse the battle-tested provider ambiguity/tax/settlement algorithm, but never
 // put aggregate charges in the legacy one-payment-one-event ownership table.
@@ -17,7 +18,8 @@ export function funnelInvoiceRecoveryDatabase(db) {
 }
 
 export async function deliverFunnelInvoices({db,job,deadlineAt=Date.now()+20000,
-  processInvoice=processEventInvoiceRecovery,processQuickBooks=deliverFunnelQuickBooks,providerFactory,now=Date.now}) {
+  processInvoice=processEventInvoiceRecovery,processQuickBooks=deliverFunnelQuickBooks,providerFactory,now=Date.now,
+  deliverEmail=deliverFunnelInvoiceEmail}) {
   await prepareFunnelInvoices({db,job});
   const scope={p_tenant:job.tenant_id,p_order:job.order_id,p_token:job.lease_token};
   const enqueue=await db.rpc('event_funnel_invoice_enqueue',scope);
@@ -40,5 +42,10 @@ export async function deliverFunnelInvoices({db,job,deadlineAt=Date.now()+20000,
     outcomes.push(result.status==='complete'?'complete':result.status==='needs_review'?'needs_review':'retry');
   }
   // A review on one invoice must not strand other retryable invoices.
-  return {status:outcomes.includes('retry')?'retry':outcomes.includes('needs_review')?'needs_review':'delivered'};
+  if(outcomes.includes('retry')) return {status:'retry'};
+  if(outcomes.includes('needs_review')) return {status:'needs_review'};
+  // Every invoice is issued: send them together in one email before the
+  // order's invoice delivery counts as finished.
+  const email=await deliverEmail({db,job,deadlineAt,now});
+  return {status:email.status==='complete'?'delivered':email.status==='needs_review'?'needs_review':'retry'};
 }

@@ -23,7 +23,7 @@ function fixture({error=null,limited=false}={}) {
 }
 test('guest list and PDF require original HttpOnly capability and never return it or provider identity',async()=>{
   const f=fixture(),list=await f.invoke();assert.equal(list.code,200);
-  assert.deepEqual(list.body,{state:'pending',invoiceMode:undefined,invoices:[]});
+  assert.deepEqual(list.body,{state:'pending',invoiceMode:undefined,invoices:[],email:null});
   assert.equal(f.calls[0].p_member,null);assert.equal(f.calls[0].p_tenant,tenant);
   const pdf=await f.invoke({action:'download',sessionId:id,orderId:order,invoiceId:invoice});
   assert.equal(pdf.code,200);assert.equal(pdf.headers['Content-Type'],'application/pdf');

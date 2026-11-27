@@ -15,6 +15,10 @@ async function invoiceRequest(sessionId,orderId,action,invoiceId) {
 const POLL_MS=4000,POLL_LIMIT_MS=3*60*1000;
 const settled=data=>data.state==='not_applicable'||data.state==='needs_review'
   ||(data.invoices.length>0&&data.invoices.every(invoice=>invoice.available||invoice.status==='needs_review'));
+// Keep checking until the combined invoice email has gone, so "Emailed to"
+// appears without a reload.
+const emailPending=data=>data.email?.state==='pending'&&data.state!=='needs_review'
+  &&!data.invoices.some(invoice=>invoice.status==='needs_review');
 
 function InvoiceRow({label,status,children}) {
   const icon=status==='ready'?<CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true"/>
@@ -37,7 +41,7 @@ export default function EventFunnelInvoices({sessionId,orderId}) {
   const query=useQuery({queryKey:['owned-event-reservation-invoices',sessionId,orderId],
     queryFn:async()=>{const data=await (await invoiceRequest(sessionId,orderId,'list')).json();
       if(!Array.isArray(data.invoices)) throw new Error('Invoice information could not be verified.');return data;},
-    refetchInterval:q=>q.state.data&&!settled(q.state.data)&&Date.now()-started.current<POLL_LIMIT_MS?POLL_MS:false,
+    refetchInterval:q=>q.state.data&&(!settled(q.state.data)||emailPending(q.state.data))&&Date.now()-started.current<POLL_LIMIT_MS?POLL_MS:false,
     retry:false,staleTime:0});
   async function download(invoice) {
     setBusy(true);setError('');
@@ -60,6 +64,8 @@ export default function EventFunnelInvoices({sessionId,orderId}) {
   },[preparing,query.dataUpdatedAt]);
   const timedOut=preparing&&Date.now()-started.current>=POLL_LIMIT_MS;
   const total=data?.invoices.length||0;
+  const plural=total>1?'invoices':'invoice';
+  const emailTo=data?.email?.to;
   return <section className="event-funnel-checkout__notice space-y-3" aria-label="Your invoices" data-testid="event-funnel-invoices">
     <h4>{total>1?'Your invoices':'Your invoice'}</h4>
     {query.isPending?<ul className="space-y-2"><InvoiceRow label="Invoice" status="preparing"/></ul>
@@ -75,7 +81,15 @@ export default function EventFunnelInvoices({sessionId,orderId}) {
             </InvoiceRow>)}
         </ul>
         {preparing&&!timedOut&&<p className="text-sm text-slate-600" data-testid="event-funnel-invoices-helper">
-          Your booking is confirmed. Invoices usually take less than a minute to prepare. This list updates by itself, so you can wait here and download {total>1?'them':'it'} when ready.
+          {emailTo&&data.email.state==='pending'
+            ?<>Your booking is confirmed. We'll email your {total>1?'invoices together':'invoice'} to <strong>{emailTo}</strong> as soon as {total>1?'they are':'it is'} ready, so you can close this window. Or wait here — this list updates by itself and you can download {total>1?'them':'it'} in a minute or two.</>
+            :<>Your booking is confirmed. Invoices usually take a minute or two to prepare. This list updates by itself, so you can wait here and download {total>1?'them':'it'} when ready.</>}
+        </p>}
+        {!preparing&&emailTo&&data.email.state==='pending'&&<p className="text-sm text-slate-600" data-testid="event-funnel-invoices-email">
+          Your {plural} will also be emailed to <strong>{emailTo}</strong> shortly.
+        </p>}
+        {emailTo&&data.email.state==='sent'&&<p className="text-sm text-slate-600" data-testid="event-funnel-invoices-email">
+          Emailed to <strong>{emailTo}</strong>.
         </p>}
         {timedOut&&<p className="text-sm text-slate-600" data-testid="event-funnel-invoices-helper">
           This is taking longer than usual. Your booking is confirmed. Check again in a few minutes.

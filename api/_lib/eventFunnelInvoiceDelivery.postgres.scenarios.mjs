@@ -38,6 +38,8 @@ export async function exerciseFunnelInvoiceDelivery({db,connect,sql}) {
       let values;
       if(name==='event_funnel_invoice_operation') values=[args.p_action,JSON.stringify(args.p_args)];
       else if(['event_funnel_invoice_input','event_funnel_invoice_enqueue'].includes(name)) values=[args.p_tenant,args.p_order,args.p_token];
+      // Installed later in this database; PostgREST reports it as absent here.
+      else if(name==='event_funnel_invoice_email_operation') return {data:null,error:{code:'PGRST202'}};
       else throw new Error(`Unexpected RPC ${name}`);
       return {data:(await client.query(`SELECT ${name}(${values.map((_,i)=>`$${i+1}`).join(',')}) r`,values)).rows[0].r};
     } catch(error) {return {error};}

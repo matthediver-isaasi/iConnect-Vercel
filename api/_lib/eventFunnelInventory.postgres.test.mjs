@@ -49,6 +49,7 @@ import { exerciseFunnelCancellationApproval } from './eventFunnelCancellationApp
 import { exerciseFunnelCancelledDelivery } from './eventFunnelCancelledDelivery.postgres.scenarios.mjs';
 import { exerciseFunnelFinalGaps } from './eventFunnelFinalGaps.postgres.scenarios.mjs';
 import { exerciseFunnelCreditEmails } from './eventFunnelCreditEmails.postgres.scenarios.mjs';
+import { exerciseFunnelInvoiceEmail } from './eventFunnelInvoiceEmail.postgres.scenarios.mjs';
 import { exerciseFunnelTicketRouting } from './eventFunnelTicketRouting.postgres.scenarios.mjs';
 import { exerciseFunnelCollections } from './eventFunnelCollections.postgres.scenarios.mjs';
 import { exerciseFunnelDiscount } from './eventFunnelDiscount.postgres.scenarios.mjs';
@@ -265,6 +266,7 @@ test('shared funnel holds serialize ordinary/commercial stock, preserve failed e
     await exerciseFunnelTicketRouting({db,connect,uuid,tenant,member,sql});
     await exerciseFunnelCollections({db,uuid,tenant,sql});
     await exerciseFunnelDiscount({db,uuid,tenant,member,sql});
+    await exerciseFunnelInvoiceEmail({db,sql});
   } finally {
     if(gateway)await gateway.stop();
     await Promise.all(clients.map(c=>c.end()));

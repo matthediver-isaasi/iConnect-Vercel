@@ -55,11 +55,12 @@ before(async()=>{
       const body=JSON.parse(data);fixture.invoiceRequests??=[];fixture.invoiceRequests.push(body);
       if(fixture.invoiceFailure){res.statusCode=503;return res.end('{}');}
       if(body.action==='list'&&fixture.invoicesPending>0){fixture.invoicesPending--;res.setHeader('Content-Type','application/json');
-        return res.end(JSON.stringify({state:'pending',invoices:[{id:'00000000-0000-4000-8000-000000000003',number:null,status:'processing',available:false}]}));}
+        return res.end(JSON.stringify({state:'pending',invoices:[{id:'00000000-0000-4000-8000-000000000003',number:null,status:'processing',available:false}],
+          email:{to:'finance@example.test',state:'pending'}}));}
       if(body.action==='download'){res.setHeader('Content-Type','application/pdf');return res.end('%PDF-1.4 fixture');}
       res.setHeader('Content-Type','application/json');
       return res.end(JSON.stringify({state:'delivered',invoices:[{id:'00000000-0000-4000-8000-000000000003',
-        number:'INV-FIXTURE',status:'complete',available:true}]}));
+        number:'INV-FIXTURE',status:'complete',available:true}],email:{to:'finance@example.test',state:'sent'}}));
     }
     res.setHeader('Content-Type','text/html');res.end('<!doctype html><div id="root"></div><script type="module" src="/app.js"></script>');
   });
@@ -92,9 +93,11 @@ test('one submit confirms silently and invoices show per-line progress',async()=
   assert.ok(fixture.requests.some(r=>r.action==='status'));
   // First the invoice row is being prepared with a wait helper, then it updates by itself.
   await page.locator('[data-testid="event-funnel-invoice-row"][data-status="preparing"]').waitFor();
-  await page.getByTestId('event-funnel-invoices-helper').waitFor();
+  assert.match(await page.getByTestId('event-funnel-invoices-helper').textContent(),
+    /We'll email your invoice to finance@example\.test as soon as it is ready, so you can close this window/);
   await page.locator('[data-testid="event-funnel-invoice-row"][data-status="ready"]').getByText('Invoice INV-FIXTURE').waitFor({timeout:10000});
   assert.equal(await page.getByTestId('event-funnel-invoices-helper').count(),0);
+  assert.equal(await page.getByTestId('event-funnel-invoices-email').textContent(),'Emailed to finance@example.test.');
   const downloaded=page.waitForEvent('download');
   await page.getByRole('button',{name:'Download invoice'}).click();
   assert.equal((await downloaded).suggestedFilename(),'INV-FIXTURE.pdf');
