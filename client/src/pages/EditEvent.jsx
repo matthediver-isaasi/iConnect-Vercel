@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import PrivateEventToggle from "@/components/events/PrivateEventToggle";
+import MembersRegisterOthersToggle from "@/components/events/MembersRegisterOthersToggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -255,6 +256,7 @@ export default function EditEvent() {
   const [eventState, setEventState] = useState("active");
   const [isFeatured, setIsFeatured] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
+  const [membersCanRegisterOthers, setMembersCanRegisterOthers] = useState(true);
 
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
@@ -1448,6 +1450,7 @@ export default function EditEvent() {
       
       setIsFeatured(event.is_featured === true);
       setIsPrivate(event.is_private === true);
+      setMembersCanRegisterOthers(event.members_can_register_others !== false);
       setWaitingListEnabled(event.waiting_list_enabled === true);
 
       // Load timing and state from event with migration for old status values
@@ -1936,7 +1939,7 @@ export default function EditEvent() {
       booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
-      ...(!isGroupLimited ? { is_private: isPrivate === true } : {}),
+      ...(!isGroupLimited ? { is_private: isPrivate === true, members_can_register_others: membersCanRegisterOthers !== false } : {}),
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
@@ -2396,6 +2399,7 @@ export default function EditEvent() {
               )}
 
               {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
+              {!isGroupLimited && <MembersRegisterOthersToggle checked={membersCanRegisterOthers} onCheckedChange={setMembersCanRegisterOthers} />}
 
               {/* Event Timing - affects date requirements */}
               {isGroupLimited && <div>

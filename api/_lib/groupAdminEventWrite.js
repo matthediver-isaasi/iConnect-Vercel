@@ -77,6 +77,8 @@ function normalizeHiddenGroupEventFields(out) {
   if ('is_featured' in out) out.is_featured = false;
   // Private (unlisted) is a tenant-admin listing choice; group admins never change it.
   if ('is_private' in out) delete out.is_private;
+  // Group events are already self-only; group admins never change this tenant-admin setting.
+  if ('members_can_register_others' in out) delete out.members_can_register_others;
   if ('status' in out && out.status === 'tbc') out.status = 'published';
   if ('qr_on_confirmation' in out) out.qr_on_confirmation = false;
   if ('show_seat_count' in out) out.show_seat_count = true;

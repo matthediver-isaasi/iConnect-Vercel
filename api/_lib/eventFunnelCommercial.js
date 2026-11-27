@@ -16,6 +16,7 @@ import { isEventInPast, isPublicSimpleEventStatus } from '../../shared/eventTimi
 import { sanitizeOptionSelections, EMPTY_OPTION_SELECTIONS } from './eventOptionSelections.js';
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import { registrationAssociationOptions } from './eventRegistrationAssociations.js';
+import { memberSelfOnlyViolation } from '../../shared/eventRegisterOthers.js';
 
 const deny = (message, status = 403, code = 'SELECTION_UNAVAILABLE') => { throw new FunnelJourneyError(message, code, status); };
 const read = ({ data, error }, message) => {
@@ -239,6 +240,10 @@ export function createFunnelSelectionResolver({ db, loadAuthority = loadFunnelCo
         deny('Only active members of this event’s group can register.');
       }
       if (attendees.length !== 1 || attendees[0].email !== purchaser.email) deny('Group events only allow self-registration.');
+    }
+    if (member) {
+      const selfOnly = memberSelfOnlyViolation(event, attendees, member.email);
+      if (selfOnly) deny(selfOnly);
     }
     const authority = await loadAuthority(db, owner.tenantId);
     const result = tickets.map(selection => {

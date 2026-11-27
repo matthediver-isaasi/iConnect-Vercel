@@ -38,6 +38,7 @@ import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { loadBookingVouchers } from '../_lib/complexEventCreditQuote.js';
 import { reserveVoucherCredit, commitVoucherCredit, releaseVoucherCredit } from '../_lib/voucherCreditService.js';
 import { runBookingCreditAttempt, finalizeBookingCredit, bookingCreditInvoiceInput } from '../_lib/bookingCreditAttempt.js';
+import { memberSelfOnlyViolation } from '../../shared/eventRegisterOthers.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import {
   claimAllocationInvitation,
@@ -220,7 +221,7 @@ async function processBooking(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, member_group_id, group_event_public, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po, waiting_list_enabled')
+      .select('id, title, status, event_state, tenant_id, member_group_id, group_event_public, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po, waiting_list_enabled, members_can_register_others')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -320,13 +321,23 @@ async function processBooking(req, res) {
       ticketReleaseError = error;
     }
 
+    // Per-event "Members can register others" setting: a signed-in member may
+    // only book their own place when it is off. Raised through the policy
+    // block below so a taken card payment is reversed.
+    const registerOthersMessage = authenticatedMember && !allocationContext
+      ? memberSelfOnlyViolation(event, normalizedItems.flatMap(item => item.attendees || []), authenticatedMember.email)
+      : null;
+    const registerOthersError = registerOthersMessage
+      ? Object.assign(new Error(registerOthersMessage), { statusCode: 403 }) : null;
+
     const voucherPaymentRequested = payment_method === 'voucher'
       || (Array.isArray(selected_voucher_ids) && selected_voucher_ids.length > 0);
     const trainingFundPaymentRequested = payment_method === 'training_fund'
       || Number(requestedTrainingFundAmount) > 0;
-    if (ticketReleaseError || voucherPaymentRequested || trainingFundPaymentRequested) {
+    if (ticketReleaseError || registerOthersError || voucherPaymentRequested || trainingFundPaymentRequested) {
       try {
         if (ticketReleaseError) throw ticketReleaseError;
+        if (registerOthersError) throw registerOthersError;
         const paymentPolicy = await loadEventPaymentPolicy(supabase, tenant.id);
         assertEventPaymentMethodsAllowed(paymentPolicy, {
           voucherRequested: voucherPaymentRequested,
@@ -371,7 +382,7 @@ async function processBooking(req, res) {
                 eventId: event_id,
                 purchaserEmail: authenticatedMember?.email || purchaserInfo?.email || normalizedItems[0]?.attendees?.[0]?.email,
                 allocationContext,
-                expectedCreditSnapshot: ticketReleaseError ? null : {
+                expectedCreditSnapshot: (ticketReleaseError || registerOthersError) ? null : {
                   voucherIds: selected_voucher_ids,
                   voucherOrderManual,
                   trainingFundAmount: requestedTrainingFundAmount,

@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import PrivateEventToggle from "@/components/events/PrivateEventToggle";
+import MembersRegisterOthersToggle from "@/components/events/MembersRegisterOthersToggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -226,6 +227,7 @@ export default function CreateEvent() {
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isFeatured, setIsFeatured] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
+  const [membersCanRegisterOthers, setMembersCanRegisterOthers] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
@@ -1226,6 +1228,7 @@ export default function CreateEvent() {
       event_state: eventState,
       is_featured: isFeatured,
       is_private: !isGroupLimited && isPrivate === true,
+      members_can_register_others: isGroupLimited || membersCanRegisterOthers !== false,
       attached_documents: attachedDocuments,
       documents_section_title: documentsSectionTitle.trim() || null,
       dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
@@ -1878,6 +1881,7 @@ export default function CreateEvent() {
             </CardHeader>
             <CardContent className="space-y-4">
               {!isGroupLimited && <PrivateEventToggle checked={isPrivate} onCheckedChange={setIsPrivate} />}
+              {!isGroupLimited && <MembersRegisterOthersToggle checked={membersCanRegisterOthers} onCheckedChange={setMembersCanRegisterOthers} />}
               {/* Program vs One-off Toggle (hidden for group-limited events — group events are always one-off free events) */}
               {!isGroupLimited && (
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">

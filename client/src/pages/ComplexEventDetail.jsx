@@ -7,6 +7,7 @@ import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { reconcilePrivateCart, mergeAllocationTicket } from "@/utils/privateTicketAudience";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { requireAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
+import { membersCanRegisterOthers } from "../../../shared/eventRegisterOthers.js";
 import { purchaseIdentity, ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -108,7 +109,7 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false, eventId }) {
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, memberSelfOnly = false, allocationContext = null, requireJobTitle = false, eventId }) {
   const ownedReservation = useOwnedEventReservation();
   const capability = useUnifiedBookingCapability({ eventId, source: "complex", viewerId: memberInfo?.id,
     tenantId: memberInfo?.tenant_id, enabled: open && !ownedReservation });
@@ -228,10 +229,10 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
         <Tabs defaultValue={allocationContext ? "external" : (memberInfo ? "self" : "external")} className="mt-2">
           <TabsList className="w-full">
             {memberInfo && !allocationContext && <TabsTrigger value="self" className="flex-1" data-testid="tab-self">Myself</TabsTrigger>}
-            {!allocationContext && !isGroupEvent && memberInfo && organizationInfo && (
+            {!allocationContext && !isGroupEvent && !memberSelfOnly && memberInfo && organizationInfo && (
               <TabsTrigger value="colleague" className="flex-1" data-testid="tab-colleague">Colleague</TabsTrigger>
             )}
-            {(!isGroupEvent || !memberInfo) && (
+            {(!memberInfo || (!isGroupEvent && !memberSelfOnly)) && (
               <TabsTrigger value="external" className="flex-1" data-testid="tab-external">{isGroupEvent ? 'Myself' : 'Other'}</TabsTrigger>
             )}
           </TabsList>
@@ -559,6 +560,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // Task #1519: Group events (member_group_id set) force self-only registration.
   // No colleagues / external / multi-attendee booking is permitted.
   const isGroupEvent = !!event?.member_group_id;
+  // Per-event "Members can register others": when off, signed-in members book only their own place.
+  const memberSelfOnly = !!memberInfo && !isGroupEvent && !allocationContext && !membersCanRegisterOthers(event);
+  const selfOnlyBooking = isGroupEvent || memberSelfOnly;
 
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['/api/public/system-settings'],
@@ -1028,8 +1032,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       ticketClass={tbcBookableTicketClass}
       attendeeCount={totalAttendeeCount}
       onAdd={handleOpenAttendeeModal}
-      isGroupEvent={isGroupEvent}
-      disabled={isGroupEvent && totalAttendeeCount >= 1}
+      isGroupEvent={selfOnlyBooking}
+      disabled={selfOnlyBooking && totalAttendeeCount >= 1}
     />
   ) : (
     <div className="space-y-3">
@@ -1114,13 +1118,13 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenAttendeeModal(tc.id)}
-                disabled={restricted || soldOut || releaseBlocked || (isGroupEvent && totalAttendeeCount >= 1)
+                disabled={restricted || soldOut || releaseBlocked || (selfOnlyBooking && totalAttendeeCount >= 1)
                   || (Boolean(allocationContext?.ticketTypeId)
                     && String(tc.id) === String(allocationContext.ticketTypeId) && count >= 1)}
                 data-testid={`button-add-attendee-${tc.id}`}
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
-                {isGroupEvent ? 'Register Myself' : 'Add Attendee'}
+                {selfOnlyBooking ? 'Register Myself' : 'Add Attendee'}
               </Button>
               {count > 0 && (
                 <Badge className="bg-indigo-600 text-white">
@@ -1350,6 +1354,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         onAddAttendee={handleAddAttendee}
         existingEmails={allExistingEmails}
         isGroupEvent={isGroupEvent}
+        memberSelfOnly={memberSelfOnly}
         allocationContext={allocationContext}
       />
 

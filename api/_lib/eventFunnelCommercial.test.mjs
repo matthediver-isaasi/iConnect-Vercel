@@ -126,6 +126,19 @@ test('group event self-only rule applies even to public groups', async () => {
   f.input.answers.attendeesByTicket.admission[0].email = 'someone-else@example.test';
   await assert.rejects(f.resolve(f.input), /self-registration/);
 });
+test('members cannot register others when the event setting is off; guests and default events are unaffected', async () => {
+  const off = fixture({ eventChanges: { members_can_register_others: false } });
+  off.input.answers.attendeesByTicket.admission[0].email = 'colleague@example.test';
+  await assert.rejects(off.resolve(off.input), /only allows members to register themselves/);
+  const selfOnly = fixture({ eventChanges: { members_can_register_others: false } });
+  await selfOnly.resolve(selfOnly.input);
+  const allowed = fixture();
+  allowed.input.answers.attendeesByTicket.admission[0].email = 'colleague@example.test';
+  await allowed.resolve(allowed.input);
+  const guest = fixture({ guest: true, eventChanges: { members_can_register_others: false } });
+  guest.input.answers.attendeesByTicket.admission[0].email = 'colleague@example.test';
+  await guest.resolve(guest.input);
+});
 test('current terms are required, and saving another purchaser into draft answers cannot change the reserved purchaser', async () => {
   const f = fixture({ guest: true, settings: [{ setting_key: 'event_booking_terms', setting_value: '<p>Terms</p>' }] });
   await assert.rejects(f.resolve(f.input), /booking terms/);

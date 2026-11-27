@@ -155,6 +155,11 @@
       "default": false,
       "description": "Private (unlisted) event: active and bookable by direct link, but left out of the Events calendar, group event lists, search and sitemap. Canvas event widgets still show it."
     },
+    "members_can_register_others": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, signed-in members may only book their own place (no colleagues or external attendees). Non-members and admin booking tools are unaffected."
+    },
     "xero_account_code": {
       "type": "string",
       "description": "Optional Xero nominal ledger / account code for this event. Overrides the system default xero_sales_account_code when generating invoices."

@@ -50,6 +50,7 @@ import AttendeeOptionsSelector from "../components/booking/AttendeeOptionsSelect
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
+import { membersCanRegisterOthers } from "../../../shared/eventRegisterOthers.js";
 import PageTour from "../components/tour/PageTour";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import EventAwardsSection from "@/components/awards/EventAwardsSection";
@@ -1137,8 +1138,18 @@ export function EventDetailsExperience({
 
   // Role-based permission checks for registration buttons
   const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
-  const canAddTeamMembers = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents'));
-  const canRegisterExternal = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees'));
+  // Per-event "Members can register others": when off, signed-in members book only their own place.
+  // Allocation invitations fix their own delegate and are exempt (matches the server).
+  const memberSelfOnly = !!currentMemberInfo && !allocationMode && !membersCanRegisterOthers(event);
+  const canAddTeamMembers = !isGroupEvent && !memberSelfOnly && (!isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents'));
+  const canRegisterExternal = !isGroupEvent && !memberSelfOnly && (!isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees'));
+  useEffect(() => {
+    // Drop colleagues/externals restored from an earlier draft once the event is self-only.
+    if (memberSelfOnly && attendees.some(a => !a.isSelf)) {
+      setAttendees(prev => prev.filter(a => a.isSelf));
+      setActiveRegistrationPanel(null);
+    }
+  }, [memberSelfOnly, attendees]);
   
   // User can add colleagues if they have permission for team members OR external attendees
   const canAddColleagues = canAddTeamMembers || canRegisterExternal;

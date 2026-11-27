@@ -49,6 +49,7 @@ import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_li
 import { assertSimpleTicketsReleased, normalizeSimpleTicketId } from '../_lib/ticketReleaseAccess.js';
 import { assertSimplePrivateTicketsAccessible, loadPrivateTicketViewer, isPurchasedTicketAllocation } from '../_lib/privateTicketAccess.js';
 import { isPrivateTicket } from '../../shared/ticketAudience.js';
+import { memberSelfOnlyViolation, membersCanRegisterOthers, REGISTER_OTHERS_DISABLED_MESSAGE } from '../../shared/eventRegisterOthers.js';
 import {
   buildEventCreditSnapshotMetadata,
   compensateRejectedEventCreditPayment,
@@ -1524,6 +1525,14 @@ const functionHandlers = {
       return { success: false, error: error.message };
     }
 
+    // Per-event "Members can register others" setting (programme bookings are member-only).
+    // Link mode creates unnamed transferable places for others, so it is never self-only.
+    if (!membersCanRegisterOthers(event) && !['self', 'colleagues'].includes(registrationMode)) {
+      return { success: false, error: REGISTER_OTHERS_DISABLED_MESSAGE };
+    }
+    const programSelfOnlyError = memberSelfOnlyViolation(event, attendees, member.email || memberEmail);
+    if (programSelfOnlyError) return { success: false, error: programSelfOnlyError };
+
     // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
     if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
       console.log('[createBooking] Blocking registration - event is closed:', eventId);
@@ -2357,13 +2366,31 @@ const functionHandlers = {
       org = allocationOrg;
     }
 
+    // Per-event "Members can register others" setting. Member bookings may
+    // only include the booking member when it is switched off. Allocation
+    // invitations fix their own delegate identity and are not member choices.
+    // Raised through the policy block below so a taken card payment is reversed.
+    // Enforced from the verified session, never the client-submitted guest flag:
+    // a signed-in tenant member is a member booker even when posting as a guest.
+    const registerOthersSessionMember = bookingSessionMember
+      && (bookingSessionMember.organization?.tenant_id || bookingSessionMember.tenant_id) === event.tenant_id
+      ? bookingSessionMember : null;
+    const registerOthersMessage = !allocationContext && (registerOthersSessionMember || (!isGuestBooking && member))
+      ? memberSelfOnlyViolation(event, bookingAttendees, registerOthersSessionMember?.email || member?.email || memberEmail)
+      : null;
+    const registerOthersError = registerOthersMessage ? new Error(registerOthersMessage) : null;
+    if (registerOthersError) {
+      console.log('[createOneOffEventBooking] Blocking registration of others - disabled for event:', eventId);
+    }
+
     const voucherPaymentRequested = paymentMethod === 'voucher'
       || (Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0);
     const trainingFundPaymentRequested = paymentMethod === 'training_fund'
       || Number(trainingFundAmount) > 0;
-    if (ticketReleaseError || voucherPaymentRequested || trainingFundPaymentRequested) {
+    if (ticketReleaseError || registerOthersError || voucherPaymentRequested || trainingFundPaymentRequested) {
       try {
         if (ticketReleaseError) throw ticketReleaseError;
+        if (registerOthersError) throw registerOthersError;
         const paymentPolicy = await loadEventPaymentPolicy(supabase, event.tenant_id);
         assertEventPaymentMethodsAllowed(paymentPolicy, {
           voucherRequested: voucherPaymentRequested,
@@ -2391,7 +2418,7 @@ const functionHandlers = {
                 eventId,
                 purchaserEmail: member?.email || guestInfo?.email || memberEmail,
                 allocationContext,
-                expectedCreditSnapshot: ticketReleaseError ? null : {
+                expectedCreditSnapshot: (ticketReleaseError || registerOthersError) ? null : {
                   voucherIds: selectedVoucherIds,
                   voucherOrderManual,
                   trainingFundAmount,

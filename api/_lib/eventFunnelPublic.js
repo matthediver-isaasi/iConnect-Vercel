@@ -32,7 +32,7 @@ const EVENT_FIELDS = `id tenant_id title description summary slug start_date end
  show_seat_count show_ticket_availability registration_closes_at is_training speaker_ids speaker_display_mode sponsor_display_mode
  member_group_id group_event_public cta_override_url cta_override_mode cta_button_label replace_booking_elements
  booking_replacement_message booking_replacement_cta_label booking_replacement_title attached_documents documents_section_title
- custom_duration_explainer dietary_options allergy_options accessibility_options allow_public_invoice_po program_tag waiting_list_enabled`.split(/\s+/);
+ custom_duration_explainer dietary_options allergy_options accessibility_options allow_public_invoice_po program_tag waiting_list_enabled members_can_register_others`.split(/\s+/);
 const TICKET_FIELDS = `id name description price currency is_free visibility_mode audience_mode private_ticket_eligible
  organization_type_enabled organization_type_eligible role_ids role_match_only member_group_ids is_public
  is_group_ticket group_size group_cutoff_date early_bird_enabled early_bird_price early_bird_deadline

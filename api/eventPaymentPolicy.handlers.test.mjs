@@ -26,7 +26,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(importPattern)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/\/(?:eventPaymentPolicy(?:Compensation)?|ticketReleaseAccess|attendeeJobTitleRequirement)\.js$/.test(specifier)) continue;
+    if (/\/(?:eventPaymentPolicy(?:Compensation)?|ticketReleaseAccess|attendeeJobTitleRequirement|eventRegisterOthers)\.js$/.test(specifier)) continue;
     if (specifier === 'stripe') {
       replacements.set(specifier, `export default class StripeProxy { constructor(...args) { return new globalThis.${slot}.Stripe(...args); } }`);
       continue;
@@ -89,8 +89,9 @@ function fixture({
   refundFails = false,
   completedPurchase = null,
   existingBookings = [],
+  eventChanges = {},
 } = {}) {
-  const event = { id: 'event-a', tenant_id: 'tenant-a', title: 'Event', status: 'published', event_state: 'active' };
+  const event = { id: 'event-a', tenant_id: 'tenant-a', title: 'Event', status: 'published', event_state: 'active', ...eventChanges };
   const settings = omitSettings ? [] : [
     { tenant_id: settingTenant, setting_key: 'event_allow_voucher_payment', setting_value: String(voucher) },
     { tenant_id: settingTenant, setting_key: 'event_allow_training_fund_payment', setting_value: String(trainingFund) },
@@ -177,6 +178,7 @@ function fixture({
     },
     dependency(name, args = []) {
       if (name === 'assertEventCodeOfConduct') return null;
+      if (name === 'programRegistrationFingerprint') return 'fingerprint-fixture';
       if (name === 'runBookingCreditAttempt') return args[0].work();
       if (name === 'loadBookingVouchers') return [];
       if (name === 'hasRegistrationAssociation') return false;
@@ -662,3 +664,43 @@ for (const kind of ['simple', 'complex-event-booking']) {
     assert.deepEqual(state.effects, []);
   });
 }
+// Per-event "Members can register others" setting, executed through the real handlers.
+const selfOnlyEvent = { eventChanges: { members_can_register_others: false } };
+const colleague = { email: 'colleague@example.test', first_name: 'Col', last_name: 'League' };
+const selfAttendee = { email: 'member@example.test', first_name: 'Member', last_name: 'Test' };
+
+test('simple member booking with another attendee is rejected when members cannot register others', async () => {
+  const state = fixture(selfOnlyEvent);
+  const res = await invoke('simple', state, { eventId: 'event-a', memberEmail: 'member@example.test',
+    attendees: [selfAttendee, colleague], ticketsRequired: 2, totalCost: 0, paymentMethod: 'account' });
+  assert.match(res.body.error, /only allows members to register themselves/);
+  assert.deepEqual(state.effects, []);
+  assert.equal(state.providerCalls, 0);
+});
+
+test('a signed-in member cannot bypass the setting by submitting a guest booking', async () => {
+  const state = fixture(selfOnlyEvent);
+  const res = await invoke('simple', state, { eventId: 'event-a', isGuestBooking: true,
+    guestInfo: colleague, attendees: [colleague], ticketsRequired: 1, totalCost: 0, paymentMethod: 'free' });
+  assert.match(res.body.error, /only allows members to register themselves/);
+  assert.deepEqual(state.effects, []);
+});
+
+test('complex member booking with another attendee is rejected when members cannot register others', async () => {
+  const state = fixture(selfOnlyEvent);
+  const res = await invoke('complex-event-booking', state, { event_id: 'event-a', payment_method: 'free',
+    items: [{ ticket_class_id: 'ticket-a', attendees: [selfAttendee, colleague] }] });
+  assert.match(res.body.error, /only allows members to register themselves/);
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(state.effects, []);
+});
+
+test('programme link-mode bookings are rejected when members cannot register others', async () => {
+  const state = fixture(selfOnlyEvent);
+  const res = await invoke('simple', state, { functionName: 'createBooking', eventId: 'event-a',
+    memberEmail: 'member@example.test', attendees: [selfAttendee], registrationMode: 'links', numberOfLinks: 3,
+    registrationAttemptId: '11111111-1111-4111-8111-111111111111',
+    ticketClassId: 'default' });
+  assert.match(res.body.error, /only allows members to register themselves/);
+  assert.deepEqual(state.effects, []);
+});
