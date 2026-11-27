@@ -49,6 +49,7 @@ import AttendeeList from "../components/booking/AttendeeList";
 import AttendeeOptionsSelector from "../components/booking/AttendeeOptionsSelector";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import PaymentOptions from "../components/booking/PaymentOptions";
+import EventFunnelInPageJourney from "../components/booking/EventFunnelInPageJourney";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import { membersCanRegisterOthers } from "../../../shared/eventRegisterOthers.js";
 import PageTour from "../components/tour/PageTour";
@@ -1804,6 +1805,73 @@ export function EventDetailsExperience({
     setSubmitting(false);
   };
 
+  // Funnel tickets: the journey opens over this page and never navigates away.
+  const inPageJourney = !ownedReservation && !editorMode ? reservation.journeySessionId : null;
+  const ticketCardShown = isOneOffEvent && !tbcTicketSelectorsHidden
+    && (availableTicketClasses.length > 1 || (availableTicketClasses.length === 1 && !!selectedTicketClass));
+  const funnelInline = !inPageJourney && reservation.active && !reservation.owned && ticketCardShown
+    && !useCtaOverrideDetailMode && !allocationMode;
+  const renderPaymentOptions = (extra = {}) => (
+    <PaymentOptions
+      reservation={reservation}
+      editorMode={editorMode}
+      tbcBookingReplacement={tbcBookingReplacement}
+      totalCost={totalCost}
+      memberInfo={currentMemberInfo}
+      organizationInfo={organizationInfo}
+      attendees={isGuestCheckout 
+        ? (isGuestFormValid ? [{
+            email: guestInfo.email,
+            first_name: guestInfo.first_name,
+            last_name: guestInfo.last_name,
+            isValid: true,
+            isGuest: true,
+            organization: guestInfo.organization,
+            registration_association: guestInfo.registration_association || null,
+            phone: guestInfo.phone,
+            job_title: guestInfo.job_title,
+            dietary_selections: guestInfo.dietary_selections,
+            allergy_selections: guestInfo.allergy_selections,
+            accessibility_selections: guestInfo.accessibility_selections
+          }] : [])
+        : attendees.filter((a) => a.isValid)}
+      numberOfLinks={0}
+      event={event}
+      submitting={submitting}
+      setSubmitting={setSubmitting}
+      registrationMode={isGuestCheckout ? 'guest' : registrationMode}
+      refreshOrganizationInfo={refreshOrganizationInfo}
+      isOneOffEvent={isOneOffEvent}
+      oneOffCostDetails={oneOffCostDetails}
+      ticketPrice={ticketPrice}
+      isFeatureExcluded={isFeatureExcluded}
+      selectedTicketClass={selectedTicketClass}
+      guestBookingForSelf={guestBookingForSelf}
+      ticketSelectionUnavailable={isOneOffEvent && !legacyWithoutPricingConfig && (!selectedTicketClassId || !isTicketPurchasable(selectedTicketClass))}
+      onCanProceedChange={setPaymentCanProceed}
+      isGuestCheckout={isGuestCheckout}
+      guestInfo={guestInfo}
+      noTicketsForRole={noTicketsForRole}
+      isSoldOut={isSoldOut}
+      isRegistrationClosed={isRegistrationClosed}
+      hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
+      hasBookingTerms={hasBookingTerms}
+      bookingTerms={bookingTerms}
+      termsAccepted={termsAccepted}
+      setTermsAccepted={setTermsAccepted}
+      onShowTermsModal={() => setShowTermsModal(true)}
+      collectThirdPartyConsent={collectThirdPartyConsent}
+      thirdPartyConsent={thirdPartyConsent}
+      setThirdPartyConsent={setThirdPartyConsent}
+      checkGuestEmailIsMember={checkGuestEmailIsMember}
+      onGuestLoginRequired={openLogin}
+      checkingMemberEmail={checkingMemberEmail}
+      guestEmailIsMember={guestEmailIsMember}
+      allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id, ticketTypeId: allocationContext.ticketTypeId } : null}
+      {...extra}
+    />
+  );
+
   return (
     <div
       className={isEmbedMode
@@ -2804,7 +2872,7 @@ export function EventDetailsExperience({
                       );
                     })}
                   </RadioGroup>
-                  
+                  {funnelInline && <div className="mt-4 border-t border-slate-200 pt-4" data-testid="funnel-inline-continue">{renderPaymentOptions({ renderAsCard: false })}</div>}
                   </CardContent>
               </Card>
             )}
@@ -2887,6 +2955,7 @@ export function EventDetailsExperience({
                       </div>
                     );
                   })()}
+                  {funnelInline && <div className="mt-4 border-t border-slate-200 pt-4" data-testid="funnel-inline-continue">{renderPaymentOptions({ renderAsCard: false })}</div>}
                 </CardContent>
               </Card>
             )}
@@ -2937,63 +3006,10 @@ export function EventDetailsExperience({
                 </CardContent>
               </Card>
             ) : (
-            <PaymentOptions
-              reservation={reservation}
-              editorMode={editorMode}
-              tbcBookingReplacement={tbcBookingReplacement}
-              totalCost={totalCost}
-              memberInfo={currentMemberInfo}
-              organizationInfo={organizationInfo}
-              attendees={isGuestCheckout 
-                ? (isGuestFormValid ? [{
-                    email: guestInfo.email,
-                    first_name: guestInfo.first_name,
-                    last_name: guestInfo.last_name,
-                    isValid: true,
-                    isGuest: true,
-                    organization: guestInfo.organization,
-                    registration_association: guestInfo.registration_association || null,
-                    phone: guestInfo.phone,
-                    job_title: guestInfo.job_title,
-                    dietary_selections: guestInfo.dietary_selections,
-                    allergy_selections: guestInfo.allergy_selections,
-                    accessibility_selections: guestInfo.accessibility_selections
-                  }] : [])
-                : attendees.filter((a) => a.isValid)}
-              numberOfLinks={0}
-              event={event}
-              submitting={submitting}
-              setSubmitting={setSubmitting}
-              registrationMode={isGuestCheckout ? 'guest' : registrationMode}
-              refreshOrganizationInfo={refreshOrganizationInfo}
-              isOneOffEvent={isOneOffEvent}
-              oneOffCostDetails={oneOffCostDetails}
-              ticketPrice={ticketPrice}
-              isFeatureExcluded={isFeatureExcluded}
-              selectedTicketClass={selectedTicketClass}
-              guestBookingForSelf={guestBookingForSelf}
-              ticketSelectionUnavailable={isOneOffEvent && !legacyWithoutPricingConfig && (!selectedTicketClassId || !isTicketPurchasable(selectedTicketClass))}
-              onCanProceedChange={setPaymentCanProceed}
-              isGuestCheckout={isGuestCheckout}
-              guestInfo={guestInfo}
-              noTicketsForRole={noTicketsForRole}
-              isSoldOut={isSoldOut}
-              isRegistrationClosed={isRegistrationClosed}
-              hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
-              hasBookingTerms={hasBookingTerms}
-              bookingTerms={bookingTerms}
-              termsAccepted={termsAccepted}
-              setTermsAccepted={setTermsAccepted}
-              onShowTermsModal={() => setShowTermsModal(true)}
-              collectThirdPartyConsent={collectThirdPartyConsent}
-              thirdPartyConsent={thirdPartyConsent}
-              setThirdPartyConsent={setThirdPartyConsent}
-              checkGuestEmailIsMember={checkGuestEmailIsMember}
-              onGuestLoginRequired={openLogin}
-              checkingMemberEmail={checkingMemberEmail}
-              guestEmailIsMember={guestEmailIsMember}
-              allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id, ticketTypeId: allocationContext.ticketTypeId } : null}
-            />
+            inPageJourney ? (
+              <EventFunnelInPageJourney sessionId={inPageJourney} sourceLabel={event.title || 'your event'}
+                onExit={reservation.closeJourney} />
+            ) : funnelInline ? null : renderPaymentOptions()
             )}
             </>
             )}

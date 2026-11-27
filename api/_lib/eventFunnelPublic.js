@@ -52,6 +52,21 @@ export async function findFunnelEntry(db, tenantId, kind, eventId, ticketId = nu
   return entry;
 }
 
+// Lets the event page decide, before submission, which ticket classes start a
+// funnel. Each mapping is confirmed through the same resolver used at start, so
+// out-of-scope or unpublished mappings are never advertised.
+export async function listRoutedTickets(db, tenantId, kind, eventId) {
+  const rows = check(await db.from('event_funnel_ticket_entry').select('ticket_id')
+    .eq('tenant_id', tenantId).eq('event_kind', kind).eq('event_id', eventId).limit(100));
+  const ids = [...new Set(rows.map(row => String(row.ticket_id)))];
+  const routed = [];
+  for (const id of ids) {
+    const entry = await findFunnelEntry(db, tenantId, kind, eventId, id);
+    if (entry.active === true) routed.push(id);
+  }
+  return routed;
+}
+
 export async function loadFunnelOffer(db, owner, snapshot, nodeId) {
   const node = snapshot.graph.nodes.find(candidate => candidate.id === nodeId);
   if (!node?.event || !snapshot.route.route.includes(nodeId)
@@ -141,7 +156,12 @@ export function createFunnelPublicHandler(action, { db, resolveTenant, loadViewe
       if (!uuid(input.eventId) || !['simple', 'complex'].includes(input.eventKind)) fail('Invalid event.', 'INVALID_REQUEST');
       const tenant = await resolveTenant(req);
       if (!uuid(tenant?.id)) fail('Event not found.', 'EVENT_NOT_FOUND', 404);
-      if (action === 'entry') return res.status(200).json(await findFunnelEntry(db, tenant.id, input.eventKind, input.eventId));
+      if (action === 'entry') {
+        const entry = await findFunnelEntry(db, tenant.id, input.eventKind, input.eventId);
+        if (entry.active !== true || entry.routing !== 'ticket' || entry.versionId) return res.status(200).json(entry);
+        return res.status(200).json({ ...entry,
+          routedTicketIds: await listRoutedTickets(db, tenant.id, input.eventKind, input.eventId) });
+      }
       if (!uuid(input.requestId) || !Array.isArray(input.tickets) || !input.tickets.length
         || input.tickets.length > 100 || input.tickets.some(ticket => !ticket || typeof ticket.id !== 'string'
           || !/^[a-zA-Z0-9_-]{1,100}$/.test(ticket.id) || !Number.isSafeInteger(ticket.quantity)

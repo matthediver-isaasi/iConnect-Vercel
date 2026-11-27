@@ -1,7 +1,8 @@
 import { createContext, useContext, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useEventFunnelEntry, startEventFunnel } from '@/hooks/useEventFunnelEntry';
 import { isGuestOwnedReservation } from '@/lib/eventReservationSelection.mjs';
+import { isTicketRoutedByEntry, IN_PAGE_RESERVATION_PARAM } from '@/lib/eventFunnelInPage.mjs';
 
 // This context is supplied only after the journey shell verifies ownership.
 // Session IDs are identifiers, never credentials.
@@ -12,7 +13,7 @@ export const useOwnedEventReservation = () => useContext(EventReservationContext
 export function useEventReservation({ eventId, eventKind, viewerKey, selectedTicketIds = [], enabled = true }) {
   const owned = useOwnedEventReservation();
   const journeyOwned = owned && !owned.normalCheckout ? owned : null;
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const entry = useEventFunnelEntry({ eventId, eventKind, viewerKey, enabled: enabled && !journeyOwned });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
@@ -28,11 +29,25 @@ export function useEventReservation({ eventId, eventKind, viewerKey, selectedTic
   if (draft.current?.identity !== identity) draft.current = null;
   const validEntry = entry.data?.active === true && (entry.data.routing === 'ticket'
     || typeof entry.data.versionId === 'string' && typeof entry.data.sourceNodeId === 'string');
-  const normalSelected = normal?.identity === identity && normal?.key === selectionKey
+  // A ticket the server reports as unmapped uses normal checkout immediately.
+  const unroutedTicket = validEntry && !isTicketRoutedByEntry(entry.data, selectedTicketIds);
+  const normalSelected = unroutedTicket || normal?.identity === identity && normal?.key === selectionKey
     || owned?.normalCheckout && selectionKey === JSON.stringify((owned.offer.selectedTickets || []).map(ticket => ticket.id).sort());
   const active = Boolean(journeyOwned || (enabled && validEntry && !normalSelected));
   const malformed = !journeyOwned && enabled && entry.data && entry.data.active !== false && !validEntry;
   const intercept = Boolean(journeyOwned || (enabled && !normalSelected && (entry.data?.active !== false || entry.isError || entry.isFetching)));
+  const journeySessionId = !owned ? searchParams.get(IN_PAGE_RESERVATION_PARAM) || null : null;
+
+  const openJourney = sessionId => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    next.set(IN_PAGE_RESERVATION_PARAM, sessionId);
+    return next;
+  });
+  const closeJourney = () => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    next.delete(IN_PAGE_RESERVATION_PARAM);
+    return next;
+  });
 
   async function submit({ tickets, answers }) {
     if (busy.current || !active || (!journeyOwned && (entry.isError || entry.isFetching))) return null;
@@ -52,7 +67,8 @@ export function useEventReservation({ eventId, eventKind, viewerKey, selectedTic
         return result;
       }
       draft.current = { identity, snapshot: result };
-      navigate(`/EventReservation?sessionId=${encodeURIComponent(result.session.id)}`);
+      // The event page stays in place; the journey opens over it.
+      openJourney(result.session.id);
       return result;
     } catch (cause) {
       if (owner.current === startedFor) setError(cause);
@@ -70,6 +86,7 @@ export function useEventReservation({ eventId, eventKind, viewerKey, selectedTic
     retry: () => { setNormal(null); return entry.refetch(); }, submit, initialAnswers: owned?.offer?.draft?.answers,
     purchaser: owned?.snapshot?.purchaser || null,
     ownedGuest: isGuestOwnedReservation(owned?.snapshot),
-    resume: draft.current?.snapshot ? () => navigate(`/EventReservation?sessionId=${encodeURIComponent(draft.current.snapshot.session.id)}`) : null,
+    resume: draft.current?.snapshot ? () => openJourney(draft.current.snapshot.session.id) : null,
+    journeySessionId, closeJourney,
     owned: Boolean(owned && !owned.normalCheckout) };
 }

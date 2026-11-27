@@ -37,6 +37,7 @@ before(async () => {
         tickets:[{id:ticket,quantity}],answers:{attendees:[{first_name:name}]}})}>Continue</button>
       <output data-testid="mode">{reservation.normalCheckout?'normal':reservation.singleChoice?'single':'legacy'}</output>
       <output data-testid="path">{location.pathname}</output>
+      <output data-testid="search">{location.search}</output>
       {reservation.error&&<p role="alert">{reservation.error.message}</p>}
       </main>;
     }
@@ -132,7 +133,10 @@ test('ticket-aware entry keeps 21 choices, preserves no-match answers, and rerou
     assert.equal(await page.getByTestId('path').innerText(), '/');
     await page.getByLabel('Ticket', { exact: true }).selectOption('class-1');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.waitForFunction(() => document.querySelector('[data-testid=path]').textContent === '/EventReservation');
+    // The journey opens over the source page: the path never changes.
+    await page.waitForFunction(() => document.querySelector('[data-testid=search]').textContent.startsWith('?reservation='));
+    assert.equal(await page.getByTestId('path').innerText(), '/');
+    assert.equal(await page.getByTestId('search').innerText(), `?reservation=${calls.at(-1).requestId}`);
     assert.equal(calls.at(-1).tickets[0].id, 'class-1');
     assert.equal(calls.at(-1).tickets[0].quantity, 3);
     assert.equal(calls.at(-1).versionId, undefined);

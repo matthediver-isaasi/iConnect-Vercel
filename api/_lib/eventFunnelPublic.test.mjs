@@ -118,3 +118,14 @@ test('normal outcomes never create or reserve a journey and source routing uses 
   assert.equal(routed.args.p_version, undefined);
   assert.equal(routed.args.p_tenant, tenant);
 });
+
+test('ticket-routed entry lists only mappings the resolver confirms', async () => {
+  const { listRoutedTickets } = await import('./eventFunnelPublic.js');
+  const db = {
+    from: () => ({ select: () => ({ eq() { return this; }, limit: async () => ({ data: [{ ticket_id: 'A' }, { ticket_id: 'B' }, { ticket_id: 'A' }] }) }) }),
+    rpc: async (name, args) => ({ data: args.p_ticket === 'A'
+      ? { active: true, routing: 'ticket', outcome: 'funnel', versionId: version, sourceNodeId: 'source' }
+      : { active: false, outcome: 'normal', reason: 'no_match' } }),
+  };
+  assert.deepEqual(await listRoutedTickets(db, tenant, 'simple', eventId), ['A']);
+});

@@ -302,3 +302,18 @@ can visually author for each step's purpose.
 offered. Closing an offer is not declining it; only an explicit choice changes
 the reservation. Retain all-funnel editing-lock protection for its presentation
 controls and keep presentation separate from ticket, price and routing authority.
+
+The source event page never changes during a funnel (owner, 2026-11-27). A
+routed ticket hides the Booking Summary and shows Continue in the ticket card;
+steps repaint in one modal (banner, heading, text, that step's tickets,
+Continue/Skip — never the event page again); the Booking Summary returns at
+checkout as the funnel cart. The open journey lives in the `?reservation=` query
+parameter so provider returns reopen it.
+
+**Why:** Owner rejected navigation to a separate reservation page and repeated
+event screens inside add-on modals.
+
+**How to apply:** Add-on attendees are chosen from the source step's attendees
+and reuse its purchaser/terms/conduct answers; server checks are unchanged. A
+per-event "Ticket funnels" switch that is off makes every ticket use normal
+checkout — check it first when a funnel "doesn't trigger".

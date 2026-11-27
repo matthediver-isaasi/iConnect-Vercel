@@ -57,6 +57,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
+import EventFunnelInPageJourney from "@/components/booking/EventFunnelInPageJourney";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import EventAwardsSection from "@/components/awards/EventAwardsSection";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
@@ -1159,7 +1160,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const shouldShowPaymentOptions = waitingListEnabled || totalAttendeeCount > 0 || isStripeReturn;
 
-  const paymentOptionsSection = shouldShowPaymentOptions ? (
+  const inPageJourney = !ownedReservation && !editorMode ? reservation.journeySessionId : null;
+  const paymentOptionsSection = inPageJourney ? (
+    <EventFunnelInPageJourney sessionId={inPageJourney} sourceLabel={event.title || 'your event'}
+      onExit={reservation.closeJourney} />
+  ) : shouldShowPaymentOptions ? (
     <PaymentOptions
       reservation={reservation}
       reservationItems={Object.entries(cart).map(([id, item]) => ({ id, attendees: item.attendees }))}
