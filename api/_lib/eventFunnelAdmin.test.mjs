@@ -220,3 +220,48 @@ test('saves a guarded day re-offer and rejects the same add-on without its guard
   assert.match(rejected.body.error, /not selected/);
   assert.equal(h.calls.filter(([name]) => name === 'event_funnel_save_definition').length, 1);
 });
+
+test('funnel group and event link actions are tenant-scoped and validated before storage', async () => {
+  const group = '00000000-0000-4000-8000-000000000010';
+  const h = harness();
+  assert.equal((await h.invoke({ action: 'save_group', id: group, name: '  Spring  ', expectedRevision: 0 })).code, 200);
+  assert.equal((await h.invoke({ action: 'assign_group', definitionId: id, groupId: group })).code, 200);
+  assert.equal((await h.invoke({ action: 'set_event_link', eventId, eventKind: 'complex', groupId: group, expectedRevision: 0 })).code, 200);
+  assert.equal((await h.invoke({ action: 'set_event_link', eventId, eventKind: 'simple', definitionId: null, groupId: null, expectedRevision: 2 })).code, 200);
+  assert.equal((await h.invoke({ action: 'delete_group', id: group, expectedRevision: 1 })).code, 200);
+  const rpcs = h.calls.filter(([name]) => name.startsWith('event_funnel_') && name !== 'event_funnel_consume_limit');
+  assert.deepEqual(rpcs.map(([name]) => name), ['event_funnel_collection_save', 'event_funnel_collection_assign',
+    'event_funnel_set_event_link', 'event_funnel_set_event_link', 'event_funnel_collection_delete']);
+  assert.ok(rpcs.every(([, args]) => args.p_tenant === tenantId && args.p_actor === `user:${id}`));
+  assert.equal(rpcs[0][1].p_name, 'Spring');
+  assert.deepEqual([rpcs[3][1].p_definition, rpcs[3][1].p_collection], [null, null]);
+  for (const body of [
+    { action: 'save_group', id: group, name: ' ', expectedRevision: 0 },
+    { action: 'save_group', id: group, name: 'x'.repeat(121), expectedRevision: 0 },
+    { action: 'save_group', id: 'nope', name: 'Ok', expectedRevision: 0 },
+    { action: 'delete_group', id: group, expectedRevision: 0 },
+    { action: 'assign_group', definitionId: id, groupId: 'forged' },
+    { action: 'set_event_link', eventId, eventKind: 'simple', definitionId: id, groupId: group, expectedRevision: 0 },
+    { action: 'set_event_link', eventId, eventKind: 'other', expectedRevision: 0 },
+    { action: 'set_event_link', eventId, eventKind: 'simple', expectedRevision: -1 },
+  ]) {
+    const rejected = harness();
+    assert.equal((await rejected.invoke(body)).code, 400, JSON.stringify(body));
+    assert.equal(rejected.calls.some(([name]) => name.startsWith('event_funnel_') && name !== 'event_funnel_consume_limit'), false);
+  }
+});
+test('loading funnels reports groups unavailable instead of failing before the groups release is installed', async () => {
+  const h = harness();
+  const from = h.db.from;
+  h.db.from = table => {
+    if (!table.startsWith('event_funnel_collection') && table !== 'event_funnel_event_link') return from(table);
+    const chain = { select: () => chain, eq: () => chain, order: () => chain, limit: () => chain,
+      then: resolve => resolve({ error: { code: 'PGRST205' } }) };
+    return chain;
+  };
+  const res = await h.invoke(undefined, {}, 'GET');
+  assert.equal(res.code, 200);
+  assert.deepEqual([res.body.groupsAvailable, res.body.groups, res.body.eventLinks], [false, [], []]);
+  const installed = await harness().invoke(undefined, {}, 'GET');
+  assert.deepEqual([installed.body.groupsAvailable, installed.body.groups], [true, []]);
+});

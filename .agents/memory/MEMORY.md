@@ -191,3 +191,4 @@
 - [Route page classification](route-page-classification.md) — parameterised routes classify by matched component; guest-readable ones must opt into the hybrid set.
 - [Member DD self-cancellation](member-dd-self-cancellation-policy.md) — >= instalment threshold across lineage, paid-period end, fallback role not login block, no withdrawal.
 - [Members can register others](event-register-others-policy.md) — per-event self-only booking for members; default allowed; reject via compensation path after card payment.
+- [Event funnel groups and links](event-funnel-groups-links.md) — groups stored as event_funnel_collection; event link scoping lives in SQL resolver, not JS.

@@ -87,6 +87,7 @@ import EventEmailSettingsEditor, {
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import DeliveryModeCardSelector from "@/components/events/DeliveryModeCardSelector";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
+import EventFunnelLinkTab from "@/components/events/EventFunnelLinkTab";
 import {
   emptyEventCpdBadgeConfig,
   putEventCpdBadgeRules,
@@ -2592,6 +2593,7 @@ export default function CreateComplexEvent() {
               <TabsTrigger value="surveys" data-testid="button-section-surveys">Surveys</TabsTrigger>
             )}
             {isEditMode && existingEvent?.id === editId && <TabsTrigger value="awards" data-testid="button-section-awards">Awards</TabsTrigger>}
+            {isEditMode && !isGroupLimited && <TabsTrigger value="funnel" data-testid="button-section-funnel">Funnel</TabsTrigger>}
             {!isGroupLimited && (
               <TabsTrigger value="budget" data-testid="button-section-budget">Budget</TabsTrigger>
             )}
@@ -4902,6 +4904,9 @@ export default function CreateComplexEvent() {
 
         {isEditMode && existingEvent?.id === editId && <TabsContent value="awards" forceMount className="data-[state=inactive]:hidden">
           <EventAwardsAdmin key={existingEvent.id} eventId={existingEvent.id} type="complex" />
+        </TabsContent>}
+        {isEditMode && !isGroupLimited && <TabsContent value="funnel">
+          <EventFunnelLinkTab eventId={editId} eventKind="complex" />
         </TabsContent>}
         </Tabs>
 

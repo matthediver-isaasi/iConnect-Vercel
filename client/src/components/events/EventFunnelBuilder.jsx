@@ -246,7 +246,7 @@ function ConditionInspector({ node, nodes, catalog, tenantId, update }) {
   </>;
 }
 
-function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], busy = false, unavailable = null, onSave, onPreview, onPublish }) {
+function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], busy = false, unavailable = null, onSave, onPreview, onPublish, initialDefinitionId = null }) {
   const tiers = useMemo(() => membershipTiers || [], [membershipTiers]);
   const [draft, setDraft] = useState(null);
   const [baseline, setBaseline] = useState('');
@@ -360,6 +360,16 @@ function Builder({ tenantId, catalog = [], membershipTiers, definitions = [], bu
     setSamples({}); setCheckoutNow(false); setConfirmDelete(false); setSelectedConnector(null); setMessage(null); invalidatePreview();
     requestAnimationFrame(() => flowRef.current?.fitView({ padding: .25 }));
   }
+  // Deep links (for example "Open funnel setup" from an event) open once.
+  const openedInitial = useRef(false);
+  useEffect(() => {
+    if (openedInitial.current || !initialDefinitionId || draft) return;
+    const definition = definitions.find(item => item.id === initialDefinitionId);
+    if (!definition) return;
+    openedInitial.current = true;
+    loadDefinition(definition);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDefinitionId, definitions, draft]);
   function setDestination(nodeId, handle, target) {
     changeDraft(current => ({ ...current, graph: { ...current.graph, nodes: current.graph.nodes.map(node => {
       if (node.id !== nodeId) return node;

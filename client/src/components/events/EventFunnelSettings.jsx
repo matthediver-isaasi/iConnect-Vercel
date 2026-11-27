@@ -1,7 +1,9 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { funnelSimpleTickets } from '../../../../shared/eventFunnelCatalog.mjs';
 import { isFutureFunnelEvent, sortFunnelCatalog } from '../../../../shared/eventFunnelAuthoring.mjs';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import EventFunnelGroupsPanel from './EventFunnelGroupsPanel';
+import { eventFunnelRequest } from '@/lib/eventFunnelApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
@@ -10,21 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, GitBranch } from 'lucide-react';
 
 const EventFunnelBuilder = lazy(() => import('./EventFunnelBuilder'));
-async function request(body) {
-  const response = await fetch('/api/event-funnels', {
-    credentials: 'include',
-    ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Event funnels could not be loaded.');
-  return result;
-}
+const request = eventFunnelRequest;
 export default function EventFunnelSettings({ standalone = false }) {
   const { memberInfo, isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const [opened, setOpened] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [settingError, setSettingError] = useState(null);
+  const [groupFilter, setGroupFilter] = useState('');
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const allowed = isAccessReady && isAdmin && !isFeatureExcluded('events.browse-events.create');
   const queryKey = ['event-funnel-definitions', memberInfo?.tenant_id, memberInfo?.id];
@@ -63,6 +59,9 @@ export default function EventFunnelSettings({ standalone = false }) {
   const chosen = catalog.data?.find(event => `${event.kind}:${event.id}` === selectedEvent);
   const setting = state.data?.eventSettings?.find(row => row.event_kind === chosen?.kind && row.event_id === chosen?.id);
   const error = state.error || catalog.error;
+  const groupOf = new Map((state.data?.groupMembers || []).map(row => [row.definition_id, row.collection_id]));
+  const visibleDefinitions = (state.data?.definitions || []).filter(definition => !groupFilter
+    || (groupFilter === '__none' ? !groupOf.has(definition.id) : groupOf.get(definition.id) === groupFilter));
   return <Card className="mb-8" data-testid="event-funnel-settings">
     <CardHeader><CardTitle className="flex items-center gap-2"><GitBranch className="h-5 w-5" />Event ticket sales funnels</CardTitle></CardHeader>
     <CardContent className="space-y-4">
@@ -104,8 +103,11 @@ export default function EventFunnelSettings({ standalone = false }) {
             {!state.data.readiness?.purchasing && <p role="status" className="rounded-md border p-3 text-sm">
               Draft authoring is available. {state.data.readiness?.reason || 'Customer purchasing is not activated.'}
             </p>}
+            {standalone && <EventFunnelGroupsPanel data={state.data} filter={groupFilter} onFilter={setGroupFilter}
+              onChange={patch => queryClient.setQueryData(queryKey, current => ({ ...current, ...patch(current) }))} />}
             {standalone && <EventFunnelBuilder key={state.data.tenantId} tenantId={state.data.tenantId}
-              definitions={state.data.definitions} catalog={catalog.data} membershipTiers={state.data.membershipTiers || []} busy={saving}
+              initialDefinitionId={searchParams.get('funnel')}
+              definitions={visibleDefinitions} catalog={catalog.data} membershipTiers={state.data.membershipTiers || []} busy={saving}
               unavailable={error?.message || null}
               onSave={async input => {
                 setSaving(true);

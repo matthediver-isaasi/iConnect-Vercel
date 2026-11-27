@@ -8,10 +8,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function check(result) {
   if (result.error) {
-    if (['42P01', '42883', 'PGRST202', 'PGRST205'].includes(result.error.code)) fail('Funnel authoring schema is not installed.', 503);
+    if (MISSING_SCHEMA.includes(result.error.code)) fail('Funnel authoring schema is not installed.', 503);
     if (result.error.code === 'PT404') fail('This funnel is no longer available.', 404);
     if (result.error.code === 'PT409') fail(result.error.message?.startsWith('Another published funnel already routes ticket ')
-      ? result.error.message : 'This definition or event setting changed. Reload it before saving.', 409);
+      ? result.error.message : result.error.message === 'A funnel group with this name already exists.' ? result.error.message
+        : 'This definition or event setting changed. Reload it before saving.', 409);
     if (['22023', '22P02'].includes(result.error.code)) fail('An event or ticket reference is no longer valid.', 400);
     fail('Funnel data could not be loaded or saved.', 503);
   }
@@ -103,6 +104,54 @@ export async function validateMembershipReferences(db, tenantId, graph) {
     if (membershipTierScope(tier) !== node.membership.scope) fail('A membership stage no longer matches its tier type. Choose the tier again.');
   }
 }
+const MISSING_SCHEMA = ['42P01', '42883', 'PGRST202', 'PGRST205'];
+// Funnel Groups and event links are an additive release. Until installed the
+// existing funnel authoring keeps working and the UI reports them unavailable.
+export async function loadFunnelCollections(db, tenantId) {
+  const [groups, members, links] = await Promise.all([
+    db.from('event_funnel_collection').select('id,name,revision').eq('tenant_id', tenantId).order('name', { ascending: true }).limit(501),
+    db.from('event_funnel_collection_member').select('definition_id,collection_id').eq('tenant_id', tenantId).limit(1001),
+    db.from('event_funnel_event_link').select('event_kind,event_id,definition_id,collection_id,revision')
+      .eq('tenant_id', tenantId).limit(5001),
+  ]);
+  if ([groups, members, links].some(result => MISSING_SCHEMA.includes(result.error?.code))) {
+    return { groupsAvailable: false, groups: [], groupMembers: [], eventLinks: [] };
+  }
+  const [g, m, l] = [groups, members, links].map(check);
+  if (g.length > 500 || m.length > 1000 || l.length > 5000) fail('Too many funnel groups or event links to load safely.', 409);
+  return { groupsAvailable: true, groups: g, groupMembers: m, eventLinks: l };
+}
+const optionalUuid = value => value === null || value === undefined ? null : UUID.test(value) ? value : fail('Invalid reference.');
+export async function manageFunnelCollections(db, tenantId, actor, body) {
+  const revision = body.expectedRevision;
+  const validRevision = Number.isSafeInteger(revision) && revision >= 0;
+  if (body.action === 'save_group') {
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!UUID.test(body.id || '') || !validRevision || !name || name.length > 120) fail('Enter a group name of up to 120 characters.');
+    return check(await db.rpc('event_funnel_collection_save', {
+      p_tenant: tenantId, p_id: body.id, p_name: name, p_revision: revision, p_actor: actor,
+    }));
+  }
+  if (body.action === 'delete_group') {
+    if (!UUID.test(body.id || '') || !validRevision || revision < 1) fail('Invalid funnel group.');
+    return check(await db.rpc('event_funnel_collection_delete', {
+      p_tenant: tenantId, p_id: body.id, p_revision: revision, p_actor: actor,
+    }));
+  }
+  if (body.action === 'assign_group') {
+    if (!UUID.test(body.definitionId || '')) fail('Invalid funnel.');
+    return check(await db.rpc('event_funnel_collection_assign', {
+      p_tenant: tenantId, p_definition: body.definitionId, p_collection: optionalUuid(body.groupId), p_actor: actor,
+    }));
+  }
+  const definitionId = optionalUuid(body.definitionId), groupId = optionalUuid(body.groupId);
+  if (!UUID.test(body.eventId || '') || !['simple', 'complex'].includes(body.eventKind) || !validRevision
+    || (definitionId && groupId)) fail('Choose either one funnel or one funnel group.');
+  return check(await db.rpc('event_funnel_set_event_link', {
+    p_tenant: tenantId, p_kind: body.eventKind, p_event: body.eventId, p_definition: definitionId,
+    p_collection: groupId, p_revision: revision, p_actor: actor,
+  }));
+}
 export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, hasFeatureAccess,
   loadPublicationSnapshot = buildFunnelPublicationSnapshot }) {
   return async function handler(req, res) {
@@ -140,7 +189,8 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
         const eventSettings = check(await db.from('event_funnel_event_setting')
           .select('event_kind,event_id,enabled,revision').eq('tenant_id', context.tenantId).limit(1000));
         if (eventSettings.length >= 1000) fail('Too many event settings to load safely.', 409);
-        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness, membershipTiers, eventSettings });
+        const collections = await loadFunnelCollections(db, context.tenantId);
+        return res.status(200).json({ tenantId: context.tenantId, definitions, readiness, membershipTiers, eventSettings, ...collections });
       }
       const body = req.body;
       if (!body || typeof body !== 'object' || Array.isArray(body) || JSON.stringify(body).length > 350000) fail('Invalid request.');
@@ -157,6 +207,9 @@ export function createEventFunnelAdminHandler({ db, getContext, hasAdminAccess, 
           p_tenant: context.tenantId, p_kind: body.eventKind, p_event: body.eventId, p_enabled: body.enabled,
           p_revision: body.expectedRevision, p_actor: actor,
         })));
+      }
+      if (['save_group', 'delete_group', 'assign_group', 'set_event_link'].includes(body.action)) {
+        return res.status(200).json(await manageFunnelCollections(db, context.tenantId, actor, body));
       }
       if (body.action === 'publish') {
         if (!UUID.test(body.id || '') || !Number.isInteger(body.expectedRevision) || body.expectedRevision < 1) {

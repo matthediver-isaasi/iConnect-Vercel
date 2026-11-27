@@ -122,6 +122,7 @@ import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
+import EventFunnelLinkTab from "@/components/events/EventFunnelLinkTab";
 import { putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
 import EventCpdCertificatesSection from "@/components/events/EventCpdCertificatesSection";
@@ -2232,6 +2233,7 @@ export default function EditEvent() {
     if (isDonationGloballyEnabled) visibleTabs.add('donations');
     if (!isGroupLimited) visibleTabs.add('budget');
     if (eventId && currentTenant?.slug) visibleTabs.add('sharing');
+    if (eventId && !isGroupLimited) visibleTabs.add('funnel');
     const effectiveTab = visibleTabs.has(activeTab) ? activeTab : 'details';
 
     return (
@@ -2337,6 +2339,9 @@ export default function EditEvent() {
               <TabsTrigger value="awards" data-testid="button-tab-awards">Awards</TabsTrigger>
               {!isGroupLimited && (
                 <TabsTrigger value="budget" data-testid="button-tab-budget">Budget</TabsTrigger>
+              )}
+              {eventId && !isGroupLimited && (
+                <TabsTrigger value="funnel" data-testid="button-tab-funnel">Funnel</TabsTrigger>
               )}
               {eventId && currentTenant?.slug && (
                 <TabsTrigger value="sharing" data-testid="button-tab-sharing">Sharing</TabsTrigger>
@@ -5125,6 +5130,11 @@ export default function EditEvent() {
           )}
           </TabsContent>
 
+          {eventId && !isGroupLimited && (
+            <TabsContent value="funnel" className={TAB_PANEL_CLASS}>
+              <EventFunnelLinkTab eventId={eventId} eventKind="simple" />
+            </TabsContent>
+          )}
           <TabsContent value="sharing" forceMount className={TAB_PANEL_CLASS}>
           {/* Embed on External Websites */}
           {eventId && currentTenant?.slug && (
