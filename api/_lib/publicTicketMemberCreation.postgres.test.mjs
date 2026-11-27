@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import pg from 'pg';
+import {resolveRegistrationAssociations} from './eventRegistrationAssociations.js';
 
 test('policy migration: exact tenant emails, private execution, defaults, idempotency and existing uniqueness', { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'public-ticket-policy-pg-'));
@@ -293,6 +294,85 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
       [a,{groups:{enabled:true,field_id:a,value:'Eligible'},organizations:{enabled:false},role_id:roleId}]);
     await db.query('SET ROLE service_role');
     assert.deepEqual((await lookup()).options,[{kind:'group',id:a,name:'Allowed Group'}]);
+    await db.query('RESET ROLE');
+    // Multi-value filters extend the same lookup used for discovery, search
+    // and checkout exact-ID checks. This cluster is disposable and offline.
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090014_registration_association_multi_values.sql',import.meta.url),'utf8'));
+    await db.query("UPDATE preference_field SET tenant_id=$1 WHERE id=$2",[a,orgField]);
+    const southOrg='00000000-0000-4000-8000-000000000501';
+    const missingOrg='00000000-0000-4000-8000-000000000502';
+    const falseGroup='00000000-0000-4000-8000-000000000503';
+    await db.query("INSERT INTO organization VALUES($1,$3,'South Organisation'),($2,$3,'Missing Organisation')",[southOrg,missingOrg,a]);
+    await db.query("INSERT INTO organization_preference_value VALUES($1,$3,'South'),($2,$3,'Missing')",[southOrg,missingOrg,orgField]);
+    await db.query("INSERT INTO organization_group VALUES($1,$2,'Boolean No Group')",[falseGroup,a]);
+    await db.query("INSERT INTO organization_group_preference_value VALUES($1,$2,$1,'false')",[a,falseGroup]);
+    const multiConfig={role_id:roleId,
+      organizations:{enabled:true,field_id:orgField,values:['Eligible','South']},
+      groups:{enabled:true,field_id:a,values:['Other value',false]}};
+    const setConfig=async(config,complex=false)=>{
+      await db.query(`UPDATE ${complex?'complex_event':'event'} SET registration_association_config=$2 WHERE id=$1`,[a,config]);
+    };
+    await db.query("INSERT INTO complex_event(id,tenant_id) VALUES($1,$1)",[a]);
+    for(const complex of [false,true]){
+      await setConfig(multiConfig,complex);
+      const choices=async(q='',kind=null,id=null)=>(await db.query(
+        "SELECT event_registration_association_options($1,$1,$2,$3,$4,$5) choices",[a,complex,q,kind,id])).rows[0].choices;
+      const result=await choices();
+      assert.deepEqual(result.options.map(o=>o.name),['Allowed Group','Allowed Organisation','Boolean No Group','South Organisation']);
+      assert.equal(result.hasMore,false);
+      const adapter={
+        from(table){let recordId,tenantId;return{
+          select(){return this;},eq(key,value){if(key==='id')recordId=value;if(key==='tenant_id')tenantId=value;return this;},
+          async maybeSingle(){return {data:(await db.query(`SELECT * FROM public.${table} WHERE id=$1 AND tenant_id=$2`,[recordId,tenantId])).rows[0]};},
+        };},
+        async rpc(name,args){assert.equal(name,'event_registration_association_options');
+          return {data:(await db.query("SELECT event_registration_association_options($1,$2,$3,$4,$5,$6) result",
+            [args.p_tenant,args.p_event,args.p_complex,args.p_query,args.p_kind,args.p_id])).rows[0].result};},
+      };
+      const resolveChoice=id=>resolveRegistrationAssociations({db:adapter,tenantId:a,eventId:a,eventKind:complex?'complex':'simple',
+        purchaser:{email:'isolated@example.invalid',organization:'Forged name',registration_association:{kind:'organization',id}},
+        items:[]});
+      assert.equal((await resolveChoice(southOrg)).purchaser.organization,'South Organisation');
+      await assert.rejects(resolveChoice(missingOrg),/no longer available/);
+      assert.deepEqual((await choices('South')).options.map(o=>o.id),[southOrg]);
+      for(const [kind,id] of [['organization',a],['organization',southOrg],['group',falseGroup]]){
+        assert.equal((await choices('',kind,id)).options[0].id,id);
+      }
+      for(const [kind,id] of [['organization',missingOrg],['organization',b],['organization',zombieOrg],['group',zombieGroup]]){
+        assert.deepEqual((await choices('',kind,id)).options,[]);
+      }
+      await db.query("UPDATE organization_preference_value SET value='Changed' WHERE organization_id=$1",[southOrg]);
+      assert.deepEqual((await choices('','organization',southOrg)).options,[]);
+      await assert.rejects(resolveChoice(southOrg),/no longer available/);
+      await db.query("UPDATE organization_preference_value SET value='South' WHERE organization_id=$1",[southOrg]);
+      await setConfig({...multiConfig,organizations:{...multiConfig.organizations,enabled:false}},complex);
+      assert.deepEqual((await choices()).options.map(o=>o.kind),['group','group']);
+      for(const values of [[],['Does not exist'],[null],[{}],'Eligible']){
+        await setConfig({role_id:roleId,organizations:{enabled:true,field_id:orgField,values,value:'Eligible'}},complex);
+        assert.deepEqual((await choices()).options,[]);
+      }
+      await setConfig({role_id:roleId,groups:{enabled:true,field_id:a,value:false}},complex);
+      assert.deepEqual((await choices()).options.map(o=>o.id),[falseGroup]);
+      await setConfig({role_id:roleId,groups:{enabled:true,field_id:a,values:[true,false]}},complex);
+      assert.deepEqual((await choices()).options.map(o=>o.id),[falseGroup]);
+      await setConfig(multiConfig,complex);
+      await db.query("UPDATE preference_field SET entity_scope='member' WHERE id=$1",[orgField]);
+      await assert.rejects(choices(),/Filter field unavailable/);
+      await db.query("UPDATE preference_field SET entity_scope='organization' WHERE id=$1",[orgField]);
+    }
+    // Preserve the scalar helper's contract, service-only execution and full lists.
+    assert.equal((await db.query("SELECT registration_association_value_matches('[\"A\",\"B\"]','A') matches")).rows[0].matches,true);
+    assert.equal((await db.query("SELECT registration_association_values_match('[\"A\",\"B\"]','[\"Z\",\"B\"]') matches")).rows[0].matches,true);
+    for(const role of ['anon','authenticated']){
+      await db.query(`SET ROLE ${role}`);
+      await assert.rejects(db.query("SELECT registration_association_values_match('A','[\"A\"]')"),{code:'42501'});
+      await assert.rejects(lookup(),{code:'42501'});
+      await db.query('RESET ROLE');
+    }
+    await setConfig({role_id:roleId,organizations:{enabled:true},groups:{enabled:true}});
+    assert.equal((await lookup()).options.length,125);
+    await db.query('SET ROLE service_role');
+    assert.equal((await lookup()).options.length,125);
     await db.query('RESET ROLE');
     const associatedSnapshot=makeSnapshot(['associated@example.invalid']);
     associatedSnapshot.association_role_id=roleId;

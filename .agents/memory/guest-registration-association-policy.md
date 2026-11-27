@@ -15,6 +15,15 @@ Guest-to-member conversion may link either an Organisation or a direct Organisat
 
 Event registration may offer one combined organisation/Organisation Group list,
 with independent event-level custom-field filters and an Other free-text option.
+Multiple selected filter values match **any** value within their own source;
+this does not make the guest's organisation/group picker multi-select.
+
+**Why:** The owner requested broader eligible choices, not multiple guest
+associations or a multi-condition filter builder.
+
+**How to apply:** Keep organisation and Organisation Group criteria independent;
+free-text filtering remains single-input.
+
 For this explicit selection path the owner approved **sign-in-enabled accounts**
 using the event's configured eligible role, created after successful registration.
 This also covers unpaid public Invoice/PO registration without creating a payment.

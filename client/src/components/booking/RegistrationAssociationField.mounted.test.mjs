@@ -42,12 +42,13 @@ const { Field, Config, publicClient, base44, normalizeRegistrationAssociationCon
 const h = React.createElement;
 after(() => dom.window.close());
 const settle = async (ms = 20) => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); });
-async function mount(Component, props, initial = {}) {
+async function mount(Component, props, initial = {}, withinForm = false) {
   let current;
   function Harness() {
     const [value, setValue] = useState(initial);
     current = value;
-    return h(Component, { ...props, value, onChange: patch => setValue(prev => ({ ...prev, ...patch })) });
+    const component = h(Component, { ...props, value, onChange: patch => setValue(prev => ({ ...prev, ...patch })) });
+    return withinForm ? h("form", null, component) : component;
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const container = document.createElement("div"); document.body.append(container);
@@ -149,7 +150,10 @@ test("configuration defaults off, toggles are independent, real metadata is scop
 
 test("saved config round-trips and serializers retain associations without changing ordinary identities", () => {
   const config = { organizations: { enabled: true, field_id: "field-1", value: "North" }, groups: { enabled: false, field_id: null, value: "" }, role_id: "role-1" };
-  assert.deepEqual(normalizeRegistrationAssociationConfig(JSON.stringify(config)), config);
+  assert.deepEqual(normalizeRegistrationAssociationConfig(JSON.stringify(config)), {
+    ...config, organizations: {enabled:true,field_id:"field-1",values:["North"]},
+    groups:{enabled:false,field_id:null,values:[]},
+  });
   assert.deepEqual(validateRegistrationAssociationConfig(config, [{ id: "role-1" }]), []);
   for (const role of [{ is_admin: true }, { is_tenant_admin: true }, { requires_effective_from_date: true }, { max_members: 0 }, { max_members: 14 }]) {
     assert.equal(validateRegistrationAssociationConfig(config, [{ id: "role-1", ...role }]).length, 1);
@@ -159,4 +163,113 @@ test("saved config round-trips and serializers retain associations without chang
   assert.deepEqual(purchaseIdentity(person).registration_association, registration_association);
   assert.deepEqual(normalizePublicInvoicePurchaser(person).registration_association, registration_association);
   assert.equal("registration_association" in purchaseIdentity({ organization: "Original" }), false);
+});
+
+test("editor multi-select independently adds/removes options and survives save/reopen", async () => {
+  base44.entities.PreferenceField.list = async ({filter}) => [{
+    id: filter.entity_scope === "organization" ? "region" : "approved", entity_scope: filter.entity_scope,
+    label: "Filter", field_type: filter.entity_scope === "organization" ? "select" : "boolean",
+    options: filter.entity_scope === "organization" ? ["North", "South", "Research, education"] : [],
+  }];
+  let saved;
+  const app = await mount(Config, { roles: [{id:"role-1",name:"Guest"}] }, {
+    role_id:"role-1", organizations:{enabled:true,field_id:"region",value:"North"},
+    groups:{enabled:true,field_id:"approved",value:false},
+  });
+  try {
+    assert.ok(button("×"));
+    const triggers = [...app.container.querySelectorAll("button")].filter(node => node.textContent === "1 selected");
+    await click(triggers[0]);
+    const option = [...document.querySelectorAll("label")].find(node => node.textContent === "South").querySelector("input");
+    await click(option);
+    assert.deepEqual(app.value().organizations.values, ["North","South"]);
+    assert.deepEqual(app.value().groups.values, ["false"]);
+    await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true})));
+    await settle();
+    await click(app.container.querySelector('[aria-label="Remove North"]'));
+    assert.deepEqual(app.value().organizations.values, ["South"]);
+    await click([...app.container.querySelectorAll("button")].find(node => node.textContent === "1 selected" && node.id.includes("value") && node !== triggers[0]));
+    await click([...document.querySelectorAll("label")].find(node => node.textContent === "Yes").querySelector("input"));
+    assert.deepEqual(app.value().groups.values, ["false","true"]);
+    saved = normalizeRegistrationAssociationConfig(JSON.stringify(app.value()));
+  } finally { await app.close(); }
+  const reopened = await mount(Config, {roles:[{id:"role-1"}]}, saved);
+  try {
+    assert.ok(reopened.container.querySelector('[aria-label="Remove South"]'));
+    assert.ok(reopened.container.querySelector('[aria-label="Remove Yes"]'));
+    assert.ok(reopened.container.querySelector('[aria-label="Remove No"]'));
+    assert.deepEqual(validateRegistrationAssociationConfig(saved,[{id:"role-1"}]),[]);
+  } finally { await reopened.close(); }
+});
+
+test("field discovery failure preserves multiple selections and unavailable fields are not editable as text",async()=>{
+  base44.entities.PreferenceField.list=async()=>{throw new Error("Discovery failed");};
+  const initial=normalizeRegistrationAssociationConfig({role_id:"role-1",
+    organizations:{enabled:true,field_id:"region",values:["North","South"]}});
+  const app=await mount(Config,{roles:[{id:"role-1"}]},initial);
+  try{
+    assert.match(app.container.textContent,/Unable to load custom fields/);
+    assert.match(app.container.textContent,/North; South/);
+    assert.deepEqual(app.value(),initial);
+    assert.equal(app.container.querySelector('input:not([type="hidden"])'),null);
+    base44.entities.PreferenceField.list=async()=>[];
+    await click(button("Retry")); await settle();
+    assert.match(app.container.textContent,/Previously selected field/);
+    assert.deepEqual(app.value(),initial);
+  }finally{await app.close();}
+});
+
+test("explicit field changes clear values; free-text remains a single input",async()=>{
+  base44.entities.PreferenceField.list=async({filter})=>[
+    {id:"region",label:"Region",entity_scope:filter.entity_scope,options:["North","South"]},
+    {id:"notes",label:"Notes",entity_scope:filter.entity_scope,field_type:"text"},
+  ];
+  const app=await mount(Config,{roles:[{id:"role-1"}]},normalizeRegistrationAssociationConfig({
+    role_id:"role-1",organizations:{enabled:true,field_id:"region",values:["North","South"]},
+  }));
+  try{
+    const field=app.container.querySelector('[role="combobox"]');
+    await act(async()=>field.dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
+    await settle();
+    const notes=[...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==="Notes");
+    assert.ok(notes);
+    await act(async()=>notes.dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
+    await settle();
+    assert.equal(app.value().organizations.field_id,"notes");
+    assert.deepEqual(app.value().organizations.values,[]);
+    assert.equal(validateRegistrationAssociationConfig(app.value(),[{id:"role-1"}]).length,1);
+    await input(app.container.querySelector('input:not([type="hidden"])'),"Research, education");
+    assert.deepEqual(app.value().organizations.values,["Research, education"]);
+    assert.deepEqual(validateRegistrationAssociationConfig(app.value(),[{id:"role-1"}]),[]);
+    await act(async()=>app.container.querySelector('[role="combobox"]').dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
+    await settle();
+    const all=[...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==="All records (no filter)");
+    await act(async()=>all.dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
+    await settle();
+    assert.equal(app.value().organizations.field_id,null);
+    assert.deepEqual(app.value().organizations.values,[]);
+    assert.deepEqual(validateRegistrationAssociationConfig(app.value(),[{id:"role-1"}]),[]);
+  }finally{await app.close();}
+});
+
+test("delayed field discovery and native empty notifications preserve saved filter selections",async()=>{
+  let discover;
+  base44.entities.PreferenceField.list=()=>new Promise(resolve=>{discover=resolve;});
+  const initial=normalizeRegistrationAssociationConfig({role_id:"role-1",
+    organizations:{enabled:true,field_id:"region",values:["North","South"]}});
+  const app=await mount(Config,{roles:[{id:"role-1"}]},initial,true);
+  try{
+    assert.match(app.container.textContent,/North; South/);
+    await act(async()=>discover([{id:"region",label:"Region",entity_scope:"organization",options:["North","South"]}]));
+    await settle();
+    const native=app.container.querySelector("select");
+    assert.ok(native);
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,"value").set.call(native,"");
+      native.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    assert.deepEqual(app.value(),initial);
+    assert.ok(app.container.querySelector('[aria-label="Remove North"]'));
+    assert.ok(app.container.querySelector('[aria-label="Remove South"]'));
+  }finally{await app.close();}
 });

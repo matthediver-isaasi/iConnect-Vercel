@@ -1,4 +1,5 @@
 import {assertPublicTicketRole, PublicTicketMemberError} from './publicTicketMemberCreation.js';
+import {registrationAssociationValues} from '../../shared/registrationAssociationValues.js';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail=(message,status=400)=>{throw new PublicTicketMemberError('REGISTRATION_ASSOCIATION',message,status);};
 export const hasRegistrationAssociation=(purchaser,items=[])=>[purchaser,...items.flatMap(i=>i.attendees||[])]
@@ -10,8 +11,10 @@ export function normalizeRegistrationAssociationConfig(value){
   for(const key of ['organizations','groups']){
     const entry=value[key]||{};
     if(entry.field_id&&!uuid.test(entry.field_id))fail('Choose a valid custom field.');
-    if(entry.field_id&&(typeof entry.value!=='string'||!entry.value.trim()||entry.value.length>1000))fail('Enter a custom-field filter value.');
-    result[key]={enabled:entry.enabled===true,field_id:entry.field_id||null,value:entry.field_id?entry.value:''};
+    let values;
+    try { values=registrationAssociationValues(entry); } catch(error) { fail(error.message); }
+    if(entry.enabled===true&&entry.field_id&&!values.length)fail('Enter a custom-field filter value.');
+    result[key]={enabled:entry.enabled===true,field_id:entry.field_id||null,values};
   }
   if((result.organizations.enabled||result.groups.enabled)&&!uuid.test(result.role_id||''))fail('Choose a role for new accounts.');
   return result;
@@ -25,8 +28,13 @@ export async function validateRegistrationAssociationConfig(db,tenantId,value,au
   assertPublicTicketRole(role.data,tenantId);
   for(const [key,scope] of [['organizations','organization'],['groups','organization_group']]){
     if(!config[key].enabled||!config[key].field_id)continue;
-    const field=await db.from('preference_field').select('id,entity_scope').eq('tenant_id',tenantId).eq('id',config[key].field_id).maybeSingle();
+    const field=await db.from('preference_field').select('id,entity_scope,field_type,options').eq('tenant_id',tenantId).eq('id',config[key].field_id).maybeSingle();
     if(field.error||!field.data||field.data.entity_scope!==scope)fail('The selected filter field does not belong to this record type.');
+    const options=field.data.field_type==='boolean'?['true','false']:
+      Array.isArray(field.data.options)?field.data.options.map(option=>String(option?.value??option)):[];
+    if(options.length&&config[key].values.some(value=>!options.includes(value)))fail('Choose valid custom-field filter values.');
+    if(field.data.field_type&&field.data.field_type!=='boolean'&&!options.length&&config[key].values.length>1)
+      fail('Enter a single custom-field filter value for a free-text field.');
   }
   return config;
 }
