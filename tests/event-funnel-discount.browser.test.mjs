@@ -47,6 +47,9 @@ before(async()=>{
         if(body.command.discountCode!=='SPRING10'){res.statusCode=409;return res.end(JSON.stringify({error:'Invalid or inactive discount code',code:'DISCOUNT_INVALID'}));}
         return res.end(JSON.stringify({revision:2,code:'SPRING10',discountMinor:1000,lines:[{nodeId:'source',ticketId:'A',discountMinor:1000}]}));
       }
+      if(body.action==='prepare') return res.end(JSON.stringify({order:{id:'00000000-0000-4000-8000-000000000002',state:'payable',paymentMethod:'card',currency:'GBP',payableMinor:body.command.expectedPayableMinor}}));
+      if(body.action==='payment') return res.end(JSON.stringify({orderId:'00000000-0000-4000-8000-000000000002',state:'requires_payment_method'}));
+      if(body.action==='status') return res.end(JSON.stringify({orderId:'00000000-0000-4000-8000-000000000002',state:'payable'}));
       if(body.action==='quote') return res.end(JSON.stringify(quote(body.command.discountCode?fixture.serverDiscount:0)));
       res.statusCode=400;return res.end('{}');
     }
@@ -55,6 +58,7 @@ before(async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
   browser=await chromium.launch({executablePath:execFileSync('which',['chromium'],{encoding:'utf8'}).trim(),headless:true,args:['--no-sandbox']});
 });
+async function waitFor(check){for(let i=0;i<100&&!check();i++)await new Promise(r=>setTimeout(r,50));assert.ok(check());}
 async function fillAddress(page) {
   for(const input of await page.locator('input[required]').all()) if(!(await input.inputValue())) await input.fill('Fixture');
   const country=page.locator('select[required]');
@@ -79,9 +83,11 @@ test('discount code applies inline to the source ticket only and is sent with th
   assert.match(await page.locator('[data-testid^="event-funnel-cart-discount-"]').first().textContent(),/£100\.00£90\.00Discount −£10\.00/);
   assert.equal(await page.locator('[data-testid^="event-funnel-cart-discount-"]').count(),1);
   await fillAddress(page);
-  await page.getByRole('button',{name:'Review order'}).click();
-  await page.getByRole('region',{name:'Payment summary'}).getByText('Discount (SPRING10):').waitFor();
+  await page.getByTestId('event-funnel-submit').click();
+  await waitFor(()=>fixture.requests.some(r=>r.action==='prepare'));
   assert.equal(fixture.requests.find(r=>r.action==='quote').command.discountCode,'SPRING10');
+  const prepared=fixture.requests.find(r=>r.action==='prepare').command;
+  assert.equal(prepared.discountCode,'SPRING10');assert.equal(prepared.expectedPayableMinor,11000);
   await page.close();
 });
 
@@ -96,8 +102,27 @@ test('removing the code clears the saving and the next quote has no code',async(
   await page.getByRole('textbox',{name:'Discount code'}).waitFor();
   assert.equal(await page.getByTestId('event-funnel-total').textContent(),'£120.00');
   await fillAddress(page);
-  await page.getByRole('button',{name:'Review order'}).click();
-  await page.getByTestId('event-funnel-confirm').waitFor();
+  await page.getByTestId('event-funnel-submit').click();
+  await waitFor(()=>fixture.requests.some(r=>r.action==='prepare'));
   assert.equal(fixture.requests.filter(r=>r.action==='quote').at(-1).command.discountCode,undefined);
+  await page.close();
+});
+
+test('a higher total stops before submitting and shows the new amount',async()=>{
+  fixture={requests:[],serverDiscount:0};
+  const page=await browser.newPage();
+  await page.route('**/*',route=>route.request().url().startsWith(origin)?route.continue():route.abort());
+  await page.goto(origin);await page.getByTestId('event-funnel-checkout').waitFor();
+  await page.getByRole('textbox',{name:'Discount code'}).fill('SPRING10');
+  await page.getByRole('button',{name:'Apply'}).click();
+  await page.getByText('Saving £10.00 on your main event ticket').waitFor();
+  await fillAddress(page);
+  // The code stopped applying after it was shown; nothing is prepared.
+  await page.getByTestId('event-funnel-submit').click();
+  await page.getByText('The total is now £120.00. Check the amounts and submit again to continue.').waitFor();
+  assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,0);
+  await page.getByTestId('event-funnel-submit').click();
+  await waitFor(()=>fixture.requests.some(r=>r.action==='prepare'));
+  assert.equal(fixture.requests.find(r=>r.action==='prepare').command.expectedPayableMinor,12000);
   await page.close();
 });

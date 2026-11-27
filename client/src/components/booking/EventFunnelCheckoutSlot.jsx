@@ -54,7 +54,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const [draft, setDraft] = useState(null);
   const [review, setReview] = useState(null);
   const [quotedMethods, setQuotedMethods] = useState(null);
-  const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState('');
   const [cancelRequested, setCancelRequested] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -77,14 +76,12 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   useEffect(() => {
     draftVersion.current += 1;
     setReview(null);
-    setAccepted(false);
   }, [snapshot.session.revision]);
   const eligible = checkoutEligibility?.allowed === true;
   useEffect(() => {
     if (!eligible) {
       draftVersion.current += 1;
       setReview(null);
-      setAccepted(false);
     }
   }, [eligible]);
 
@@ -102,7 +99,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
         ? { paymentMethod: initialDraft(summary).paymentMethod } : {}),
     }));
     setReview(null);
-    setAccepted(false);
     setMessage('');
   };
   const currentSummary = summary && summary.revision === snapshot.session.revision;
@@ -140,51 +136,33 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       ...(appliedDiscount ? { discountCode: appliedDiscount.code } : {}),
     };
   }
-  async function reviewQuote(event) {
+  // One step: a fresh server quote immediately before preparing. It goes
+  // straight through unless the total would be higher than the amount the
+  // customer has seen; that case stops and shows the new figures instead.
+  async function submit(event) {
     event.preventDefault();
-    if (!editable || blocked || !canSubmitNow()) return;
-    setMessage('');
-    setAccepted(false);
-    setReview(null);
+    if (!editable || blocked || confirmationLock.current || !canSubmitNow()) return;
     const requested = command();
     if (!requested) return;
-    const version = draftVersion.current;
-    const quote = await checkout.quote(requested);
-    if (quote && version === draftVersion.current && canSubmitNow()) {
-      setQuotedMethods({ revision: quote.revision, methods: quote.paymentMethods });
-      setDraft(previous => ({ ...previous, paymentMethod: quote.paymentMethod }));
-      setReview({ quote, command: { ...requested, paymentMethod: quote.paymentMethod }, version });
-      setMessage('Quote ready. Review the amounts and payment method below before confirming.');
-    }
-  }
-  async function confirm() {
-    if (!review || !accepted || !editable || blocked || confirmationLock.current || !canSubmitNow()) return;
     confirmationLock.current = true;
     setFinalizing(true);
     setMessage('');
     try {
-      const finalCommand = { ...review.command, paymentMethod: review.quote.paymentMethod };
-      // Fresh, read-only quote immediately before preparing. Any change is
-      // shown for review; it is never silently accepted on the user's behalf.
-      const fresh = await checkout.quote(finalCommand);
-      if (!fresh) { setReview(null); setAccepted(false); return; }
-      if (draftVersion.current !== review.version || !canSubmitNow()) return;
+      const version = draftVersion.current;
+      const shownMinor = review?.version === version ? review.quote.payableMinor : displayedDueMinor;
+      const fresh = await checkout.quote(requested);
+      if (!fresh) { setReview(null); return; }
+      if (version !== draftVersion.current || !canSubmitNow()) return;
       setQuotedMethods({ revision: fresh.revision, methods: fresh.paymentMethods });
       setDraft(previous => ({ ...previous, paymentMethod: fresh.paymentMethod }));
-      if (quoteSignature(fresh) !== quoteSignature(review.quote)) {
-        setReview({ quote: fresh, command: { ...finalCommand, paymentMethod: fresh.paymentMethod }, version: review.version });
-        setAccepted(false);
-        setMessage('Your quote changed. Review the updated amounts and confirm again if you wish to continue.');
+      const finalCommand = { ...requested, paymentMethod: fresh.paymentMethod };
+      setReview({ quote: fresh, command: finalCommand, version });
+      if (fresh.payableMinor > shownMinor) {
+        setMessage(`The total is now ${money(fresh.payableMinor)}. Check the amounts and submit again to continue.`);
         return;
       }
-      const prepared = await checkout.prepare({
-        ...finalCommand, paymentMethod: fresh.paymentMethod, submissionAccepted: true,
-        expectedPayableMinor: fresh.payableMinor,
-      });
-      if (!prepared) {
-        setReview(null);
-        setAccepted(false);
-      }
+      const prepared = await checkout.prepare({ ...finalCommand, submissionAccepted: true, expectedPayableMinor: fresh.payableMinor });
+      if (!prepared) setReview(null);
       // Non-card methods require server reconciliation too. Card payment
       // instructions are obtained separately for this exact order.
       if (prepared && prepared.paymentMethod !== 'card') await checkout.status();
@@ -195,7 +173,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   }
   async function checkOriginal() {
     setReview(null);
-    setAccepted(false);
     setMessage('');
     if (order) await checkout.status();
     else await checkout.reload();
@@ -203,7 +180,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   }
   async function returnToReservation() {
     setReview(null);
-    setAccepted(false);
     setMessage('');
     setCancelRequested(false);
     const result = await checkout.returnToReservation();
@@ -211,7 +187,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       draftVersion.current += 1;
       setDraft(initialDraft(result.summary));
       setQuotedMethods(null);
-      setMessage('The original checkout has ended and no active order remains. Review your reservation and request a new quote before submitting revised choices.');
+      setMessage('The original checkout has ended and no active order remains. Check your reservation and submit again when you are ready.');
     }
   }
 
@@ -220,6 +196,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
     ? quotedMethods.methods : summary?.paymentMethods || [];
   const discountLines = quote ? quote.lines.filter(line => line.discountMinor > 0) : appliedDiscount?.lines || [];
   const discountMinor = quote ? quote.discountMinor || 0 : appliedDiscount?.discountMinor || 0;
+  const displayedDueMinor = (summary?.totalMinor || 0) - discountMinor;
   // Display only: VAT included in each line's price after its own saving.
   const includedTaxMinor = (summary?.lines || []).reduce((sum, line) => {
     if (!Number.isSafeInteger(line.includedTaxMinor)) return sum;
@@ -315,7 +292,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       <EventFunnelCart snapshot={snapshot} lines={summary.lines} money={money}
         discounts={discountLines}
         canRemove={editable && !blocked && !review} onRemove={nodeId => change({ type: 'skip', nodeId })} />
-      <form onSubmit={reviewQuote} className="event-funnel-checkout__columns" aria-label="Checkout details">
+      <form onSubmit={submit} className="event-funnel-checkout__columns" aria-label="Checkout details">
         <div className="event-funnel-checkout__fields">
           {!order && <fieldset className="event-funnel-checkout__fields" disabled={!editable || blocked}>
             <legend className="sr-only">Billing</legend>
@@ -367,7 +344,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
                     <span className="text-sm text-slate-600">Amount Due:</span>
                     <span className="text-lg font-bold text-slate-900 tabular-nums">{money(quote ? quote.payableMinor : summary.totalMinor - discountMinor)}</span>
                   </div>
-                  {!quote && hasFunding && <p className="mt-1 text-xs text-slate-500">Credit and training fund are deducted when you review your order.</p>}
+                  {!quote && hasFunding && <p className="mt-1 text-xs text-slate-500">Credit and training fund are deducted when you submit.</p>}
                 </div>
                 <div className="space-y-3" role="radiogroup" aria-label="Payment method">
                   {!draft.paymentMethod && <p className="text-xs text-slate-500">No verified payment method.</p>}
@@ -398,41 +375,27 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
             </dl>
           </section>}
 
-          {!order && !quote && <Button type="submit" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
-            disabled={!editable || blocked || summary.lines.length === 0} data-testid="event-funnel-review">
-            {busy === 'quote' ? 'Checking your order…' : 'Review order'}
-          </Button>}
-
-          {quote && <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4" data-testid="event-funnel-quote" aria-label="Confirm booking">
-            <p className="text-sm"><strong>{methodLabels[quote.paymentMethod] || methodNames[quote.paymentMethod]}</strong>
-              {quote.invoiceMode && <span className="event-funnel-checkout__muted"> · Invoice: {quote.invoiceMode.replaceAll('_', ' ')}</span>}</p>
-            <p className="event-funnel-checkout__muted">Billed to {summary.customers.find(choice => choice.kind === draft.customer.kind && choice.id === draft.customer.id)?.name || 'you'}.
-              {quote.paymentMethod !== 'card' && draft.purchaseOrderNumber && <> PO: {draft.purchaseOrderNumber}.</>}</p>
-            <label className="event-funnel-checkout__choice">
-              <input type="checkbox" checked={accepted} disabled={blocked || !editable} onChange={event => setAccepted(event.target.checked)} />
-              <span>I have reviewed my tickets, billing details, funding and the total due, and agree to submit this booking.</span>
-            </label>
-            <Button type="button" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
-              onClick={confirm} disabled={!accepted || !editable || blocked} data-testid="event-funnel-confirm">
-              {finalizing ? 'Verifying your order…' : quote.paymentMethod === 'card' ? `Pay ${money(quote.payableMinor)} by card`
-                : quote.payableMinor === 0 ? 'Confirm booking' : 'Submit booking'}
+          {!order && <div className="space-y-2">
+            <Button type="submit" size="lg" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
+              disabled={!editable || blocked || summary.lines.length === 0} data-testid="event-funnel-submit">
+              {finalizing ? 'Submitting your booking…' : 'Submit booking'}
             </Button>
-            <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setAccepted(false); setMessage(''); }}>
+            {quote && <Button type="button" variant="ghost" className="w-full" disabled={blocked} onClick={() => { setReview(null); setMessage(''); }}>
               Change details
-            </Button>
-          </section>}
+            </Button>}
+          </div>}
         </aside>
       </form>
       {!order && editable && <div className="event-funnel-checkout__paybar" aria-hidden="true">
         <span><span className="event-funnel-checkout__muted block">{quote ? 'Total due' : 'Total'}</span>
-          <strong className="event-funnel-checkout__amount">{money(quote ? quote.payableMinor : summary.totalMinor)}</strong></span>
+          <strong className="event-funnel-checkout__amount">{money(quote ? quote.payableMinor : displayedDueMinor)}</strong></span>
         <Button type="button" tabIndex={-1} onClick={() => document.getElementById(`funnel-order-summary-${snapshot.session.id}`)
-          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{quote ? 'Confirm' : 'Review order'}</Button>
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Submit booking</Button>
       </div>}
     </>}
     <footer className="event-funnel-checkout__actions">
       {!order && !checkout.fence && !expired && snapshot.session.journey?.checkoutNow && <Button type="button" variant="ghost"
-        disabled={blocked || !editable} onClick={async () => { setReview(null); setAccepted(false); await change({ type: 'resume_offers' }); }}>
+        disabled={blocked || !editable} onClick={async () => { setReview(null); await change({ type: 'resume_offers' }); }}>
         Back to options
       </Button>}
     </footer>
