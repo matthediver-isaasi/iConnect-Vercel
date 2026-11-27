@@ -55,7 +55,6 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const [review, setReview] = useState(null);
   const [quotedMethods, setQuotedMethods] = useState(null);
   const [message, setMessage] = useState('');
-  const [cancelRequested, setCancelRequested] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const confirmationLock = useRef(false);
   const initialized = useRef(false);
@@ -179,16 +178,28 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
     else await checkout.reload();
     await refresh();
   }
+  async function changePaymentMethod() {
+    setReview(null);
+    setMessage('');
+    const result = await checkout.changePaymentMethod();
+    if (result?.returned) {
+      draftVersion.current += 1;
+      setDraft(initialDraft(result.summary));
+      setQuotedMethods(null);
+      setMessage('Choose how you would like to pay and submit your booking again.');
+    } else if (result?.state === 'confirmed') {
+      setMessage('Your payment had already gone through, so your booking is confirmed.');
+    }
+  }
   async function returnToReservation() {
     setReview(null);
     setMessage('');
-    setCancelRequested(false);
     const result = await checkout.returnToReservation();
     if (result?.returned) {
       draftVersion.current += 1;
       setDraft(initialDraft(result.summary));
       setQuotedMethods(null);
-      setMessage('The original checkout has ended and no active order remains. Check your reservation and submit again when you are ready.');
+      setMessage('Choose how you would like to pay and submit your booking again.');
     }
   }
 
@@ -208,10 +219,12 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const ticketCount = (summary?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
   const uncertain = checkout.fence.startsWith('submitted:') || checkout.fence.startsWith('uncertain:');
   const confirmed = order?.state === 'confirmed';
+  // A card order still waiting for the customer's card details.
+  const cardAwaitingDetails = Boolean(order?.paymentMethod === 'card' && canPay(order.state) && !checkoutTerminal(order.state));
   // Submitting stays quiet: no interim order or status panels flash up while
   // the booking (or a card payment) is being submitted. Errors, uncertainty
   // and recovery are always shown.
-  const quiet = Boolean(order && !checkoutTerminal(order.state) && !error && !cancelRequested
+  const quiet = Boolean(order && !checkoutTerminal(order.state) && !error
     && (finalizing || checkout.cardSubmitting));
   // Remove provider return parameters, retaining the exact owned session route.
   const returnUrl = new URL(window.location.href);
@@ -222,7 +235,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
     data-checkout-eligible={eligible} aria-busy={blocked}>
     <header>
       <div className="flex items-center gap-2"><ShieldCheck size={19} aria-hidden="true" />
-        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order && !quiet ? 'Your original checkout' : 'Your basket'}</h3>
+        <h3 id="reservation-checkout-heading">{confirmed ? 'Booking confirmed' : order && !quiet && cardAwaitingDetails ? 'Payment' : 'Your basket'}</h3>
       </div>
       <p className="event-funnel-checkout__muted mt-1">{confirmed
         ? 'Your payment or invoice submission has been verified and your event bookings are confirmed.'
@@ -230,11 +243,12 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
     </header>
 
     {error && <div className="event-funnel-checkout__notice" data-error="true" role="alert" data-testid="event-funnel-checkout-error">
-      <h4>{error.code === 'CHECKOUT_NOT_READY' ? 'Checkout is not available yet' : 'Checkout needs checking'}</h4>
+      <h4>{error.code === 'CHECKOUT_NOT_READY' ? 'Checkout is not available yet'
+        : error.code === 'PAYMENT_NOT_COMPLETED' ? 'Your payment did not go through' : 'Checkout needs checking'}</h4>
       <p>{error.code === 'CHECKOUT_NOT_READY'
         ? 'This reservation cannot be submitted while checkout activation is closed. No booking or payment has been confirmed here. Your reservation timer still applies.'
         : error.message}</p>
-      <Button type="button" variant="outline" className="mt-3" disabled={blocked} onClick={checkOriginal}>Check original checkout</Button>
+      {error.code !== 'PAYMENT_NOT_COMPLETED' && <Button type="button" variant="outline" className="mt-3" disabled={blocked} onClick={checkOriginal}>Check original checkout</Button>}
     </div>}
     {message && <p className="event-funnel-checkout__notice" role="status">{message}</p>}
 
@@ -242,49 +256,44 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" /><p>Checking checkout details…</p>
     </div>}
 
-    {order && !quiet && <section className="event-funnel-checkout__panel" aria-label="Original order status">
-      <h4>{confirmed ? 'Your places are booked' : order.state === 'cancelled' ? 'Reservation cancelled'
-        : order.state === 'failed' ? 'Original checkout has stopped' : 'Your booking is not confirmed yet'}</h4>
-      <p className="event-funnel-checkout__reference">Order reference: {order.id}</p>
-      {confirmed && <EventFunnelInvoices sessionId={snapshot.session.id} orderId={order.id} />}
-      <p><strong>{methodNames[order.paymentMethod] || 'Original payment method'}</strong>
-        {Number.isSafeInteger(order.payableMinor) && <> · {money(order.payableMinor)}</>}</p>
-      {!confirmed && <p className="event-funnel-checkout__muted">{order.state === 'cancelled'
-        ? 'The server has verified this cancellation. Check the reservation for its latest state.'
-        : 'Your choices are locked to this original order. Do not start a second checkout or make a separate payment. Check this order and only use a verified resume action when offered.'}</p>}
+    {order && !quiet && <section className="event-funnel-checkout__panel" aria-label="Booking status"
+      data-testid="event-funnel-order-panel" data-order-state={order.state}>
+      {confirmed ? <>
+        <h4>Your places are booked</h4>
+        <p className="event-funnel-checkout__reference">Booking reference: {order.id}</p>
+        <EventFunnelInvoices sessionId={snapshot.session.id} orderId={order.id} />
+      </> : order.state === 'cancelled' || order.state === 'failed' ? <>
+        <h4>{order.state === 'cancelled' ? 'Payment cancelled' : 'Payment not completed'}</h4>
+        <p className="event-funnel-checkout__muted">Nothing has been charged. Go back to choose how you would like to pay.</p>
+      </> : cardAwaitingDetails ? <>
+        <h4>Complete your payment</h4>
+        <p><strong>{methodNames.card}</strong>{Number.isSafeInteger(order.payableMinor) && <> · {money(order.payableMinor)}</>}</p>
+      </> : <>
+        <h4>Finishing your booking…</h4>
+        <p className="event-funnel-checkout__muted">This usually takes a few seconds. Please keep this page open.</p>
+      </>}
       {!checkoutTerminal(order.state) && <div className="event-funnel-checkout__actions">
-        <Button type="button" variant="outline" onClick={() => checkout.status()} disabled={blocked}>Check booking status</Button>
         {order.paymentMethod === 'card' && canPay(order.state) && (!uncertain || checkout.canResumePayment) && !checkout.payment
           && <Button type="button" onClick={() => checkout.startPayment()} disabled={blocked}
-            data-testid="event-funnel-resume-payment">{checkout.canResumePayment ? 'Resume verified original card payment' : 'Continue original card payment'}</Button>}
-        <Button type="button" variant="ghost" disabled={blocked} onClick={() => setCancelRequested(true)}>Request cancellation</Button>
+            data-testid="event-funnel-resume-payment">Continue to payment</Button>}
+        {!cardAwaitingDetails && <Button type="button" variant="outline" onClick={() => checkout.status()} disabled={blocked}
+          data-testid="event-funnel-refresh-status">Refresh</Button>}
       </div>}
-      {checkout.canResumePayment && !checkout.payment && <p className="event-funnel-checkout__notice" role="status">
-        The server has verified that this same original card payment can be resumed. Resuming opens its payment details for your explicit confirmation; it does not create a new order.
-      </p>}
       {checkout.canReturnToReservation && <div className="event-funnel-checkout__actions">
         <Button type="button" variant="outline" disabled={blocked} onClick={returnToReservation}
-          data-testid="event-funnel-return-reservation">Return to reservation</Button>
-        <p className="event-funnel-checkout__muted">We will verify that this checkout has ended and no active order remains before unlocking revised choices.</p>
+          data-testid="event-funnel-return-reservation">Back to payment options</Button>
       </div>}
-      {cancelRequested && !checkoutTerminal(order.state) && <div className="event-funnel-checkout__notice" role="group" aria-label="Confirm cancellation request">
-        <h4>Cancel this original checkout?</h4>
-        <p>The server must check any payment before cancelling. Places will not be released here unless cancellation is verified. An already completed payment may finish the booking instead.</p>
-        <div className="event-funnel-checkout__actions mt-3">
-          <Button type="button" variant="destructive" disabled={blocked} onClick={async () => {
-            await checkout.cancel(); setCancelRequested(false);
-          }}>Request server cancellation</Button>
-          <Button type="button" variant="outline" disabled={blocked} onClick={() => setCancelRequested(false)}>Keep checkout</Button>
-        </div>
-      </div>}
-      <p role="status" aria-live="polite" data-testid="event-funnel-order-state">
-        {confirmed ? 'Confirmed' : `Server status: ${order.state.replaceAll('_', ' ')}`}
-      </p>
     </section>}
 
     {checkout.payment && order && (!uncertain || checkout.cardSubmitting) && !checkoutTerminal(order.state) && <EventFunnelCheckoutPayment
       key={order.id} payment={checkout.payment} amount={money(order.payableMinor)} returnUrl={returnUrl.href}
-      markSubmitted={checkout.markSubmitted} onFinished={checkout.paymentFinished} disabled={blocked || cancelRequested} />}
+      markSubmitted={checkout.markSubmitted} onFinished={checkout.paymentFinished} disabled={blocked} />}
+
+    {order && !quiet && order.paymentMethod === 'card' && !checkoutTerminal(order.state) && canPay(order.state) && !checkout.cardSubmitting
+      && <div className="event-funnel-checkout__actions">
+        <Button type="button" variant="ghost" disabled={blocked} onClick={changePaymentMethod}
+          data-testid="event-funnel-change-payment">Change payment method</Button>
+      </div>}
 
     {!order && checkout.fence && <div className="event-funnel-checkout__notice" role="status">
       <h4>Recover your original submission</h4>

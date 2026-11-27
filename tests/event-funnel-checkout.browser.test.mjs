@@ -85,7 +85,7 @@ test('one submit confirms silently and invoices show per-line progress',async()=
   await page.getByTestId('event-funnel-submit').click();
   await page.getByRole('heading',{name:'Booking confirmed'}).waitFor();
   const seen=[...await page.evaluate(()=>[...window.seen])].join('\n');
-  for(const text of ['Your booking is not confirmed yet','Checking the original reservation','Your original checkout','Server status'])
+  for(const text of ['Your booking is not confirmed yet','Checking the original reservation','Your original checkout','Server status','Finishing your booking'])
     assert.ok(!seen.includes(text),`unexpected interim text: ${text}`);
   const preparations=fixture.requests.filter(r=>r.action==='prepare');
   assert.equal(preparations.length,1);assert.equal(preparations[0].command.expectedPayableMinor,0);
@@ -124,12 +124,16 @@ test('closed activation never presents confirmation',async()=>{
   assert.equal(await page.getByRole('heading',{name:'Booking confirmed'}).count(),0);
   await page.close();
 });
-test('verified cancellation permits an explicit return without preparing another order',async()=>{
-  const page=await open(false,{order:{id:orderId,state:'payable',paymentMethod:'card',currency:'GBP',payableMinor:500},status:'processing'});
-  await page.getByRole('button',{name:'Request cancellation',exact:true}).click();
-  await page.getByRole('button',{name:'Request server cancellation',exact:true}).click();
-  await page.getByTestId('event-funnel-return-reservation').click();
+test('card payment shows plain wording and can go back to payment choices',async()=>{
+  const page=await open(false,{order:{id:orderId,state:'payable',paymentMethod:'card',currency:'GBP',payableMinor:500},status:'requires_payment_method'});
+  await page.getByRole('heading',{name:'Complete your payment'}).waitFor();
+  const text=await page.getByTestId('event-funnel-checkout').innerText();
+  for(const techy of ['locked to this original order','Server status','Check booking status','Request cancellation','verified resume'])
+    assert.ok(!text.includes(techy),`unexpected wording: ${techy}`);
+  await page.getByTestId('event-funnel-change-payment').click();
   await page.getByTestId('event-funnel-submit').waitFor();
+  assert.equal(fixture.requests.filter(r=>r.action==='cancel').length,1);
+  await page.getByText('Choose how you would like to pay and submit your booking again.').waitFor();
   assert.equal(fixture.requests.filter(r=>r.action==='prepare').length,0);
   assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),`event-funnel-checkout-attempt:${id}`),null);
   await page.close();
@@ -139,8 +143,8 @@ test('ambiguous setup resumes only the same verified payment after explicit acti
     status:'requires_payment_method',failPayment:true});
   await page.getByTestId('event-funnel-resume-payment').click();
   await page.getByTestId('event-funnel-checkout-error').waitFor();
-  await page.getByRole('button',{name:'Check booking status',exact:true}).click();
-  const resume=page.getByRole('button',{name:'Resume verified original card payment'});
+  await page.getByRole('button',{name:'Check original checkout',exact:true}).click();
+  const resume=page.getByRole('button',{name:'Continue to payment'});
   await resume.waitFor();
   assert.equal(fixture.requests.filter(r=>r.action==='payment').length,1);
   await resume.click();

@@ -340,7 +340,9 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
     setPayment(null);
     await status();
     if (mounted.current) setCardSubmitting(false);
-    if (failure && mounted.current) setError(new Error(`${failure} Check the original order status. Continue only with a verified resume action for this same order; do not start another checkout.`));
+    if (failure && mounted.current) {
+      setError(Object.assign(new Error(`${failure} You can try the card again or choose a different payment method.`), { code: 'PAYMENT_NOT_COMPLETED' }));
+    }
   }, [status]);
 
   const cancel = useCallback(() => run('cancel', async () => {
@@ -360,6 +362,18 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
     }
   }), [run, sessionId, remember, adoptOrder, allowResume]);
 
+  // "Change payment method": the server cancels this unpaid card attempt
+  // (verifying with the provider first; places stay reserved), then the
+  // usual two-read check returns to the payment choices. If the payment had
+  // in fact gone through, cancel finalizes the booking instead.
+  const changePaymentMethod = useCallback(async () => {
+    const current = orderRef.current;
+    if (!current || current.paymentMethod !== 'card' || checkoutTerminal(current.state) || cardSubmittingRef.current) return null;
+    const cancelled = await cancel();
+    if (!cancelled || !['cancelled', 'failed'].includes(cancelled.state)) return cancelled ? { returned: false, state: cancelled.state } : null;
+    return returnToReservation();
+  }, [cancel, returnToReservation]);
+
   // One bounded reconciliation cycle for a recovered/prepared order. No
   // automatic payment/prepare, no infinite polling after an uncertain response.
   const recoveredId = order?.id;
@@ -378,5 +392,5 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
     : Boolean(attemptOrderId(fence));
   return { summary, order, error, busy, payment, fence, cardSubmitting, reload, status, quote, prepare, checkDiscount,
     canResumePayment, canReturnToReservation, returnToReservation,
-    startPayment, markSubmitted, paymentFinished, cancel };
+    startPayment, markSubmitted, paymentFinished, cancel, changePaymentMethod };
 }

@@ -28,12 +28,11 @@ function CheckoutCardForm({ amount, returnUrl, markSubmitted, onFinished, disabl
     }
   }
   return <form onSubmit={submit} className="event-funnel-checkout__panel" aria-label="Secure card payment">
-    <h4>Pay for your reservation</h4>
-    <p className="event-funnel-checkout__muted">Payment details are handled by Stripe. Your booking is complete only when the reservation shows confirmed.</p>
+    <p className="event-funnel-checkout__muted">Card details are handled securely by Stripe.</p>
     {!ready && !loadError && <div className="event-reservation-loading" role="status">
       <span aria-hidden="true" /><span aria-hidden="true" /><p>Loading secure card fields…</p>
     </div>}
-    <PaymentElement onReady={() => setReady(true)} onLoadError={() => setLoadError('Secure card fields could not be loaded. Check the original order status; do not start another checkout.')} />
+    <PaymentElement onReady={() => setReady(true)} onLoadError={() => setLoadError('Secure card fields could not be loaded. Reload the page, or choose a different payment method.')} />
     {loadError && <p role="alert">{loadError}</p>}
     <Button type="submit" disabled={!stripe || !elements || !ready || busy || disabled || Boolean(loadError)}>
       {busy ? 'Checking payment…' : `Pay ${amount}`}
