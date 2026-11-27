@@ -13,3 +13,4 @@ description: Index of discovery, pending-query, and saved-metadata lifecycle con
 - [Post-save freshness](editor-postsave-freshness.md) — wait for fresh data before re-hydrating; stale cached drafts can blank saved fields.
 - [Destructive dialog defaults](destructive-dialog-defaults.md) — background refresh must never replace an explicit preservation choice with destructive disposal.
 - [TipTap editable-state updates](tiptap-editable-update.md) — busy toggles emit document updates by default, which can erase errors and rotate retry identities.
+- [Query value contracts](query-value-contracts.md) — raw editor configuration and effective member views must not share keys when their result shapes differ.

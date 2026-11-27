@@ -1,4 +1,5 @@
 import { projectSimpleEventCapacity } from '../../_lib/simpleEventCapacity.js';
+import { rejectGenericBiographyHelperWrite } from '../../_lib/biographyHelperEntityBoundary.js';
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { validateBundleConfiguration, FormBundleError } from '../../_lib/formBundles.js';
 import { rejectGenericAffiliationWrite } from '../../_lib/profileAffiliationEntityBoundary.js';
@@ -347,6 +348,7 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (await rejectGenericBiographyHelperWrite({ entity, id, req, res, context: tenantCtx, db: requestDatabase })) return;
   if (await guardGenericResourcePin({ entity, req, res, id, ctx: tenantCtx, db: requestDatabase,
     hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,
     hasFeatureAccess: dependencies.hasFeatureAccess || hasFeatureAccess })) return;

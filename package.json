@@ -7,6 +7,8 @@
     "node": "24.x"
   },
   "scripts": {
+    "test:biography-helper": "node scripts/run-isolated-tests.mjs --allow-local-postgres node --test --test-concurrency=1 api/biography-helper-settings.test.mjs api/biography-helper-settings.postgres.test.mjs",
+    "test:biography-helper:browser": "playwright test --config=tests/about-me-profile-save.config.mjs",
     "test:membership-structure-handover": "node scripts/run-isolated-tests.mjs --allow-local-postgres node --test scripts/membership-structure-handover.postgres.test.mjs api/membership/tiers.handover.test.mjs api/membership/tiers.projectCode.test.mjs api/membership/tiers.collectionPolicy.test.mjs api/_lib/membershipTiersActiveConfigs.test.mjs client/src/lib/membershipTierNavigation.test.mjs",
     "test:session-start-default": "node --test client/src/lib/sessionStartDefault.test.mjs",
     "test:session-start-default:browser": "playwright test --config=tests/session-start-default.config.mjs",

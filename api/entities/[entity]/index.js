@@ -1,4 +1,5 @@
 import { projectSimpleEventCapacity } from '../../_lib/simpleEventCapacity.js';
+import { rejectGenericBiographyHelperWrite } from '../../_lib/biographyHelperEntityBoundary.js';
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
 import { validateBundleConfiguration, resolveFormBundle, bundlePayableAmount, FormBundleError } from '../../_lib/formBundles.js';
 import { findPaymentField as findBundlePaymentField, computeAuthoritativeHiddenFieldIds as bundleHiddenFields } from '../../_lib/formFieldVisibility.js';
@@ -492,6 +493,7 @@ export default async function handler(req, res) {
   if (await guardGenericResourcePin({ entity, req, res, ctx: tenantCtx, db: supabase,
     hasAdminAccess, hasFeatureAccess })) return;
   if (await rejectGenericAffiliationWrite({ entity, req, res, context: tenantCtx, hasAdminAccess })) return;
+  if (await rejectGenericBiographyHelperWrite({ entity, req, res, context: tenantCtx, db: supabase })) return;
   if (await handleProgramEntitlementEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await handleVoucherEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await authorizeVoucherSettingWrite({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;

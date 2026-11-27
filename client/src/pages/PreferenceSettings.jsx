@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import BadgeInstructionsSettings from "@/components/BadgeInstructionsSettings";
+import BiographyHelperSettings from "@/components/BiographyHelperSettings";
 import MemberAffiliationSettings from "@/components/MemberAffiliationSettings";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
@@ -57,7 +58,9 @@ export default function PreferenceSettingsPage() {
   }, [isFeatureExcluded, isAccessReady]);
 
   const { data: savedOrder, isLoading } = useQuery({
-    queryKey: ['preferences-section-order'],
+    // The editor returns raw optional configuration; About-me's query returns
+    // an effective, fully normalized array. They cannot share cached values.
+    queryKey: ['preferences-section-order-editor'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === 'preferences_section_order');
@@ -375,6 +378,7 @@ export default function PreferenceSettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['preferences-section-order'] });
+      queryClient.invalidateQueries({ queryKey: ['preferences-section-order-editor'] });
       queryClient.invalidateQueries({ queryKey: ['preferences-section-order-record'] });
       setHasChanges(false);
       toast.success('Section order saved successfully');
@@ -565,6 +569,7 @@ export default function PreferenceSettingsPage() {
         </div>
 
         <BadgeInstructionsSettings />
+        <BiographyHelperSettings />
         <MemberAffiliationSettings />
 
         <Card className="mb-6">

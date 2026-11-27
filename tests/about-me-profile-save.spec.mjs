@@ -44,7 +44,9 @@ function deferred() {
 }
 
 async function fixture(page, affiliations = null) {
-  const state = { updates: [], uploads: [], blocked: [], gate: null, failNext: false, saved: { ...member } };
+  const state = { updates: [], uploads: [], blocked: [], gate: null, failNext: false, saved: { ...member },
+    helperText: "This biography will be displayed on your published articles", helperWrites: [], helperFail: false, helperLoadFail: false,
+    helperCanManage: true, helperOthers: {}, helperReads: [], permissions: {} };
   state.affiliations = affiliations;
   state.affiliationWrites = [];
   await page.addInitScript((cached) => {
@@ -58,6 +60,17 @@ async function fixture(page, affiliations = null) {
     const { pathname: path } = url;
     const method = request.method();
     const key = `${method} ${url.href}`;
+    if (url.origin === ORIGIN && request.resourceType() === "document") {
+      // Serve the actual SPA without invoking tenant-aware SSR on the server.
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head>
+        <script type="module">
+          import RefreshRuntime from "/@react-refresh";
+          RefreshRuntime.injectIntoGlobalHook(window);
+          window.$RefreshReg$ = () => {};
+          window.$RefreshSig$ = () => type => type;
+          window.__vite_plugin_react_preamble_installed__ = true;
+        </script></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>` });
+    }
     if (url.origin === ORIGIN && !path.startsWith("/api/")) return route.continue();
 
     // No request may reach a real provider. Only the actual profile table PATCH
@@ -87,6 +100,23 @@ async function fixture(page, affiliations = null) {
     if (url.hostname.endsWith(".supabase.co") && path.startsWith("/rest/v1/")
       && method === "GET") return json(route, []);
     if (url.origin === ORIGIN && path.startsWith("/api/")) {
+      if (path === "/api/biography-helper-settings") {
+        const tenantId = request.headers()["x-tenant-id"] || member.tenant_id;
+        const config = tenantId === member.tenant_id ? state : state.helperOthers[tenantId];
+        if (!config) return json(route, { error: "Invalid fixture tenant context" }, 403);
+        if (method === "PUT") {
+          if (!config.helperCanManage) return json(route, { error: "Administrator access required" }, 403);
+          state.helperWrites.push(request.postDataJSON());
+          if (state.helperFail) return json(route, { error: "Fixture helper save failed" }, 503);
+          config.helperText = request.postDataJSON().helperText.trim() || "This biography will be displayed on your published articles";
+        } else if (method !== "GET") {
+          state.blocked.push(key);
+          return json(route, { error: "Unexpected helper mutation" }, 599);
+        }
+        if (method === "GET") state.helperReads.push(tenantId);
+        if (method === "GET" && state.helperLoadFail) return json(route, { error: "Fixture helper load failed" }, 503);
+        return json(route, { tenantId, helperText: config.helperText, canManage: config.helperCanManage });
+      }
       if (method === "PATCH" && path === `/api/entities/Member/${member.id}`
         && Object.keys(request.postDataJSON() || {}).join() === "last_activity") {
         return json(route, member);
@@ -100,7 +130,7 @@ async function fixture(page, affiliations = null) {
       if (path === `/api/entities/Role/${role.id}`) return json(route, role);
       if (path === "/api/entities/Role") return json(route, [role]);
       if (path === "/api/entities/Member") return json(route, [member]);
-      if (path === "/api/my-member-field-permissions") return json(route, {});
+      if (path === "/api/my-member-field-permissions") return json(route, state.permissions);
       if (path === "/api/member/communication-preferences") return json(route, { categories: [], preferences: [] });
       if (path === "/api/public/tenant-branding") {
         return json(route, { success: true, branding: { id: role.tenant_id, name: "Profile fixture", headerConfig: {}, footerConfig: {} } });
@@ -138,7 +168,7 @@ async function fixture(page, affiliations = null) {
     return route.abort("blockedbyclient");
   });
   await page.goto("/about-me");
-  await expect(page.getByLabel("Job Title")).toHaveValue("Old title");
+  await expect(page.getByLabel("Job Title")).toHaveValue("Old title", { timeout: 20000 });
   return state;
 }
 
@@ -178,6 +208,155 @@ function assertSingleProfileUpdate(state, count = 1) {
     expect(Object.keys(update.payload).sort()).toEqual([...profileKeys].sort());
   }
 }
+
+async function navigate(page, path) {
+  // Retain the actual application's QueryClient so this exercises shared
+  // cache invalidation, rather than creating a fresh cache on every visit.
+  await page.evaluate(path => {
+    history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, path);
+}
+
+test("biography helper settings save literal text, survive reload, and reset without changing profile data", async ({ page }) => {
+  const state = await fixture(page);
+  const defaultText = state.helperText;
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(defaultText);
+  await navigate(page, "/PreferenceSettings");
+  const input = page.getByLabel("Professional Biography helper text", { exact: true });
+  const save = page.getByRole("button", { name: "Save biography helper text", exact: true });
+  await expect(input).toHaveValue(defaultText);
+  const literal = '<b>Your background</b> & <img src=x onerror="alert(1)">';
+  await input.fill(literal);
+  await save.click();
+  await expect(page.getByRole("status").filter({ hasText: "Biography helper text saved." })).toBeVisible();
+  await navigate(page, "/about-me");
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(literal);
+  await page.reload();
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(literal);
+  await navigate(page, "/PreferenceSettings");
+  await expect(input).toHaveValue(literal);
+  await page.reload();
+  await expect(input).toHaveValue(literal);
+  await input.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "generated-artifacts/biography-helper/settings.jpg" });
+  await navigate(page, "/about-me");
+  await expect(page.getByTestId("biography-helper-text").locator("b, img, script")).toHaveCount(0);
+  await expect(profile(page).biography).toHaveValue(member.biography);
+  await expect(profile(page).save).toBeHidden();
+  await profile(page).biography.fill("Updated biography with unchanged saving");
+  await profile(page).save.first().click();
+  await expect.poll(() => state.updates.length).toBe(1);
+  expect(state.updates[0].payload.biography).toBe("Updated biography with unchanged saving");
+  await navigate(page, "/PreferenceSettings");
+  await expect(input).toHaveValue(literal);
+  await page.getByRole("button", { name: "Reset to default", exact: true }).click();
+  await expect(input).toHaveValue(defaultText);
+  await input.fill(" \n\t ");
+  await save.click();
+  await expect(input).toHaveValue(defaultText);
+  await navigate(page, "/about-me");
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(defaultText);
+  await page.reload();
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(defaultText);
+  expect(state.helperWrites).toHaveLength(3);
+  assertSingleProfileUpdate(state);
+});
+
+test("helper controls are read-only for ordinary members and isolate drafts and caches when tenants switch", async ({ page }) => {
+  const state = await fixture(page);
+  state.helperCanManage = false;
+  await page.goto("/PreferenceSettings");
+  const input = page.getByLabel("Professional Biography helper text", { exact: true });
+  await expect(input).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save biography helper text", exact: true })).toHaveCount(0);
+  await navigate(page, "/about-me");
+  await expect(page.getByTestId("biography-helper-text")).toHaveText(state.helperText);
+  state.helperLoadFail = true;
+  await page.reload();
+  await expect(page.getByText("Unable to load biography helper text. The default explanation is shown.")).toBeVisible();
+  state.helperLoadFail = false;
+  await page.getByRole("button", { name: "Retry loading biography helper text" }).click();
+  await expect(page.getByText("Unable to load biography helper text. The default explanation is shown.")).toHaveCount(0);
+  state.helperCanManage = true;
+  await page.goto("/PreferenceSettings");
+  await expect(input).toBeEnabled();
+  await input.fill("Tenant A unsaved draft");
+  state.helperOthers["tenant-b"] = { helperText: "Tenant B explanation", helperCanManage: true };
+  await page.evaluate(async () => (await import("/src/api/base44Client.js")).setActiveTenantId("tenant-b"));
+  await expect(input).toHaveValue("Tenant B explanation");
+  await input.fill("Tenant B saved explanation");
+  await page.getByRole("button", { name: "Save biography helper text", exact: true }).click();
+  await expect(page.getByText("Biography helper text saved.", { exact: true })).toBeVisible();
+  await page.evaluate(async tenantId => (await import("/src/api/base44Client.js")).setActiveTenantId(tenantId), member.tenant_id);
+  await expect(input).toHaveValue(state.helperText);
+  expect(state.helperText).not.toContain("Tenant B");
+  expect(state.helperOthers["tenant-b"].helperText).toBe("Tenant B saved explanation");
+  expect(state.helperReads).toContain("tenant-b");
+  expect(state.updates).toHaveLength(0);
+  expect(state.blocked.filter(key => /(?:PATCH|POST|PUT|DELETE) /.test(key))).toEqual([]);
+});
+
+test("biography helper load and save failures remain visible, retain drafts and recover on retry", async ({ page }) => {
+  const state = await fixture(page);
+  state.helperLoadFail = true;
+  await page.goto("/PreferenceSettings");
+  await expect(page.getByRole("alert").filter({ hasText: "Fixture helper load failed" })).toBeVisible();
+  state.helperLoadFail = false;
+  await page.getByRole("button", { name: "Retry loading biography settings" }).click();
+  const input = page.getByLabel("Professional Biography helper text", { exact: true });
+  const save = page.getByRole("button", { name: "Save biography helper text", exact: true });
+  await expect(input).toHaveValue(state.helperText);
+  await input.fill("a".repeat(1001));
+  await expect(save).toBeDisabled();
+  await expect(page.getByRole("alert").filter({ hasText: "1000 characters or fewer" })).toBeVisible();
+  await input.fill("Keep this draft");
+  state.helperFail = true;
+  await save.click();
+  await expect(page.getByRole("alert").filter({ hasText: "Fixture helper save failed" })).toBeVisible();
+  await expect(input).toHaveValue("Keep this draft");
+  await expect(page.getByText("Biography helper text saved.", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset to default", exact: true }).click();
+  await expect(input).toHaveValue("Keep this draft");
+  state.helperFail = false;
+  await save.click();
+  await expect(input).toHaveValue("Keep this draft");
+  await expect(page.getByText("Biography helper text saved.", { exact: true })).toBeVisible();
+  expect(state.updates).toHaveLength(0);
+  expect(state.blocked.filter(key => /(?:PATCH|POST|PUT|DELETE) /.test(key))).toEqual([]);
+});
+
+test("helper refresh preserves an administrator draft and settings never override biography visibility or word limits", async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto("/PreferenceSettings");
+  const input = page.getByLabel("Professional Biography helper text", { exact: true });
+  await expect(input).toHaveValue(state.helperText);
+  await input.fill("Unsaved administrator draft");
+  state.helperText = "New background value";
+  const refreshed = page.waitForResponse(response => response.url().endsWith("/api/biography-helper-settings") && response.request().method() === "GET");
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await refreshed;
+  await expect(input).toHaveValue("Unsaved administrator draft");
+  await page.goto("/about-me");
+  await expect(page.getByTestId("biography-helper-text")).toHaveText("New background value");
+  await profile(page).biography.fill("word ".repeat(501));
+  await expect(page.getByText("501 / 500 words", { exact: true })).toBeVisible();
+  // The biography card owns this limit. Do not change the separate profile
+  // card's existing save-button behavior as part of this copy setting.
+  await expect(page.getByRole("button", { name: "Save Biography", exact: true })).toBeDisabled();
+  state.permissions = { biography: "read_only" };
+  await page.reload();
+  await expect(page.getByText("Professional Biography", { exact: true })).toBeVisible();
+  await expect(profile(page).biography).toHaveCount(0);
+  await expect(page.getByTestId("biography-helper-text")).toHaveText("New background value");
+  state.permissions = { biography: "hidden" };
+  await page.reload();
+  await expect(page.getByLabel("Job Title")).toBeVisible();
+  await expect(page.getByText("Professional Biography", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("biography-helper-text")).toHaveCount(0);
+  expect(state.updates).toHaveLength(0);
+  expect(state.blocked.filter(key => /(?:PATCH|POST|PUT|DELETE) /.test(key))).toEqual([]);
+});
 
 test("populated session and fresh cache: job title saves through member update and survives reload", async ({ page }) => {
   const state = await fixture(page);

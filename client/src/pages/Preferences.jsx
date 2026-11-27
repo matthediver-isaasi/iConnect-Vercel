@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import BadgeInstructionsHelpLink from "@/components/BadgeInstructionsHelpLink";
+import BiographyHelperText from "@/components/BiographyHelperText";
 import MemberAffiliations from "@/components/MemberAffiliations";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient"; // or your actual client path
@@ -2555,9 +2556,7 @@ export default function PreferencesPage() {
                     {biography || <span className="text-slate-400 italic">No biography set</span>}
                   </div>
                 )}
-                <p className="text-xs text-slate-500">
-                  This biography will be displayed on your published articles
-                </p>
+                <BiographyHelperText tenantId={memberRecord?.tenant_id} />
               </div>
 
               {canEditField('biography') && hasUnsavedProfile && (
