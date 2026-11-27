@@ -5,18 +5,20 @@ import { createEventFunnelJourneyService } from './eventFunnelJourney.js';
 import { buildFunnelRegistrationPlan,allocateFunnelAmounts } from './eventFunnelRegistrationPlan.js';
 import { assertFunnelCommercialCompatibility,funnelLineTotal } from './eventFunnelCommercial.js';
 import { quoteEventFunnelVouchers } from './eventFunnelVoucherQuote.js';
+import { normalizeFunnelDiscountCode, quoteFunnelDiscount } from './eventFunnelDiscount.js';
 import { resolveFunnelMemberships, publicMemberships } from './eventFunnelMembership.js';
 import { resolveUnifiedBookingCustomer, bindUnifiedBookingCustomer, unifiedBookingChoices } from './unifiedBookingContract.js';
 
 const fail = (message,code='CHECKOUT_UNAVAILABLE',status=409) => { throw new FunnelJourneyError(message,code,status); };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const allowed = new Set(['expectedRevision','paymentMethod','customer','purchaseOrderNumber','submissionAccepted','trainingFundMinor','voucherIds','expectedPayableMinor']);
+const allowed = new Set(['expectedRevision','paymentMethod','customer','purchaseOrderNumber','submissionAccepted','trainingFundMinor','voucherIds','expectedPayableMinor','discountCode']);
 function publicQuote(plan,revision) {
   return {revision,currency:plan.currency,payableMinor:plan.payableMinor,
     trainingFundMinor:plan.trainingFundMinor,voucherMinor:plan.voucherMinor,
+    discountMinor:plan.discountMinor,discountCode:plan.discounts[0]?.code || null,
     paymentMethod:plan.paymentMethod,paymentMethods:plan.paymentMethods,invoiceMode:plan.invoiceMode,
     lines:plan.lines.map(line=>({nodeId:line.nodeId,ticketId:line.ticketId,eventId:line.eventId,eventKind:line.eventKind,
-      quantity:line.quantity,amountMinor:line.amountMinor,payableMinor:line.payableMinor,
+      quantity:line.quantity,listMinor:line.listMinor,discountMinor:line.discountMinor,amountMinor:line.amountMinor,payableMinor:line.payableMinor,
       trainingFundMinor:line.trainingFundMinor,voucherMinor:line.voucherMinor})),
     memberships:publicMemberships(plan.memberships)};
 }
@@ -25,6 +27,7 @@ function submissionKey(command) {
   return createHash('sha256').update(JSON.stringify({
     revision:command.expectedRevision,method:command.paymentMethod,
     training:command.trainingFundMinor || 0,
+    discount:normalizeFunnelDiscountCode(command.discountCode)?.toUpperCase() || null,
     expectedPayableMinor:command.expectedPayableMinor ?? null,
     vouchers:[...(command.voucherIds || [])].sort(),
     po:command.purchaseOrderNumber?.trim() || null,
@@ -54,6 +57,18 @@ export function createFunnelCheckoutService({ db, resolveSelection,
     }
     return quote.data;
   }
+  // Fail closed: codes are offered only once the database validates them at
+  // order preparation and counts usage on confirmation.
+  async function discountReady() {
+    try {
+      const ready=await db.rpc('event_funnel_discount_ready');
+      return !ready.error && ready.data===true;
+    } catch { return false; }
+  }
+  async function discountQuote(owner,snapshot,code) {
+    if(!await discountReady()) fail('Discount codes are not available for this booking.','DISCOUNT_UNAVAILABLE',503);
+    return quoteFunnelDiscount({db,tenantId:owner.tenantId,snapshot,code});
+  }
   async function readOrder(owner) {
     const result = await db.rpc('event_funnel_session_order',{p_tenant:owner.tenantId,p_id:owner.sessionId,
       p_member:owner.memberId || null,p_capability_hash:owner.capabilityHash || null});
@@ -66,18 +81,32 @@ export function createFunnelCheckoutService({ db, resolveSelection,
       if(!object(command)) fail('Invalid checkout quote.','INVALID_CHECKOUT',400);
       return service.prepare(owner,{...command,submissionAccepted:true},true);
     },
+    // Inline Apply check. The quote and preparation re-validate independently.
+    async discount(owner,command) {
+      if(!object(command) || Object.keys(command).some(key=>!['expectedRevision','discountCode'].includes(key))
+        || !Number.isSafeInteger(command.expectedRevision) || !normalizeFunnelDiscountCode(command.discountCode)) {
+        fail('Enter a discount code.','INVALID_CHECKOUT',400);
+      }
+      const snapshot = await journeyService.read(owner);
+      if (snapshot.session.state !== 'held' || snapshot.session.revision !== command.expectedRevision) {
+        fail('Your checkout changed. Review your basket before applying a code.','REVISION_CONFLICT');
+      }
+      const result=await discountQuote(owner,snapshot,normalizeFunnelDiscountCode(command.discountCode));
+      return {revision:snapshot.session.revision,code:result.code,discountMinor:result.discountMinor,lines:result.lines};
+    },
     async summary(owner) {
       const snapshot = await journeyService.read(owner);
       const terms = assertFunnelCommercialCompatibility(snapshot.holds);
       const choices = await loadChoices(db,owner.tenantId,snapshot.session.member_id || null);
       const order = await readOrder(owner);
       const training=await trainingQuote(owner);
+      const discounts=await discountReady();
       return { ...terms, revision: snapshot.session.revision, expiresAt: snapshot.session.expires_at,
         serverNow: snapshot.serverNow, atCheckout: snapshot.route.atCheckout,
         // Provider contact bindings are private server authority.
         customers: choices.choices.map(({ bindings, ...choice }) => choice),
         personalAddress: choices.personalAddress || null, incomplete: choices.incomplete === true,
-        memberFunding:!!snapshot.session.member_id,
+        memberFunding:!!snapshot.session.member_id,discountCodes:{enabled:discounts},
         trainingFund:training.enabled ? {enabled:true,availableMinor:training.availableMinor} : {enabled:false},
         order: order ? { id:order.id,state:order.state,paymentMethod:order.payment_method,
           currency:order.currency,payableMinor:order.payable_minor } : null,
@@ -101,6 +130,7 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         || command.trainingFundMinor != null && (!Number.isSafeInteger(command.trainingFundMinor) || command.trainingFundMinor<0)
         || command.voucherIds != null && (!Array.isArray(command.voucherIds) || command.voucherIds.length>100
           || command.voucherIds.some(id=>typeof id!=='string'||!id) || new Set(command.voucherIds).size!==command.voucherIds.length)
+        || normalizeFunnelDiscountCode(command.discountCode) === undefined
         || (command.customer != null && !object(command.customer))
         || (command.purchaseOrderNumber != null && (typeof command.purchaseOrderNumber !== 'string' || command.purchaseOrderNumber.length > 250))) {
         fail('Invalid checkout submission.','INVALID_CHECKOUT',400);
@@ -142,6 +172,9 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         || source.price_snapshot.commercial?.accounting;
       const contact = bindUnifiedBookingCustomer(customer.contact,customer.selectedBindings,
         accounting?.company ? { name: accounting.name,realmId: accounting.company,xeroTenantId: accounting.company } : null);
+      const code=normalizeFunnelDiscountCode(command.discountCode);
+      const discount=code ? await discountQuote(owner,normalized,code) : null;
+      const discountFor=hold=>discount?.lines.find(line=>line.nodeId===hold.node_id&&line.ticketId===hold.ticket_id)?.discountMinor || 0;
       const training=command.trainingFundMinor ? await trainingQuote(owner) : {enabled:false};
       if(command.trainingFundMinor && (!training.enabled || command.trainingFundMinor>training.availableMinor)) {
         fail('The requested training fund amount is unavailable.','FUNDING_UNAVAILABLE');
@@ -152,15 +185,16 @@ export function createFunnelCheckoutService({ db, resolveSelection,
         if(ready.error || ready.data!==true) fail('Voucher checkout is not available.','FUNDING_UNAVAILABLE',503);
         const holds=[...snapshot.holds].sort((a,b)=>journey.route.route.indexOf(a.node_id)-journey.route.route.indexOf(b.node_id)
           || a.ticket_id.localeCompare(b.ticket_id));
-        const gross=holds.map(hold=>({amountMinor:funnelLineTotal(hold.price_snapshot,hold.quantity)}));
+        const gross=holds.map(hold=>({amountMinor:funnelLineTotal(hold.price_snapshot,hold.quantity)-discountFor(hold)}));
         const trainingAmounts=allocateFunnelAmounts(gross,command.trainingFundMinor || 0);
         const lines=holds.map((hold,index)=>({nodeId:hold.node_id,ticketId:hold.ticket_id,
           remainingMinor:gross[index].amountMinor-trainingAmounts[index]}));
         voucherQuote=await quoteVouchers({db,owner,snapshot:normalized,requestedIds:command.voucherIds,lines});
       }
-      const netMinor=assertFunnelCommercialCompatibility(normalized.holds).totalMinor-(command.trainingFundMinor || 0)-voucherQuote.voucherMinor;
+      const netMinor=assertFunnelCommercialCompatibility(normalized.holds).totalMinor-(discount?.discountMinor || 0)
+        -(command.trainingFundMinor || 0)-voucherQuote.voucherMinor;
       const plan = buildFunnelRegistrationPlan(normalized,{ paymentMethod: quoteOnly && netMinor===0?'free':command.paymentMethod,invoiceCustomer: contact,
-        trainingFundMinor:command.trainingFundMinor || 0,
+        trainingFundMinor:command.trainingFundMinor || 0,discount,
         voucherMinor:voucherQuote.voucherMinor,voucherAllocations:voucherQuote.allocations,
         purchaseOrderNumber: command.purchaseOrderNumber?.trim() || null,
         organizationId: command.trainingFundMinor ? training.organizationId : contact.provenance?.kind === 'organization' ? contact.provenance.id : null });

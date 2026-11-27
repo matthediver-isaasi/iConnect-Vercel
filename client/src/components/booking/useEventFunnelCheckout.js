@@ -242,7 +242,7 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
       || result.paymentMethods.some(method => !['free', 'card', 'account', 'public_invoice_po'].includes(method))
       || !result.paymentMethods.includes(result.paymentMethod)
       || result.currency !== summaryRef.current?.currency
-      || ![result.trainingFundMinor, result.voucherMinor].every(value => Number.isSafeInteger(value) && value >= 0)
+      || ![result.trainingFundMinor, result.voucherMinor, result.discountMinor].every(value => Number.isSafeInteger(value) && value >= 0)
       || result.lines.some(line => !['amountMinor', 'payableMinor', 'trainingFundMinor', 'voucherMinor']
         .every(key => Number.isSafeInteger(line[key]) && line[key] >= 0))
       || !['free', 'card', 'account', 'public_invoice_po'].includes(result.paymentMethod)) {
@@ -251,6 +251,18 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
     if (!eligibilityRef.current?.()) throw new Error('The reservation is no longer eligible for checkout. Review availability and timing before continuing.');
     return result;
   }), [run, sessionId]);
+
+  // Inline code check: errors stay with the discount field, not the checkout.
+  const checkDiscount = useCallback(async (expectedRevision, discountCode) => {
+    if (lock.current) throw new Error('Please wait for the current check to finish.');
+    if (orderRef.current || fenceRef.current || readFence(sessionId)) throw new Error('Resume the original checkout before changing a discount code.');
+    const result = await eventFunnelCheckoutRequest(sessionId, 'discount', { command: { expectedRevision, discountCode } });
+    if (result.revision !== expectedRevision || typeof result.code !== 'string'
+      || !Number.isSafeInteger(result.discountMinor) || result.discountMinor <= 0) {
+      throw new Error('The discount could not be verified. Please try again.');
+    }
+    return result;
+  }, [sessionId]);
 
   const prepare = useCallback(command => run('prepare', async () => {
     if (orderRef.current || fenceRef.current || readFence(sessionId)) {
@@ -364,7 +376,7 @@ export function useEventFunnelCheckout(sessionId, revision, refresh, canSubmitNo
     && resumable.state === order.state && retryableProviderStates.has(resumable.state));
   const canReturnToReservation = order ? ['cancelled', 'failed'].includes(order.state)
     : Boolean(attemptOrderId(fence));
-  return { summary, order, error, busy, payment, fence, cardSubmitting, reload, status, quote, prepare,
+  return { summary, order, error, busy, payment, fence, cardSubmitting, reload, status, quote, prepare, checkDiscount,
     canResumePayment, canReturnToReservation, returnToReservation,
     startPayment, markSubmitted, paymentFinished, cancel };
 }

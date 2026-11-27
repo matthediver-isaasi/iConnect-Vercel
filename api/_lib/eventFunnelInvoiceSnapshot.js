@@ -38,11 +38,17 @@ export function buildFunnelInvoiceSnapshots(input) {
             ticketClassId:line.ticketId,totalCost:row.grossMinor/100,
             voucherAmountApplied:row.voucherMinor/100,validatedTrainingFundAmount:row.trainingFundMinor/100,
             validatedRemainingBalance:row.payableMinor/100,
+            pricingDetails:row.discountMinor>0?{discountAmount:row.discountMinor/100}:undefined,
           },accountCode):complexEventInvoiceLines({
           event:eventData,resolvedItems:[{
             attendees:[attendee(row)],serverTicket:ticket,ticketClass:ticket,authoritativePrice:row.grossMinor/100,
           }],actualVoucherApplied:row.voucherMinor/100,actualTfApplied:row.trainingFundMinor/100,
         },accountCode);
+          // Complex lines are priced after the code, so name the saving.
+          const code=plan.discounts?.[0]?.code;
+          if(event.eventKind!=='simple'&&row.discountMinor>0&&rendered[0]) {
+            rendered[0].Description+=`\nDiscount${code?` (${code})`:''}: -£${(row.discountMinor/100).toFixed(2)}`;
+          }
           for(const renderedLine of rendered){
             renderedLine.Description=`Booking reference: ${row.row?.booking_reference||row.id}\n${renderedLine.Description}`;
             lineAllocations.push({index:lineAllocations.length,source:event.bookingSource,bookingId:row.id,eventId:event.eventId,

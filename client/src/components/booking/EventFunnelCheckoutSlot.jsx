@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { invoiceAddressDraft } from '@/lib/eventInvoiceAddress.mjs';
 import EventFunnelBilling from './EventFunnelBilling';
 import EventFunnelCart from './EventFunnelCart';
-import EventFunnelVouchers, { EventFunnelTrainingFund } from './EventFunnelCheckoutFunding';
+import EventFunnelVouchers, { EventFunnelDiscountCode, EventFunnelTrainingFund } from './EventFunnelCheckoutFunding';
 import EventFunnelCheckoutPayment from './EventFunnelCheckoutPayment';
 import { checkoutTerminal, useEventFunnelCheckout } from './useEventFunnelCheckout';
 import './EventReservationIntegration.css';
@@ -25,6 +25,7 @@ const quoteSignature = quote => JSON.stringify({
   paymentMethod: quote.paymentMethod, invoiceMode: quote.invoiceMode,
   paymentMethods: [...quote.paymentMethods].sort(),
   trainingFundMinor: quote.trainingFundMinor, voucherMinor: quote.voucherMinor,
+  discountMinor: quote.discountMinor || 0, discountCode: quote.discountCode || null,
   lines: [...quote.lines].sort((first, second) => `${first.nodeId}:${first.ticketId}`.localeCompare(`${second.nodeId}:${second.ticketId}`)),
 });
 function initialDraft(summary) {
@@ -33,7 +34,7 @@ function initialDraft(summary) {
     customer: choice ? { kind: choice.kind, id: choice.id,
       address: invoiceAddressDraft(choice.invoicingAddress || summary.personalAddress) } : { kind: 'guest', address: {} },
     paymentMethod: summary.totalMinor === 0 ? 'free' : summary.paymentMethods.find(method => method !== 'free') || '',
-    purchaseOrderNumber: '', training: '', voucherIds: [],
+    purchaseOrderNumber: '', training: '', voucherIds: [], discount: null,
   };
 }
 
@@ -108,6 +109,14 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const editable = !order && !checkout.fence && currentSummary && summary.atCheckout
     && snapshot.session.state === 'held' && eligible;
   const blocked = Boolean(busy || finalizing || checkout.cardSubmitting);
+  // A code checked against an older reservation revision is not offered; the
+  // quote is the only authority for the saving actually charged.
+  const appliedDiscount = draft?.discount && draft.discount.revision === summary?.revision ? draft.discount : null;
+  async function applyDiscount(code) {
+    if (!editable || blocked || !canSubmitNow()) throw new Error('Checkout cannot be changed right now.');
+    const result = await checkout.checkDiscount(summary.revision, code);
+    edit({ discount: { revision: result.revision, code: result.code, discountMinor: result.discountMinor, lines: result.lines || [] } });
+  }
   function command() {
     const training = summary.memberFunding && summary.trainingFund?.enabled ? draft.training.trim() : '';
     if (training && !/^\d+(?:\.\d{1,2})?$/.test(training)) {
@@ -128,6 +137,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
       expectedRevision: summary.revision, paymentMethod: draft.paymentMethod,
       customer: draft.customer, purchaseOrderNumber: invoiceMethod(draft.paymentMethod) ? draft.purchaseOrderNumber : '',
       trainingFundMinor, voucherIds: summary.memberFunding ? draft.voucherIds : [],
+      ...(appliedDiscount ? { discountCode: appliedDiscount.code } : {}),
     };
   }
   async function reviewQuote(event) {
@@ -208,7 +218,14 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
   const quote = review?.version === draftVersion.current && currentSummary ? review.quote : null;
   const paymentMethods = quotedMethods?.revision === snapshot.session.revision
     ? quotedMethods.methods : summary?.paymentMethods || [];
-  const includedTaxMinor = (summary?.lines || []).reduce((sum, line) => sum + (Number.isSafeInteger(line.includedTaxMinor) ? line.includedTaxMinor : 0), 0);
+  const discountLines = quote ? quote.lines.filter(line => line.discountMinor > 0) : appliedDiscount?.lines || [];
+  const discountMinor = quote ? quote.discountMinor || 0 : appliedDiscount?.discountMinor || 0;
+  // Display only: VAT included in each line's price after its own saving.
+  const includedTaxMinor = (summary?.lines || []).reduce((sum, line) => {
+    if (!Number.isSafeInteger(line.includedTaxMinor)) return sum;
+    const saving = discountLines.find(part => part.nodeId === line.nodeId && part.ticketId === line.ticketId)?.discountMinor || 0;
+    return sum + (saving && line.taxPercentage ? Math.round((line.amountMinor - saving) * line.taxPercentage / (100 + line.taxPercentage)) : line.includedTaxMinor);
+  }, 0);
   const hasFunding = Boolean(summary?.memberFunding);
   const ticketCount = (summary?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
   const uncertain = checkout.fence.startsWith('submitted:') || checkout.fence.startsWith('uncertain:');
@@ -296,6 +313,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
 
     {summary && draft && <>
       <EventFunnelCart snapshot={snapshot} lines={summary.lines} money={money}
+        discounts={discountLines}
         canRemove={editable && !blocked && !review} onRemove={nodeId => change({ type: 'skip', nodeId })} />
       <form onSubmit={reviewQuote} className="event-funnel-checkout__columns" aria-label="Checkout details">
         <div className="event-funnel-checkout__fields">
@@ -322,13 +340,18 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
                 <dd className="font-bold text-blue-900">{ticketCount}</dd></div>
               {includedTaxMinor > 0 && <div className="flex items-center justify-between"><dt className="text-blue-700">Includes VAT:</dt>
                 <dd className="font-bold text-blue-900 tabular-nums">{money(includedTaxMinor)}</dd></div>}
+              {discountMinor > 0 && <div className="flex items-center justify-between" data-testid="event-funnel-discount-line">
+                <dt className="text-green-700">Discount ({quote ? quote.discountCode : appliedDiscount.code}):</dt>
+                <dd className="font-bold text-green-700 tabular-nums">−{money(discountMinor)}</dd></div>}
               <div className="flex items-center justify-between border-t border-blue-200 pt-2"><dt className="font-medium text-blue-700">Total Cost:</dt>
-                <dd className="text-lg font-bold text-blue-900 tabular-nums" data-testid="event-funnel-total">{money(summary.totalMinor)}</dd></div>
+                <dd className="text-lg font-bold text-blue-900 tabular-nums" data-testid="event-funnel-total">{money(summary.totalMinor - discountMinor)}</dd></div>
             </dl>
           </section>
 
           {!order && <fieldset className="space-y-4" disabled={!editable || blocked || Boolean(quote)}>
             <legend className="sr-only">Funding and payment</legend>
+            <EventFunnelDiscountCode summary={summary} applied={appliedDiscount} money={money}
+              disabled={!editable || blocked || Boolean(quote)} onApply={applyDiscount} onRemove={() => edit({ discount: null })} />
             <EventFunnelVouchers summary={summary} session={snapshot.session} value={draft} onChange={edit} />
             <EventFunnelTrainingFund summary={summary} value={draft} onChange={edit} money={money} />
 
@@ -342,7 +365,7 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
                 <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-slate-600">Amount Due:</span>
-                    <span className="text-lg font-bold text-slate-900 tabular-nums">{money(quote ? quote.payableMinor : summary.totalMinor)}</span>
+                    <span className="text-lg font-bold text-slate-900 tabular-nums">{money(quote ? quote.payableMinor : summary.totalMinor - discountMinor)}</span>
                   </div>
                   {!quote && hasFunding && <p className="mt-1 text-xs text-slate-500">Credit and training fund are deducted when you review your order.</p>}
                 </div>
@@ -364,10 +387,11 @@ function OwnedCheckout({ snapshot, change, refresh, checkoutEligibility, expired
               </section>}
           </fieldset>}
 
-          {quote && (quote.voucherMinor > 0 || quote.trainingFundMinor > 0) && <section className="rounded-lg border-2 border-green-200 bg-green-50 p-4" aria-label="Payment summary">
+          {quote && (quote.voucherMinor > 0 || quote.trainingFundMinor > 0 || quote.discountMinor > 0) && <section className="rounded-lg border-2 border-green-200 bg-green-50 p-4" aria-label="Payment summary">
             <h4 className="mb-2 text-sm font-medium text-green-900">Payment Summary</h4>
             <dl className="space-y-1 text-sm tabular-nums">
               <div className="flex justify-between text-green-700"><dt>Total Cost:</dt><dd>{money(summary.totalMinor)}</dd></div>
+              {quote.discountMinor > 0 && <div className="flex justify-between text-green-700"><dt>Discount ({quote.discountCode}):</dt><dd>−{money(quote.discountMinor)}</dd></div>}
               {quote.voucherMinor > 0 && <div className="flex justify-between text-green-700"><dt>Vouchers:</dt><dd>−{money(quote.voucherMinor)}</dd></div>}
               {quote.trainingFundMinor > 0 && <div className="flex justify-between text-green-700"><dt>Training Fund:</dt><dd>−{money(quote.trainingFundMinor)}</dd></div>}
               <div className="flex justify-between border-t border-green-200 pt-2 font-bold text-green-900"><dt>Balance to Pay:</dt><dd>{money(quote.payableMinor)}</dd></div>

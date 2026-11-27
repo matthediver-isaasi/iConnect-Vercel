@@ -50,7 +50,7 @@ export function fundedFunnelPaymentMethods(lines) {
  */
 export function buildFunnelRegistrationPlan(snapshot, {
   paymentMethod, invoiceCustomer, organizationId = null, purchaseOrderNumber = null,
-  voucherMinor = 0, trainingFundMinor = 0, voucherAllocations = [],
+  voucherMinor = 0, trainingFundMinor = 0, voucherAllocations = [], discount = null,
 } = {}) {
   const journey = readFunnelJourney(snapshot);
   if (!journey.route.atCheckout || snapshot.session.state !== 'held'
@@ -62,18 +62,37 @@ export function buildFunnelRegistrationPlan(snapshot, {
   const purchaser = source?.price_snapshot?.purchaser;
   if (!purchaser?.email || !purchaser.first_name || !purchaser.last_name) fail('Original purchaser evidence is missing.');
   if (!invoiceCustomer || typeof invoiceCustomer !== 'object' || Array.isArray(invoiceCustomer)) fail('A verified invoice customer is required.');
-  if (!Number.isSafeInteger(voucherMinor) || voucherMinor < 0 || !Number.isSafeInteger(trainingFundMinor) || trainingFundMinor < 0
-    || !Number.isSafeInteger(voucherMinor + trainingFundMinor) || voucherMinor + trainingFundMinor > compatibility.totalMinor) fail('Invalid funding amount.');
-  if (!snapshot.session.member_id && (voucherMinor || trainingFundMinor)) fail('Guest checkout cannot redeem member funding.');
-  const payableMinor = compatibility.totalMinor - voucherMinor - trainingFundMinor;
   const ordered = [...snapshot.holds].sort((a,b) =>
     journey.route.route.indexOf(a.node_id) - journey.route.route.indexOf(b.node_id) || a.ticket_id.localeCompare(b.ticket_id));
-  const lines = ordered.map(hold => ({
-    id: identifier([snapshot.session.id,snapshot.session.revision,hold.node_id,hold.ticket_id]),
-    nodeId: hold.node_id, ticketId: hold.ticket_id, eventId: hold.event_id, eventKind: hold.event_kind,
-    quantity: hold.quantity, places: hold.places, priceSnapshot: structuredClone(hold.price_snapshot),
-    amountMinor: funnelLineTotal(hold.price_snapshot, hold.quantity),
-  }));
+  // A discount code reduces only source (entry) event lines, before funding.
+  if (discount !== null && (typeof discount !== 'object' || !discount.discountCodeId || !discount.code
+    || !Array.isArray(discount.lines) || !discount.lines.length)) fail('Invalid discount.');
+  const discountFor = hold => {
+    const parts = (discount?.lines || []).filter(part => part.nodeId === hold.node_id && part.ticketId === hold.ticket_id);
+    if (parts.length > 1) fail('Invalid discount.');
+    return parts[0]?.discountMinor ?? 0;
+  };
+  for (const part of discount?.lines || []) {
+    if (part.nodeId !== snapshot.graph.entry || !Number.isSafeInteger(part.discountMinor) || part.discountMinor <= 0
+      || !ordered.some(hold => hold.node_id === part.nodeId && hold.ticket_id === part.ticketId)) fail('A discount code applies only to the original event purchase.');
+  }
+  const lines = ordered.map(hold => {
+    const listMinor = funnelLineTotal(hold.price_snapshot, hold.quantity), discountMinor = discountFor(hold);
+    if (discountMinor > listMinor) fail('A discount cannot exceed the ticket price.');
+    return {
+      id: identifier([snapshot.session.id,snapshot.session.revision,hold.node_id,hold.ticket_id]),
+      nodeId: hold.node_id, ticketId: hold.ticket_id, eventId: hold.event_id, eventKind: hold.event_kind,
+      quantity: hold.quantity, places: hold.places, priceSnapshot: structuredClone(hold.price_snapshot),
+      listMinor, discountMinor, amountMinor: listMinor - discountMinor,
+    };
+  });
+  const discountMinor = lines.reduce((sum, line) => sum + line.discountMinor, 0);
+  if (discount && discount.discountMinor !== undefined && discount.discountMinor !== discountMinor) fail('Invalid discount.');
+  const totalMinor = compatibility.totalMinor - discountMinor;
+  if (!Number.isSafeInteger(voucherMinor) || voucherMinor < 0 || !Number.isSafeInteger(trainingFundMinor) || trainingFundMinor < 0
+    || !Number.isSafeInteger(voucherMinor + trainingFundMinor) || voucherMinor + trainingFundMinor > totalMinor) fail('Invalid funding amount.');
+  if (!snapshot.session.member_id && (voucherMinor || trainingFundMinor)) fail('Guest checkout cannot redeem member funding.');
+  const payableMinor = totalMinor - voucherMinor - trainingFundMinor;
   const training = allocateFunnelAmounts(lines, trainingFundMinor);
   const vouchers = validateFunnelVoucherAllocations(lines.map((line,index) => ({
     nodeId:line.nodeId,ticketId:line.ticketId,remainingMinor:line.amountMinor-training[index],
@@ -95,6 +114,8 @@ export function buildFunnelRegistrationPlan(snapshot, {
     // One allocation pass over attendee gross amounts prevents a funded penny
     // from being assigned to an attendee whose price rounds to zero.
     const attendeeTotals = attendees.map((_, index) => ({ amountMinor: split(line.amountMinor, line.quantity, index) }));
+    // split() is monotone in the amount, so each attendee's saving is >= 0.
+    const attendeeDiscounts = attendees.map((_, index) => split(line.listMinor, line.quantity, index) - attendeeTotals[index].amountMinor);
     const attendeeTraining = allocateFunnelAmounts(attendeeTotals, line.trainingFundMinor);
     const attendeeVoucher = allocateFunnelAmounts(attendeeTotals.map((row,index) => ({ amountMinor: row.amountMinor-attendeeTraining[index] })), line.voucherMinor);
     line.registrations = attendees.map((attendee, index) => {
@@ -104,8 +125,14 @@ export function buildFunnelRegistrationPlan(snapshot, {
       const funded = attendeeTraining[index] + attendeeVoucher[index];
       const cash = gross - funded;
       const isCard = paymentMethod === 'card' && cash > 0;
+      const saving = attendeeDiscounts[index];
+      // Match normal checkout storage: simple total_cost is before the code
+      // (saving in discount_code_amount); complex ticket_price is after it.
+      const discountColumns = !line.discountMinor ? {} : line.eventKind === 'simple'
+        ? { discount_code_id: discount.discountCodeId, discount_code_amount: saving / 100 }
+        : { discount_code_id: discount.discountCodeId, discount_code: discount.code, discount_amount: saving / 100 };
       return {
-        id, places: line.places / line.quantity, grossMinor: gross, payableMinor: cash,
+        id, places: line.places / line.quantity, grossMinor: gross, payableMinor: cash, discountMinor: saving,
         voucherMinor: attendeeVoucher[index], trainingFundMinor: attendeeTraining[index],
         row: {
           id, tenant_id: snapshot.session.tenant_id, event_id: line.eventId,
@@ -114,12 +141,13 @@ export function buildFunnelRegistrationPlan(snapshot, {
           attendee_email: attendee.email, attendee_first_name: attendee.first_name, attendee_last_name: attendee.last_name,
           attendee_phone: attendee.phone || null, attendee_job_title: attendee.job_title || null,
           ...(line.eventKind === 'simple' ? { is_one_off_event: true, is_guest_booking: !snapshot.session.member_id,
-            guest_organisation_name: attendee.organization || null, total_cost: gross / 100, account_amount: paymentMethod === 'account' ? cash / 100 : 0 }
+            guest_organisation_name: attendee.organization || null, total_cost: (gross + saving) / 100, account_amount: paymentMethod === 'account' ? cash / 100 : 0 }
             : { attendee_organization: attendee.organization || null, currency: compatibility.currency.toLowerCase(),
               payment_status: isCard || (cash === 0 && funded > 0) ? 'paid' : cash ? 'pending' : 'free', total_paid: isCard ? cash / 100 : 0, account_balance_amount: 0 }),
           status: 'confirmed', payment_method: cash ? paymentMethod : attendeeVoucher[index] > 0 ? 'voucher' : attendeeTraining[index] > 0 ? 'training_fund' : 'free',
           ticket_class_id: line.ticketId === 'default' && line.eventKind === 'simple' ? null : line.ticketId,
-          ticket_class_name: line.priceSnapshot.ticketName || 'Admission', ticket_price: gross / 100,
+          ticket_class_name: line.priceSnapshot.ticketName || 'Admission',
+          ticket_price: (line.eventKind === 'simple' ? gross + saving : gross) / 100, ...discountColumns,
           voucher_amount: attendeeVoucher[index] / 100, training_fund_amount: attendeeTraining[index] / 100,
           purchase_order_number: purchaseOrderNumber || null,
           third_party_consent: typeof draft.third_party_consent === 'boolean' ? draft.third_party_consent : null,
@@ -152,6 +180,9 @@ export function buildFunnelRegistrationPlan(snapshot, {
     invoiceDate: new Date(snapshot.serverNow).toISOString().slice(0,10),
     purchaseOrderNumber: purchaseOrderNumber || null,
     paymentMethod, paymentMethods, paymentAuthority: structuredClone(positive?.priceSnapshot.commercial?.stripe || null),
-    currency: compatibility.currency, payableMinor, voucherMinor, voucherAllocations:structuredClone(voucherAllocations), trainingFundMinor, lines,
+    currency: compatibility.currency, payableMinor, voucherMinor, discountMinor,
+    discounts: discount ? [{ discountCodeId: discount.discountCodeId, code: discount.code, type: discount.type,
+      value: discount.value, discountMinor, lines: lines.filter(line => line.discountMinor > 0)
+        .map(line => ({ nodeId: line.nodeId, ticketId: line.ticketId, discountMinor: line.discountMinor })) }] : [], voucherAllocations:structuredClone(voucherAllocations), trainingFundMinor, lines,
   };
 }

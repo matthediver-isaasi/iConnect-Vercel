@@ -18,7 +18,7 @@ before(async()=>{
   `},bundle:true,write:false,outdir:'out',format:'esm',jsx:'automatic',
     alias:{'@':path.resolve('client/src')},plugins:[{name:'isolated-funding-and-provider-ui',setup(b){
       b.onResolve({filter:/EventFunnelCheckout(Funding|Payment)$/},args=>({path:args.path,namespace:'fixture'}));
-      b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export default function Fixture(){return null}; export const EventFunnelTrainingFund = Fixture;',loader:'js'}));
+      b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export default function Fixture(){return null}; export const EventFunnelTrainingFund = Fixture; export const EventFunnelDiscountCode = Fixture;',loader:'js'}));
     }}]});
   const js=output.outputFiles.find(file=>file.path.endsWith('.js')).text;
   server=createServer(async(req,res)=>{
@@ -31,7 +31,7 @@ before(async()=>{
         atCheckout:true,customers:[],memberFunding:false,trainingFund:{enabled:false},order:fixture.order,
         lines:[{nodeId:'source',ticketId:'A',quantity:1,eventTitle:'Conference',ticketName:'Admission'}]}));
       if(body.action==='quote') return res.end(JSON.stringify({revision:2,currency:'GBP',payableMinor:0,
-        trainingFundMinor:0,voucherMinor:0,paymentMethod:'free',paymentMethods:['free'],invoiceMode:'per_event',
+        trainingFundMinor:0,voucherMinor:0,discountMinor:0,discountCode:null,paymentMethod:'free',paymentMethods:['free'],invoiceMode:'per_event',
         lines:[{nodeId:'source',ticketId:'A',quantity:1,amountMinor:0,payableMinor:0,trainingFundMinor:0,voucherMinor:0}]}));
       if(body.action==='prepare'){
         if(fixture.closed){res.statusCode=409;return res.end(JSON.stringify({error:'Closed',code:'CHECKOUT_NOT_READY'}));}

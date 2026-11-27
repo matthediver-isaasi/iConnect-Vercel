@@ -22,14 +22,15 @@ export function createEventFunnelCheckoutHandler({db,resolveTenant,loadViewer,re
       requireSameOriginJson(req);
       const body=req.body;
       if(!body || typeof body!=='object' || Array.isArray(body) || JSON.stringify(body).length>80000
-        || !uuid(body.sessionId) || !['summary','quote','prepare','payment','status','cancel'].includes(body.action)) {
+        || !uuid(body.sessionId) || !['summary','quote','discount','prepare','payment','status','cancel'].includes(body.action)) {
         fail('Invalid checkout request.','INVALID_REQUEST');
       }
-      const fields=['sessionId','action',...(['quote','prepare'].includes(body.action)?['command']:['payment','status','cancel'].includes(body.action)?['orderId']:[])];
+      const fields=['sessionId','action',...(['quote','discount','prepare'].includes(body.action)?['command']:['payment','status','cancel'].includes(body.action)?['orderId']:[])];
       if(Object.keys(body).some(key=>!fields.includes(key))) fail('Unexpected checkout details.','INVALID_REQUEST');
       const owner=await requireFunnelOwner({req,res,db,resolveTenant,loadViewer,sessionId:body.sessionId});
       if(body.action==='summary') return res.status(200).json(await checkout.summary(owner));
       if(body.action==='quote') return res.status(200).json(await checkout.quote(owner,body.command));
+      if(body.action==='discount') return res.status(200).json(await checkout.discount(owner,body.command));
       if(body.action==='prepare') {
         if(!Number.isSafeInteger(body.command?.expectedPayableMinor) || body.command.expectedPayableMinor<0) {
           fail('Review a current checkout quote before confirming.','QUOTE_REQUIRED');

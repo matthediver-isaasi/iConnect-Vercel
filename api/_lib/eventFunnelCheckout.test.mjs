@@ -125,3 +125,75 @@ test('changed eligibility or prices leave the original reservation and payment u
     assert.equal(f.calls.some(call=>call.name==='event_funnel_prepare_order'),false);
   }
 });
+
+function discountFixture(code={},{member={organization_id:uuid(8),role_id:uuid(9)},ready=true}={}) {
+  const f=fixture();
+  const row={id:uuid(30),tenant_id:f.owner.tenantId,code:'SPRING10',is_active:true,expires_at:null,event_id:uuid(4),
+    ticket_class_id:null,type:'percentage',value:10,max_usage_count:null,current_usage_count:0,
+    organization_id:null,member_id:null,role_id:null,member_group_id:null,...code};
+  const queries=[];
+  const table=name=>{
+    const q={filters:[],select(){return q;},eq(k,v){q.filters.push([k,v]);return q;},ilike(k,v){q.filters.push(['ilike',v]);return q;},
+      limit(){return Promise.resolve(q.result());},maybeSingle(){return Promise.resolve(q.result(true));},
+      result(single){
+        queries.push({name,filters:q.filters});
+        if(name==='discount_code')return {data:q.filters.some(([k,v])=>k==='ilike'&&v.toLowerCase()===row.code.toLowerCase())?[row]:[]};
+        if(name==='member')return {data:single?member:[member]};
+        if(name==='member_group_assignment')return {data:[]};
+        if(name==='discount_code_usage')return {data:[]};
+        throw new Error(name);
+      }};
+    return q;
+  };
+  const rpc=f.dependencies.db.rpc;
+  f.dependencies.db.rpc=async(name,args)=>name==='event_funnel_discount_ready'?{data:ready}:rpc(name,args);
+  f.dependencies.db.from=table;
+  f.service=createFunnelCheckoutService(f.dependencies);
+  return {...f,row,queries};
+}
+test('a discount code reduces only the source event before funding and is frozen in the order',async()=>{
+  const f=discountFixture();
+  const checked=await f.service.discount(f.owner,{expectedRevision:2,discountCode:' spring10 '});
+  assert.deepEqual({code:checked.code,discountMinor:checked.discountMinor},{code:'SPRING10',discountMinor:50});
+  const quote=await f.service.quote(f.owner,{...f.command,discountCode:'spring10',trainingFundMinor:100});
+  assert.equal(quote.discountMinor,50);assert.equal(quote.discountCode,'SPRING10');
+  assert.equal(quote.payableMinor,350);
+  assert.deepEqual([quote.lines[0].listMinor,quote.lines[0].discountMinor,quote.lines[0].amountMinor],[500,50,450]);
+  await assert.rejects(f.service.prepare(f.owner,{...f.command,discountCode:'spring10',expectedPayableMinor:500}),{code:'QUOTE_CHANGED'});
+  const order=await f.service.prepare(f.owner,{...f.command,discountCode:'spring10',expectedPayableMinor:450});
+  const plan=order.snapshot;
+  assert.equal(plan.payableMinor,450);
+  assert.deepEqual(plan.discounts.map(d=>[d.discountCodeId,d.code,d.discountMinor]),[[uuid(30),'SPRING10',50]]);
+  const registration=plan.lines[0].registrations[0];
+  assert.equal(registration.grossMinor,450);assert.equal(registration.discountMinor,50);
+  // Simple-event storage matches normal checkout: total before the code.
+  assert.equal(registration.row.total_cost,5);assert.equal(registration.row.discount_code_amount,0.5);
+  assert.equal(registration.row.discount_code_id,uuid(30));
+  // A typed wildcard can never match another code.
+  assert.ok(f.queries.every(q=>q.name!=='discount_code'||q.filters.some(([k,v])=>k==='ilike'&&v==='spring10')));
+});
+test('discount codes follow normal checkout eligibility and fail closed',async()=>{
+  const cases=[
+    [{event_id:uuid(99)},'not valid for this event'],
+    [{ticket_class_id:uuid(98)},'selected ticket'],
+    [{expires_at:'2000-01-01T00:00:00Z'},'expired'],
+    [{max_usage_count:3,current_usage_count:3},'maximum uses'],
+    [{organization_id:uuid(97)},'organization'],
+    [{role_id:uuid(96)},'role'],
+    [{member_group_id:uuid(95)},'group'],
+    [{member_id:uuid(94)},'account'],
+  ];
+  for(const [code,reason] of cases) {
+    const f=discountFixture(code);
+    await assert.rejects(f.service.discount(f.owner,{expectedRevision:2,discountCode:'SPRING10'}),
+      error=>error.code==='DISCOUNT_INVALID'&&error.message.includes(reason));
+  }
+  const missing=discountFixture();
+  await assert.rejects(missing.service.quote(missing.owner,{...missing.command,discountCode:'NOPE'}),{code:'DISCOUNT_INVALID'});
+  const off=discountFixture({}, {ready:false});
+  await assert.rejects(off.service.discount(off.owner,{expectedRevision:2,discountCode:'SPRING10'}),{code:'DISCOUNT_UNAVAILABLE'});
+  assert.equal((await off.service.summary(off.owner)).discountCodes.enabled,false);
+  const fixed=discountFixture({type:'fixed',value:20});
+  const quote=await fixed.service.quote(fixed.owner,{...fixed.command,discountCode:'SPRING10'});
+  assert.equal(quote.discountMinor,500);assert.equal(quote.payableMinor,0);assert.equal(quote.paymentMethod,'free');
+});

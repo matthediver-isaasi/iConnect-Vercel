@@ -192,3 +192,4 @@
 - [Member DD self-cancellation](member-dd-self-cancellation-policy.md) — >= instalment threshold across lineage, paid-period end, fallback role not login block, no withdrawal.
 - [Members can register others](event-register-others-policy.md) — per-event self-only booking for members; default allowed; reject via compensation path after card payment.
 - [Event funnel groups, links and cart](event-funnel-groups-links.md) — collections, SQL link scoping; cart removals are confirmed skips that release dependants.
+- [Event funnel discount codes](event-funnel-discount-codes.md) — source event only, before funding; usage counted on confirmation; fail-closed until migration installed.

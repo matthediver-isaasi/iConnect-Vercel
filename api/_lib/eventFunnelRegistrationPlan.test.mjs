@@ -124,3 +124,25 @@ test('expired, incomplete, unauthorized-method and guest-funding plans fail clos
   const guest = fixture(); guest.session.member_id = null;
   assert.throws(() => buildFunnelRegistrationPlan(guest, { ...options, voucherMinor: 1 }));
 });
+test('a source-event discount balances across attendees and funding, and never reaches other lines',()=>{
+  // Three tickets (301p total) with a 100p saving and 50p training fund.
+  const discount={discountCodeId:uuid(30),code:'SPRING',type:'fixed',value:1,discountMinor:100,
+    lines:[{nodeId:'source',ticketId:'A',discountMinor:100}]};
+  const plan=buildFunnelRegistrationPlan(fixture(),{...options,discount,trainingFundMinor:50});
+  const [line]=plan.lines;
+  assert.deepEqual([line.listMinor,line.discountMinor,line.amountMinor],[301,100,201]);
+  assert.equal(plan.discountMinor,100);assert.equal(plan.payableMinor,151);
+  assert.equal(line.registrations.reduce((n,r)=>n+r.discountMinor,0),100);
+  assert.equal(line.registrations.reduce((n,r)=>n+r.grossMinor,0),201);
+  for(const r of line.registrations) {
+    assert.ok(r.discountMinor>=0);
+    assert.equal(r.grossMinor,r.payableMinor+r.trainingFundMinor+r.voucherMinor);
+    assert.equal(Math.round(r.row.total_cost*100),r.grossMinor+r.discountMinor);
+  }
+  assert.throws(()=>buildFunnelRegistrationPlan(fixture(),{...options,discount:{...discount,
+    lines:[{nodeId:'extra',ticketId:'A',discountMinor:100}]}}),/original event purchase/);
+  assert.throws(()=>buildFunnelRegistrationPlan(fixture(),{...options,discount:{...discount,discountMinor:400,
+    lines:[{nodeId:'source',ticketId:'A',discountMinor:400}]}}),/exceed/);
+  assert.throws(()=>buildFunnelRegistrationPlan(fixture(),{...options,discount,trainingFundMinor:202}),/funding/i);
+  assert.deepEqual(buildFunnelRegistrationPlan(fixture(),options).discounts,[]);
+});

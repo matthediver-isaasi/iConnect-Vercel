@@ -8,7 +8,8 @@ import { funnelCartRows, previewFunnelRemoval } from '@/lib/eventFunnelCart.mjs'
  * journey skip: the server re-plans the route, releasing any selection that
  * required it. The confirmation previews that outcome with the same planner.
  */
-export default function EventFunnelCart({ snapshot, lines, money, canRemove, onRemove }) {
+export default function EventFunnelCart({ snapshot, lines, money, canRemove, onRemove, discounts = [] }) {
+  const savingFor = line => discounts.find(part => part.nodeId === line.nodeId && part.ticketId === line.ticketId)?.discountMinor || 0;
   const rows = useMemo(() => funnelCartRows(snapshot, lines), [snapshot, lines]);
   const [confirming, setConfirming] = useState(null);
   const [removing, setRemoving] = useState(false);
@@ -71,8 +72,13 @@ export default function EventFunnelCart({ snapshot, lines, money, canRemove, onR
         <td data-label="Qty" className="event-funnel-cart__num">{row.line.quantity}</td>
         <td data-label="Price" className="event-funnel-cart__num">{Number.isSafeInteger(row.line.unitMinor)
           ? row.line.unitMinor === 0 ? 'Free' : money(row.line.unitMinor) : '—'}</td>
-        <td data-label="Total" className="event-funnel-cart__num event-funnel-cart__total">{Number.isSafeInteger(row.line.amountMinor)
-          ? row.line.amountMinor === 0 ? 'Free' : money(row.line.amountMinor) : '—'}</td>
+        <td data-label="Total" className="event-funnel-cart__num event-funnel-cart__total">{!Number.isSafeInteger(row.line.amountMinor) ? '—'
+          : savingFor(row.line) > 0 ? <span data-testid={`event-funnel-cart-discount-${row.key}`}>
+            <s className="block text-xs font-normal text-slate-500">{money(row.line.amountMinor)}</s>
+            {money(row.line.amountMinor - savingFor(row.line))}
+            <span className="block text-xs font-normal text-green-700">Discount −{money(savingFor(row.line))}</span>
+          </span>
+          : row.line.amountMinor === 0 ? 'Free' : money(row.line.amountMinor)}</td>
       </tr>)}</tbody>
     </table>
 
