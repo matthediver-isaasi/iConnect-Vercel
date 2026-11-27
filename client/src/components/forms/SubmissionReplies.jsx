@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -47,6 +47,37 @@ export default function SubmissionReplies({
   const [bccEmail, setBccEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [senderMode, setSenderMode] = useState("default");
+  const [senderOptions, setSenderOptions] = useState(null);
+  const [senderState, setSenderState] = useState("loading");
+  const [senderRetry, setSenderRetry] = useState(0);
+  const tenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
+  const senderContext = `${tenantId || ""}:${submissionId}`;
+  const senderReady = senderState === "ready" && senderOptions?.context === senderContext;
+  const selectedSenderReady = senderReady && !!senderOptions?.defaultSender?.email
+    && (senderMode === "default" || (senderMode === "me"
+      && !!senderOptions?.personalSender?.name && !!senderOptions?.personalSender?.email));
+
+  useEffect(() => {
+    if (!composeOpen || !submissionId) return;
+    let cancelled = false;
+    setSenderState("loading");
+    setSenderOptions(null);
+    fetch(`/api/forms/send-submission-reply?submission_id=${encodeURIComponent(submissionId)}`, {
+      credentials: "include",
+      cache: "no-store",
+      headers: tenantId ? { "X-Tenant-Id": tenantId } : {},
+    }).then(async response => {
+      if (!response.ok) throw new Error("Sender options unavailable");
+      const data = await response.json();
+      if (!data?.defaultSender?.email || !data?.defaultSender?.from) throw new Error("Sender options unavailable");
+      if (!cancelled) {
+        setSenderOptions({ ...data, context: senderContext });
+        setSenderState("ready");
+      }
+    }).catch(() => { if (!cancelled) setSenderState("error"); });
+    return () => { cancelled = true; };
+  }, [composeOpen, submissionId, tenantId, senderContext, senderRetry]);
 
   const { data: replies = [], isLoading } = useQuery({
     queryKey: submissionRepliesQueryKey(submissionId),
@@ -62,6 +93,9 @@ export default function SubmissionReplies({
   });
 
   const openCompose = () => {
+    setSenderMode("default");
+    setSenderOptions(null);
+    setSenderState("loading");
     setToEmail(defaultEmail || "");
     setCcEmail("");
     setBccEmail("");
@@ -72,9 +106,10 @@ export default function SubmissionReplies({
 
   const sendMutation = useMutation({
     mutationFn: async () => {
+      if (!selectedSenderReady) throw new Error("Resolve the selected sender before sending.");
       const res = await fetch("/api/forms/send-submission-reply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(tenantId ? { "X-Tenant-Id": tenantId } : {}) },
         credentials: "include",
         body: JSON.stringify({
           submission_id: submissionId,
@@ -83,6 +118,7 @@ export default function SubmissionReplies({
           bcc: bccEmail.trim() || undefined,
           subject: subject.trim(),
           html: body,
+          senderMode,
         }),
       });
       let payload = null;
@@ -95,6 +131,7 @@ export default function SubmissionReplies({
         const err = new Error(payload?.error || `Failed to send reply (${res.status})`);
         // A 502 means the email failed but the attempt was still persisted.
         err.persistedRecord = payload?.record || null;
+        err.senderUnavailable = payload?.code === "SENDER_UNAVAILABLE";
         throw err;
       }
       return payload;
@@ -108,6 +145,10 @@ export default function SubmissionReplies({
     },
     onError: (err) => {
       toast.error(err?.message || "Failed to send reply");
+      if (err?.senderUnavailable) {
+        setSenderState("error");
+        setSenderOptions(null);
+      }
       // If the failed attempt was recorded server-side, surface it immediately.
       if (err?.persistedRecord) {
         setExpanded(true);
@@ -122,6 +163,7 @@ export default function SubmissionReplies({
     toEmail.trim() &&
     subject.trim() &&
     body.replace(/<[^>]*>/g, "").trim() &&
+    selectedSenderReady &&
     !sendMutation.isPending;
 
   const replyCount = replies.length;
@@ -190,7 +232,7 @@ export default function SubmissionReplies({
                 To: {reply.to_email}
                 {reply.cc_email ? ` · Cc: ${reply.cc_email}` : ""}
                 {reply.bcc_email ? ` · Bcc: ${reply.bcc_email}` : ""}
-                {reply.sent_by_email ? ` · From: ${reply.sent_by_email}` : ""}
+                {reply.sent_by_email ? ` · Sent by: ${reply.sent_by_email}` : ""}
               </div>
               {reply.delivery_status === "failed" && reply.delivery_error && (
                 <div className="mt-1 text-xs text-destructive">
@@ -209,8 +251,8 @@ export default function SubmissionReplies({
         </div>
       )}
 
-      <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={composeOpen} onOpenChange={open => { if (!sendMutation.isPending) setComposeOpen(open); }}>
+        <DialogContent className="max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Send reply</DialogTitle>
             <DialogDescription>
@@ -220,6 +262,40 @@ export default function SubmissionReplies({
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor={`reply-sender-${submissionId}`}>Sender</Label>
+              <select
+                id={`reply-sender-${submissionId}`}
+                aria-describedby={`reply-sender-description-${submissionId}`}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={senderMode}
+                onChange={event => setSenderMode(event.target.value)}
+                disabled={sendMutation.isPending || !senderReady}
+              >
+                <option value="default">Default sender{senderReady ? ` — ${senderOptions.defaultSender.email}` : ""}</option>
+                <option value="me" disabled={!senderReady || !senderOptions?.personalSender}>
+                  Send as me{senderReady && senderOptions.personalSender ? ` — ${senderOptions.personalSender.email}` : ""}
+                </option>
+              </select>
+              <div id={`reply-sender-description-${submissionId}`} className="text-sm text-muted-foreground" aria-live="polite">
+                {senderState === "loading" && <p>Loading sender addresses…</p>}
+                {senderState === "error" && (
+                  <div role="alert">
+                    <p>Sender addresses could not be loaded. Your draft is preserved. Retry before sending.</p>
+                    <Button variant="outline" size="sm" onClick={() => setSenderRetry(value => value + 1)}>Retry sender lookup</Button>
+                  </div>
+                )}
+                {senderReady && <>
+                  <p>Sending From: {senderMode === "me" && senderOptions.personalSender
+                    ? `${senderOptions.personalSender.name} <${senderOptions.defaultSender.email}>`
+                    : senderOptions.defaultSender.from}</p>
+                  <p>Replies go to: {senderMode === "me" && senderOptions.personalSender
+                    ? senderOptions.personalSender.email : senderOptions.defaultSender.email}</p>
+                  <p>Send as me uses your name and personal Reply-To, not your personal mailbox. The organisation’s approved sending address, or the platform fallback, is retained.</p>
+                  {!senderOptions.personalSender && <p>{senderOptions.personalUnavailableReason || "Your personal sender details are unavailable. Use Default sender."}</p>}
+                </>}
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor={`reply-to-${submissionId}`}>To</Label>
               <Input

@@ -55,10 +55,20 @@ export function isDeliveryRateLimit(error) {
   return Number(error?.status || error?.statusCode || error?.response?.status) === 429;
 }
 
-export async function quoteSenderHeaders(tenantId, sender, dependencies = {}) {
+// Shared by delivery and read-only sender discovery; never infer this in a client.
+export async function resolveDefaultSender(tenantId, dependencies = {}) {
   const config = await (dependencies.getTenantEmailConfig || getTenantEmailConfig)(tenantId);
   const fallback = dependencies.defaultFrom || DEFAULT_FROM;
-  const email = config?.fromEmail || (fallback.match(/<([^<>]+)>/)?.[1] || fallback).trim();
+  const from = config ? `${config.fromName} <${config.fromEmail}>` : fallback;
+  return {
+    domain: config?.domain || dependencies.defaultDomain || DEFAULT_DOMAIN,
+    from,
+    email: (from.match(/<([^<>]+)>/)?.[1] || from).trim(),
+  };
+}
+
+export async function quoteSenderHeaders(tenantId, sender, dependencies = {}) {
+  const { email } = await resolveDefaultSender(tenantId, dependencies);
   if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) throw new Error('Invalid tenant sending address');
   const name = String(sender.name).replace(/[\r\n]/g, ' ').replace(/["\\]/g, '');
   return { from: `"${name}" <${email}>`, replyTo: sender.email };
@@ -377,17 +387,10 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     fromAddress = PLATFORM_SYSTEM_FROM;
     console.log(`[Email Service] systemEmail=true → forcing platform domain: ${domain}, from: ${fromAddress}`);
   } else {
-    const loadTenantEmailConfig = dependencies.getTenantEmailConfig || getTenantEmailConfig;
-    const tenantConfig = await loadTenantEmailConfig(tenantId);
-    if (tenantConfig) {
-      domain = tenantConfig.domain;
-      if (!from) {
-        fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
-      }
-      console.log(`[Email Service] Using tenant domain: ${domain} (tenantId: ${tenantId})`);
-    } else {
-      console.log(`[Email Service] Using fallback domain: ${domain} (tenantId: ${tenantId || 'not provided'})`);
-    }
+    const sender = await resolveDefaultSender(tenantId, dependencies);
+    domain = sender.domain;
+    if (!from) fromAddress = sender.from;
+    console.log(`[Email Service] Using sending domain: ${domain} (tenantId: ${tenantId || 'not provided'})`);
   }
 
   try {
@@ -545,7 +548,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     // messageData.from so the fallback-domain identity is captured correctly.
     const maybeRecordInbox = async () => {
       if (!inboxDelivery || !inboxDelivery.memberId) return;
-      await recordTransactionalInboxMessage({
+      await (dependencies.recordTransactionalInboxMessage || recordTransactionalInboxMessage)({
         tenantId,
         memberId: inboxDelivery.memberId,
         to,
