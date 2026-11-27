@@ -189,3 +189,4 @@
 - [Xero invoice semantics](xero-optional-credited-amount.md) — AmountCredited may be absent; verified VOIDED invoices can retain the original AmountDue. Preserve actual provider evidence.
 - [React Flow measurements](react-flow-controlled-measurements.md) — controlled display nodes need retained dimensions for the mini-map, even when the main graph renders normally.
 - [Route page classification](route-page-classification.md) — parameterised routes classify by matched component; guest-readable ones must opt into the hybrid set.
+- [Member DD self-cancellation](member-dd-self-cancellation-policy.md) — >= instalment threshold across lineage, paid-period end, fallback role not login block, no withdrawal.

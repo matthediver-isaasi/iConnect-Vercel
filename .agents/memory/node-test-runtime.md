@@ -45,3 +45,5 @@ tests; its reported count exposed that only the other files had run.
 
 **How to apply:** Use a bounded wildcard directory pattern or escape brackets
 for Node itself, and check that the reported test count includes every suite.
+
+- Hand-copied JSDOM globals cover only what earlier tests used; when a newly mounted component throws ReferenceError for a DOM constructor, the harness is incomplete, not the component.

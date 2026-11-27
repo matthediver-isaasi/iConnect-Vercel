@@ -15,6 +15,7 @@ import {
 } from './registry';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
+import { MemberDdCancellationAction, MemberDdCancellationNotice } from './MemberDdCancellation';
 import {
   normalizeCanvasMembershipContent, normalizeCanvasMembershipSummary,
   getCanvasMembershipDefaults,
@@ -39,7 +40,7 @@ const roleDefaults = {
   link: { fontSize: 17, lineHeight: 1.5, fontWeight: 700, color: 'var(--cb-color-primary, #9a4d16)' },
 };
 const stateColors = {
-  current_direct_debit: '#237249',
+  current_direct_debit: '#237249', cancellation_scheduled: '#865d10', cancelled: '#667085',
   active: '#237249', paid: '#237249', pending: '#865d10', paused: '#865d10', expired: '#667085',
   failed: '#b42318', unavailable: '#667085', none: '#667085',
 };
@@ -213,7 +214,9 @@ export function MembershipDataView({
       ? new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' })
         .format(new Date(summary.membership.paymentHistoryFrom)) : content.messages.missing,
   };
-  const paymentFactsAvailable = !['unavailable', 'none', 'paid'].includes(summary.payment.state);
+  const paymentFactsAvailable = !['unavailable', 'none', 'paid', 'cancelled'].includes(summary.payment.state);
+  // A scheduled cancellation keeps payment history but promises no future amount.
+  const cancellationScheduled = summary.payment.state === 'cancellation_scheduled';
   const fieldKeys = ['memberSince',
     ...(content.fields.membershipType && values.membershipType ? ['membershipType'] : []),
      ...(paymentFactsAvailable && !bankSetupPending ? ['amount', 'method', 'nextPayment'] : []),
@@ -284,7 +287,7 @@ export function MembershipDataView({
                <dt {...role('fieldLabel')}>{content.fields.expectedMonthlyAmount}</dt>
                <dd {...role('value', { fontSize: 24 })}>{expectedAmount ? `${expectedAmount} per month` : content.messages.amountUnknown}</dd>
              </div>}
-             {paymentFactsAvailable && !bankSetupPending && <div style={{ minWidth: 0 }}>
+             {paymentFactsAvailable && !bankSetupPending && !cancellationScheduled && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{amountLabel}</dt>
               <dd {...role('value', { fontSize: 24 })}>{nextPaymentAmount}</dd>
             </div>}
@@ -398,6 +401,9 @@ export function MembershipDataView({
           Review unfinished checkout <ArrowRight size={18} aria-hidden="true" />
         </a>
       </div>}
+      {paymentCard && ready && <MemberDdCancellationNotice request={summary.selfCancellation.request} role={role} />}
+      {paymentCard && ready && !result?.isSample && summary.selfCancellation.eligible && !summary.selfCancellation.request
+        && <MemberDdCancellationAction asEditor={asEditor} />}
       {paymentCard && ready && summary.renewal.journeyUnavailable && <p role="status" {...role('supporting')} style={{ marginTop: 16 }}>
         We could not load your renewal journey. Please try again or contact the membership team.
       </p>}

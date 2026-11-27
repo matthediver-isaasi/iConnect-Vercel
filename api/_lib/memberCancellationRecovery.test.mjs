@@ -40,3 +40,22 @@ test('missing private recovery migration is an explicit unavailable result',asyn
  const worker=createMemberCancellationRecovery({db:{async rpc(){return {error:{code:'PGRST202'}}}}});
  assert.deepEqual(await worker.run(),{available:false,outcomes:[]});
 });
+test('member paid-period jobs run without a browser and wait for the boundary, never using administrator access',async()=>{
+ for(const [result,expected] of [
+  [{record:{effective_date:'2026-07-11',access_ended_at:null,authority:{providerPrepared:{}}},stop:{state:'stopped'}},
+   {p_state:'pending',p_delay_seconds:864000}],
+  [{record:{effective_date:'2026-07-11',access_ended_at:null,authority:{providerPrepared:{}}},stop:{state:'uncertain'}},
+   {p_state:'pending',p_delay_seconds:900}],
+  [{record:{effective_date:'2026-07-01',access_ended_at:'2026-07-01T00:01:00Z',authority:{providerPrepared:null}},stop:null},
+   {p_state:'done'}],
+ ]){
+  const f=fixture();Object.assign(f.record,{mode:'member_paid_period',access_ended_at:null});
+  const contexts=[];
+  const worker=createMemberCancellationRecovery({db:f.db,now:()=>Date.parse('2026-07-01T00:00:00Z'),
+   requests:{async recover(){throw Error('administrator lifecycle must not run');}},
+   memberDd:{async recoverRecord(context,record){contexts.push(context);assert.equal(record.id,'request');return result;}}});
+  await worker.run({limit:1});
+  assert.equal(contexts[0].actorKind,'system');
+  for(const [key,value] of Object.entries(expected))assert.equal(f.finishes[0][key],value);
+ }
+});

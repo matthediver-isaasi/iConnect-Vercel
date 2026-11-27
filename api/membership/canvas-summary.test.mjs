@@ -1269,3 +1269,34 @@ test('database failures are explicit errors, never a successful empty or partial
     assert.match(res.headers['Cache-Control'], /no-store/);
   }
 });
+test('member DD self-cancellation is exposed from database status and a scheduled stop is truthful', async () => {
+  const actors = [];
+  const scheduled = { id: 'r1', state: 'scheduled', effectiveDate: '2027-03-01', paidThroughDate: '2027-02-28',
+    fallbackRoleName: 'Supporter', providerState: 'stopped', needsReview: false };
+  for (const [status, check] of [
+    [{ eligible: true, request: null }, r => {
+      assert.deepEqual(r.payload.selfCancellation, { eligible: true, request: null });
+      assert.equal(r.payload.payment.state, 'current_direct_debit');
+    }],
+    [{ eligible: false, request: scheduled }, r => {
+      assert.equal(r.payload.selfCancellation.request.state, 'scheduled');
+      assert.equal(r.payload.payment.state, 'cancellation_scheduled');
+      assert.equal(r.payload.payment.nextPayment, null);
+      assert.equal(r.payload.renewal.eligible, false);
+    }],
+    [{ eligible: false, blocker: 'below_threshold', request: null }, r => {
+      assert.equal(r.payload.selfCancellation, undefined);
+    }],
+  ]) {
+    const h = harness({ rows: dynamicRows(), extra: { loadSelfCancellation: async actor => { actors.push(actor); return status; } } });
+    const result = await h.request();
+    assert.equal(result.statusCode, 200);
+    check(result);
+  }
+  assert.ok(actors.every(a => a.memberId === member.id && a.actorId === member.id && a.actorKind === 'member'));
+  // Unknown eligibility never exposes a working action, and the card still loads.
+  const failing = harness({ rows: dynamicRows(), extra: { loadSelfCancellation: async () => { throw new Error('db'); } } });
+  const result = await failing.request();
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.selfCancellation, undefined);
+});

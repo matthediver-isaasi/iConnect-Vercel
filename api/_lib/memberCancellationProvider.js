@@ -60,7 +60,7 @@ export function createMemberCancellationProvider({
    fail('Direct Debit subscription or payer changed.');
   }
   if(['cancelled','finished'].includes(subscription.status)){
-   return {state:'stopped',subscriptionId:a.subscriptionId,
+   return {state:'stopped',subscriptionId:a.subscriptionId,providerStatus:subscription.status,
     existingPaymentsRequireReconciliation:true};
   }
   if(!['active','paused'].includes(subscription.status)||mandate.status!=='active'){

@@ -148,6 +148,21 @@ async function upsertRenewalRow(db, row) {
  * auto-renew member, reusing the active mandate. Never touches the previous
  * agreement/plan. Returns { renewed, agreement?, detail }.
  */
+// A member's own paid-period cancellation stops automatic continuation. The
+// database also rejects the successor agreement; this read gives a clean skip.
+async function memberCancelledAgreement(db, tenantId, memberId, agreementId) {
+  if (!db?.from) return false;
+  const { data, error } = await db.from('member_cancellation_request').select('id')
+    .eq('tenant_id', tenantId).eq('member_id', memberId).eq('mode', 'member_paid_period')
+    .is('withdrawn_at', null).eq('source_snapshot->>billing_agreement_id', agreementId).limit(1);
+  if (error) {
+    // Before the member cancellation contract is installed no such request exists.
+    if (['42703', '42P01', 'PGRST204', 'PGRST205'].includes(error.code)) return false;
+    throw new Error(`Could not verify member cancellation before renewal: ${error.message}`);
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function executeAutoRenewal({ tenantId, memberId, organizationId, previousAgreement, renewalRow, deps = {} }) {
   const d = defaultDeps(deps);
   const db = d.db;
@@ -158,6 +173,9 @@ async function executeAutoRenewal({ tenantId, memberId, organizationId, previous
     throw new Error('Renewal agreement does not belong to the requested membership owner.');
   }
 
+  if (!organizationId && await memberCancelledAgreement(db, tenantId, memberId, previousAgreement.id)) {
+    return { renewed: false, detail: 'The member cancelled this Direct Debit membership; it does not renew.' };
+  }
   const priorSnapshot = previousAgreement.metadata?.dd;
   const authority = resolveSavedCollectionPolicy(priorSnapshot);
   const boundary = computeRenewalWindow(priorSnapshot)?.yearEnd;

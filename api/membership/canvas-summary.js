@@ -300,6 +300,21 @@ async function readHistory(db, tenantId, column, ownerId, table, source) {
   }
 }
 
+// A scheduled or completed member cancellation is shown truthfully: no future
+// collection is promised, and the fenced plan is not described as "paused".
+export function withSelfCancellation(summary) {
+  const request = summary?.selfCancellation?.request;
+  if (request?.state !== 'scheduled') return summary;
+  return {
+    ...summary,
+    payment: {
+      ...summary.payment,
+      state: 'cancellation_scheduled',
+      nextPayment: null, nextCollection: null, plannedPayment: null, plannedCollection: null,
+    },
+  };
+}
+
 export async function matchingBillingEvidence(db, selected, tenantId, memberId) {
   const record = selected?.record;
   if (!record || record.membership_source !== 'personal' || !record.billing_agreement_id) return null;
@@ -594,10 +609,31 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         selected, owner, today,
       });
       if (paymentRecovery.available) summary.paymentRecovery = paymentRecovery;
+      // Member self-cancellation: database evidence only, never a provider call.
+      // Also checked with no current commitment so a recently completed
+      // cancellation is still explained after the purchase is retired.
+      if ((plan?.provider === 'gocardless' && selected?.record?.membership_source === 'personal') || !selected) {
+        try {
+          const loadSelfCancellation = dependencies.loadSelfCancellation || (async actor => {
+            const { createMemberDdCancellation } = await import('../_lib/memberDdCancellation.js');
+            return createMemberDdCancellation({ db, now }).status(actor);
+          });
+          const self = await loadSelfCancellation({ tenantId, memberId: member.id, actorId: member.id, actorKind: 'member' });
+          if (self?.request || self?.eligible) {
+            summary.selfCancellation = { eligible: self.eligible === true, request: self.request || null };
+            // A scheduled stop must not be bypassed by renewing; once effective,
+            // the normal restart/joining journeys apply again.
+            if (self.request?.state === 'scheduled') summary.renewal = { eligible: false };
+          }
+        } catch {
+          // Unknown eligibility never exposes a working cancellation action.
+        }
+      }
       if (!selected && summary.payment.state === 'none') {
         summary.joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
       }
-      return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
+      const collected = await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today });
+      return res.json(withSelfCancellation(collected));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });
     }

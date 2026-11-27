@@ -2,13 +2,15 @@ import { MEMBERSHIP_PAYMENT_WARNINGS } from '../../../shared/membershipPaymentWa
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'bank_setup_pending', 'first_payment_pending', 'current_direct_debit', 'paused', 'expired', 'failed', 'unavailable', 'none'];
+export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'bank_setup_pending', 'first_payment_pending', 'current_direct_debit', 'cancellation_scheduled', 'cancelled', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'upfront', 'flat_rate', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
   bank_setup_pending: 'Waiting for your bank',
   current_direct_debit: 'Current membership',
+  cancellation_scheduled: 'Cancellation scheduled',
+  cancelled: 'Cancelled',
   first_payment_pending: 'Payment pending',
   active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
   failed: 'Payment failed', unavailable: 'Unavailable', none: 'No membership',
@@ -26,6 +28,8 @@ const membershipSupport = {
 const paymentHeadings = {
   bank_setup_pending: 'Your subscription',
   current_direct_debit: 'Your subscription',
+  cancellation_scheduled: 'Cancellation scheduled',
+  cancelled: 'Membership cancelled',
   first_payment_pending: 'Your subscription',
   active: 'Your subscription', paid: 'Your subscription', pending: 'Your subscription', paused: 'Your subscription',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
@@ -34,6 +38,8 @@ const paymentHeadings = {
 const paymentSupport = {
   bank_setup_pending: 'You’ve completed your Direct Debit setup. We’re waiting for your bank to finish setting it up. You don’t need to do anything.',
   current_direct_debit: '',
+  cancellation_scheduled: '',
+  cancelled: 'Your membership has been cancelled. No further membership payments will be collected.',
   first_payment_pending: 'Your payment is awaiting confirmation.',
   active: 'Your payment arrangement is active.',
   paid: 'Your current membership has been paid in full.',
@@ -252,6 +258,25 @@ function nextCollectionEvidence(value) {
     ? { ...evidence, status: source.status } : null;
 }
 
+function normalizeSelfCancellation(value) {
+  const source = record(value);
+  const request = record(source.request);
+  const validRequest = ['scheduled', 'cancelled'].includes(request.state) && isoDate(request.effectiveDate)
+    && typeof request.id === 'string';
+  return {
+    eligible: source.eligible === true && !validRequest,
+    request: validRequest ? {
+      id: request.id, state: request.state,
+      effectiveDate: isoDate(request.effectiveDate),
+      paidThroughDate: isoDate(request.paidThroughDate),
+      fallbackRoleName: typeof request.fallbackRoleName === 'string' ? request.fallbackRoleName.slice(0, 200) : null,
+      providerState: ['stopped', 'pending', 'uncertain', 'not_required', 'unknown'].includes(request.providerState)
+        ? request.providerState : 'unknown',
+      needsReview: request.needsReview === true,
+    } : null,
+  };
+}
+
 export function normalizeCanvasMembershipSummary(value) {
   const source = record(value);
   const membership = record(source.membership);
@@ -269,6 +294,8 @@ export function normalizeCanvasMembershipSummary(value) {
       entryHref: typeof joining.entryHref === 'string' && /^\/FormView\?slug=[^&\s]+$/.test(joining.entryHref) ? joining.entryHref : '' },
     // Only the authenticated server response can establish renewal eligibility.
     // A retained payment, signup quote or current collection is not a renewal quote.
+    // Server-decided only. Unknown or malformed eligibility never enables the action.
+    selfCancellation: normalizeSelfCancellation(source.selfCancellation),
     paymentRecovery: {
       available: source.paymentRecovery?.available === true
         && typeof source.paymentRecovery.entryHref === 'string'

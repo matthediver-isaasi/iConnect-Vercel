@@ -59,6 +59,13 @@ export function createMemberCancellationRequests({
   if(!uuid.test(id||''))fail('A valid cancellation request is required.');
   let record=await owned(context,{id});
   if(!record)fail('Cancellation request not found.');
+  if(record.mode==='member_paid_period'){
+   // Administrators may recover a member's own cancellation; it keeps its
+   // paid-period boundary and fallback-role outcome.
+   const {createMemberDdCancellation}=await import('./memberDdCancellation.js');
+   const result=await createMemberDdCancellation({db,now}).recoverRecord(context,record);
+   return {record:result.record,provider:result.stop?{state:result.stop.state}:null};
+  }
   if(!record.access_ended_at&&!record.withdrawn_at
    &&record.effective_date<=now().toISOString().slice(0,10)){
    record=amendmentResult(await db.rpc('apply_member_cancellation_access',{
@@ -125,20 +132,27 @@ export function createMemberCancellationRequests({
    .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).eq('status','active')
    .lte('term_start_date',today).gt('membership_renewal_date',today).limit(5));
   const requests=await read(db.from('member_cancellation_request')
-   .select('id,effective_date,timing,access_ended_at,withdrawn_at,created_at,financial_state,authority')
+   // '*' stays compatible before and after the member paid-period columns.
+   .select('*')
    .eq('tenant_id',context.tenantId).eq('member_id',context.memberId)
    .order('created_at',{ascending:false}).limit(5));
   const latestRow=(requests||[]).find(row=>!row.withdrawn_at)||null;
   let latest=null;
   if(latestRow){
    let providerState=latestRow.authority?.providerPrepared?'not_started':'not_required';
-   if(latestRow.authority?.providerPrepared&&latestRow.access_ended_at){
+   const memberMode=latestRow.mode==='member_paid_period';
+   if(latestRow.authority?.providerPrepared&&(latestRow.access_ended_at||memberMode)){
     const {data:stop,error}=await db.from('member_cancellation_provider_stop').select('state')
      .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).eq('id',latestRow.id).maybeSingle();
     providerState=error?'unknown':stop?.state||'not_started';
    }
-   const {authority,...record}=latestRow;
-   latest={...record,provider:authority?.providerPrepared?.authority?.provider||null,providerState};
+   const {id,effective_date,timing,access_ended_at,withdrawn_at,created_at,financial_state,authority}=latestRow;
+   latest={id,effective_date,timing,access_ended_at,withdrawn_at,created_at,financial_state,
+    provider:authority?.providerPrepared?.authority?.provider||null,providerState,
+    // Member-initiated detail for authorised administrators only.
+    ...(memberMode?{mode:latestRow.mode,reason:authority?.reason||null,actorId:latestRow.actor_id||null,
+     paidThroughDate:latestRow.paid_through_date||null,fallbackRoleName:authority?.fallbackRoleName||null,
+     roleOutcome:latestRow.role_outcome||null}:{})};
   }
   const current=Array.isArray(histories)?histories:[];
   const source=current.length===1?current[0]:null;

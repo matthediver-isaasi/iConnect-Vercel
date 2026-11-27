@@ -1890,7 +1890,8 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                             <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                               {record.mandatePresentation?.awaitingFirstPayment
                                 ? 'Awaiting first payment'
-                                : awaitingPayment ? 'Awaiting payment' : record.status || 'active'}
+                                : awaitingPayment ? 'Awaiting payment'
+                                : record.status === 'cancelled_by_request' ? 'Cancelled' : record.status || 'active'}
                             </Badge>
                             {!awaitingPayment && <PaymentStatusBadge paymentStatus={record.payment_status} />}
                           </div>

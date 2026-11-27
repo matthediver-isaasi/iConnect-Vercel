@@ -5,7 +5,7 @@ import { createCanvasSummaryHandler } from '../../../../../api/membership/canvas
 import { correctPortalDesign, BLOCK, DESTINATION } from '../../../../../scripts/correct-bnms-portal-renewal-link.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://tenant.test/' });
-for (const name of ['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'HTMLElement', 'Element', 'Node', 'DocumentFragment', 'CustomEvent', 'MutationObserver']) {
+for (const name of ['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'HTMLElement', 'Element', 'Node', 'DocumentFragment', 'CustomEvent', 'MutationObserver', 'NodeFilter', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLButtonElement', 'KeyboardEvent', 'MouseEvent', 'PointerEvent', 'FocusEvent']) {
   Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true });
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle;
@@ -1143,4 +1143,84 @@ test('the configured payment link cannot navigate from an editor sample', async 
     await act(async () => root.unmount());
     container.remove();
   }
+});
+test('eligible DD member cancels through reason and a separate final confirmation; duplicates are harmless', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const originalFetch = globalThis.fetch;
+  const posted = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url !== '/api/membership/member-amendments') return originalFetch(input, init);
+    const body = JSON.parse(init.body);
+    posted.push(body);
+    const reply = body.action === 'member_dd_cancellation_preview'
+      ? { eligible: true, fingerprint: 'f'.repeat(64), summary: { paidThroughDate: '2027-02-28', effectiveDate: '2027-03-01',
+        fallbackRoleName: 'Supporter', collectionsInFlight: 0 } }
+      : { request: { id: 'r1', state: 'scheduled', effectiveDate: '2027-03-01', paidThroughDate: '2027-02-28',
+        fallbackRoleName: 'Supporter', providerState: 'stopped', needsReview: false } };
+    return new Response(JSON.stringify(reply), { headers: { 'Content-Type': 'application/json' } });
+  };
+  const queryClient = new QueryClient();
+  const data = { membership: { state: 'active' }, payment: { state: 'current_direct_debit', method: 'monthly_direct_debit' },
+    selfCancellation: { eligible: true, request: null } };
+  try {
+    await act(async () => root.render(<QueryClientProvider client={queryClient}>
+      <MembershipDataView type="payment-details" block={{ id: 'pd', content: {} }} result={{ status: 'ready', data }} />
+    </QueryClientProvider>));
+    const link = container.querySelector('[data-testid="member-dd-cancel-link"]');
+    assert.equal(link.tagName, 'BUTTON');
+    assert.equal(link.textContent, 'Cancel membership');
+    await act(async () => Simulate.click(link));
+    const dialog = () => document.querySelector('[data-testid="member-dd-cancel-dialog"]');
+    assert.ok(dialog());
+    // The reason is required before anything is checked.
+    const continueButton = [...dialog().querySelectorAll('button')].find(b => b.textContent === 'Continue');
+    assert.equal(continueButton.disabled, true);
+    const reason = dialog().querySelector('textarea');
+    await act(async () => Simulate.change(reason, { target: { value: '  Moving abroad ' } }));
+    await act(async () => Simulate.submit(dialog().querySelector('form')));
+    assert.equal(posted.length, 1);
+    assert.deepEqual(posted[0], { reason: 'Moving abroad', action: 'member_dd_cancellation_preview' });
+    assert.equal(posted[0].memberId, undefined);
+    const summary = dialog().querySelector('[data-testid="member-dd-cancel-summary"]').textContent;
+    assert.match(summary, /28 February 2027/);
+    assert.match(summary, /1 March 2027/);
+    assert.match(summary, /Supporter/);
+    assert.match(summary, /No new membership payments/);
+    const confirm = dialog().querySelector('[data-testid="member-dd-cancel-confirm"]');
+    await act(async () => { Simulate.click(confirm); Simulate.click(confirm); });
+    const confirms = posted.filter(p => p.action === 'member_dd_cancellation_confirm');
+    assert.ok(confirms.length >= 1);
+    assert.ok(confirms.every(p => p.idempotencyKey === confirms[0].idempotencyKey && p.approve === true));
+    assert.match(dialog().textContent, /Cancellation scheduled/);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = originalFetch;
+    container.remove();
+  }
+});
+
+test('scheduled, cancelled and ineligible states never offer a working cancellation action', () => {
+  const base = { membership: { state: 'active' }, payment: { state: 'cancellation_scheduled', method: 'monthly_direct_debit' } };
+  const scheduled = render({ type: 'payment-details', result: { status: 'ready', data: { ...base,
+    selfCancellation: { eligible: false, request: { id: 'r', state: 'scheduled', effectiveDate: '2027-03-01',
+      paidThroughDate: '2027-02-28', fallbackRoleName: 'Supporter', providerState: 'uncertain', needsReview: true } } } } });
+  assert.match(scheduled, /Cancellation scheduled for 1 March 2027/);
+  assert.match(scheduled, /confirming with your bank/);
+  assert.doesNotMatch(scheduled, /member-dd-cancel-link/);
+  const cancelled = render({ type: 'payment-details', result: { status: 'ready', data: { ...base,
+    payment: { state: 'cancelled', method: 'monthly_direct_debit' },
+    selfCancellation: { eligible: false, request: { id: 'r', state: 'cancelled', effectiveDate: '2027-03-01' } } } } });
+  assert.match(cancelled, /Cancelled/);
+  for (const selfCancellation of [undefined, { eligible: false, request: null }]) {
+    const html = render({ type: 'payment-details', result: { status: 'ready', data: { ...live, selfCancellation } } });
+    assert.doesNotMatch(html, /member-dd-cancel-link|Cancel membership/);
+  }
+  // Membership Summary card and sample data never show the action.
+  assert.doesNotMatch(render({ result: { status: 'ready', data: { ...live, selfCancellation: { eligible: true, request: null } } } }),
+    /member-dd-cancel-link/);
+  assert.doesNotMatch(render({ type: 'payment-details', result: { status: 'ready', isSample: true,
+    data: { ...live, selfCancellation: { eligible: true, request: null } } } }), /member-dd-cancel-link/);
 });

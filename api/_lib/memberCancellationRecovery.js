@@ -1,5 +1,6 @@
 import {createMemberCancellationRequests} from './memberCancellationRequests.js';
 import {amendmentResult} from './memberAmendmentSettlement.js';
+import {createMemberDdCancellation} from './memberDdCancellation.js';
 
 // Financial writes and provider stops have their own durable operation claims.
 // Reclaiming this orchestration job never grants a second financial write.
@@ -7,7 +8,10 @@ export function createMemberCancellationRecovery({
  db,requests=createMemberCancellationRequests({db}),finance,notify,
  now=()=>Date.now(),
  claimRpc='claim_member_cancellation_jobs',allowedKinds=null,
+ memberDd=null,
 }){
+ let ddService=memberDd;
+ const dd=()=>ddService||(ddService=createMemberDdCancellation({db}));
  async function finish(job,state,message=null,delay=60,result={}){
   return amendmentResult(await db.rpc('finish_member_cancellation_job',{
    p_id:job.id,p_claim_token:job.claim_token,p_state:state,p_error:message,p_delay_seconds:delay,p_result:result,
@@ -31,7 +35,21 @@ export function createMemberCancellationRecovery({
     if(!record?.authority||record.id!==job.request_id)throw Error('Approved cancellation unavailable');
     const context={tenantId:record.tenant_id,memberId:record.member_id,actorId:record.actor_id,
      actorKind:'admin',origin:'scheduled_recovery'};
-    if(job.kind==='lifecycle'){
+    if(record.mode==='member_paid_period'&&!job.kind.startsWith('notify_')){
+     // Member paid-period cancellation: fallback role, never a login block.
+     const memberContext={...context,actorKind:'system'};
+     if(record.withdrawn_at)outcome={state:'done'};
+     else if(job.kind==='lifecycle'){
+      const result=await dd().recoverRecord(memberContext,record);
+      const stopped=!result.record.authority?.providerPrepared||result.stop?.state==='stopped';
+      // Before the boundary: wait for it (the finish RPC caps each wait at a
+      // day). An unconfirmed provider stop is retried sooner and stays visible.
+      const untilBoundary=Math.ceil((Date.parse(`${result.record.effective_date}T00:00:00Z`)-now())/1000);
+      outcome=result.record.access_ended_at&&stopped?{state:'done'}
+       :!stopped?{state:'pending',delaySeconds:900,message:'Provider stop requires reconciliation'}
+       :{state:'pending',delaySeconds:Math.max(60,untilBoundary||60)};
+     }else outcome=await dd().recoverFinance(memberContext,record);
+    }else if(job.kind==='lifecycle'){
      if(record.withdrawn_at)outcome={state:'done'};
      else{
       const result=await requests.recover(context,record.id);

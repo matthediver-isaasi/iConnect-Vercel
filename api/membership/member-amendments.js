@@ -14,12 +14,13 @@ import {createMemberCancellationFinance} from '../_lib/memberCancellationFinance
 import {createMemberChangeRequests} from '../_lib/memberChangeRequests.js';
 import {createMemberCancellationRequests} from '../_lib/memberCancellationRequests.js';
 import {createAdminUnpaidMembershipCancellation} from '../_lib/adminUnpaidMembershipCancellation.js';
+import {createMemberDdCancellation} from '../_lib/memberDdCancellation.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
   monthlyExecutionService = null,replacementExecutionService=null,cancellationFinanceService=null,memberRequestsService=null,
-  cancellationRequestsService=null,unpaidCancellationService=null,
+  cancellationRequestsService=null,unpaidCancellationService=null,memberDdCancellationService=null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -43,6 +44,22 @@ export function createMemberAmendmentsHandler({
         if(action==='member_change_submit')return res.json(await requests.submit(actor,input));
         if(action==='member_change_recover')return res.json({record:await requests.recover(actor,input.key,input.fingerprint)});
         return res.json(await requests.review(actor,{id:input.id,action:'withdraw',reason:'Withdrawn by member'}));
+      }
+      // Self-service Direct Debit cancellation: the session's own member only.
+      // No member, tenant-user or administrator selector is accepted.
+      if(['member_dd_cancellation_status','member_dd_cancellation_preview','member_dd_cancellation_confirm','member_dd_cancellation_recover'].includes(action)){
+        if(!context.tenantId||!AMENDMENT_UUID.test(context.memberId||''))return res.status(403).json({error:'Sign in with your member account'});
+        if((action==='member_dd_cancellation_status')!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
+        const input=req.method==='GET'?req.query:req.body;
+        if(input.memberId!==undefined&&input.memberId!==context.memberId)return res.status(403).json({error:'You can only cancel your own membership'});
+        const actor={tenantId:context.tenantId,memberId:context.memberId,actorId:context.memberId,actorKind:'member'};
+        const cancellation=memberDdCancellationService||createMemberDdCancellation({db});
+        if(action==='member_dd_cancellation_status')return res.json(await cancellation.status(actor));
+        if(action==='member_dd_cancellation_preview')return res.json(await cancellation.preview(actor,{reason:input.reason}));
+        if(action==='member_dd_cancellation_confirm')return res.json(await cancellation.confirm(actor,{
+          key:input.idempotencyKey,fingerprint:input.fingerprint,reason:input.reason,approve:input.approve,
+        }));
+        return res.json(await cancellation.recover(actor,{id:input.id}));
       }
       if (!context.tenantId || !await isAdmin(context)) return res.status(403).json({ error: 'Tenant admin access required' });
       // Tenant-account administrators without a member role follow the existing

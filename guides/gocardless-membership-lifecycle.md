@@ -1083,6 +1083,54 @@ Run with unique test members/organisations and retain redacted provider IDs, tim
 
 ---
 
+## Member-Initiated Direct Debit Cancellation (Paid Period)
+
+Signed-in individual members on a GoCardless monthly Direct Debit can cancel from the Payment Details card on `/portal` once every agreed instalment has been collected. Card, upfront and organisation-funded memberships never qualify.
+
+### Owner-approved rules
+- **Threshold:** eligible when distinct successful (`confirmed`/`paid_out`, not refunded or charged back) collections are **>=** the instalment count evidenced at consent for the uninterrupted sequence.
+- **Uninterrupted sequence:** renewals linked by `renewal_of_agreement_id` with contiguous terms count together. A gap, a cancelled or replaced predecessor, or a payment claimed by two plans starts a new sequence or fails closed.
+- **Retained predecessors:** auto-renewal leaves the previous agreement `active`. The signed `lineageAgreementIds` let the admission guard accept a predecessor only in member mode, and only when its terms have ended and none of its plans is still collecting.
+- **Completed terms:** a fixed plan that finished after every instalment (`status='expired'`, `completed_at` set, no `needs_attention`) stays eligible and needs no provider stop. A subscription that the provider reports as `finished` before the webhook lands is recorded as stopped without another cancel call. An unexpected `cancelled` subscription still needs review.
+- **Timing:** access changes at the end of the verified paid period (purchased term funded by settled instalments). There is no extra grace. A monthly receipt is never treated as payment of the whole annual term.
+- **Outcome:** the history row becomes `cancelled_by_request`. The structure's DD **Role after grace period** (`dd_arrears_fallback_role_id`), captured at confirmation, is applied by compare-and-set. Admin roles, team roles and later manual role changes are preserved. `membership_cancelled` is **not** set, so login, SSO and mobile access continue with the fallback role.
+- **Collections:** confirmation sets `collection_stopped_at` on the agreement's plans and claims one provider subscription stop. Shared mandates are never cancelled. Automatic renewal of the cancelled agreement is blocked in the database. A provider timeout stays `uncertain` and is shown as "confirming with your bank", never as stopped.
+- **Late receipts:** payments in flight or settled after the fence send the request to `manual_review` under the existing reconciliation policy. They never reactivate membership or move the date. Nothing is refunded automatically.
+- **No withdrawal:** member-mode requests cannot be withdrawn. A member who wants to stay rejoins through the normal restart journey after the effective date.
+
+### Components
+| Concern | Location |
+| --- | --- |
+| Eligibility evidence | `api/_lib/memberDdCancellationEvidence.js` |
+| Preview / confirm / recover service | `api/_lib/memberDdCancellation.js` |
+| Self-only API actions | `api/membership/member-amendments.js` (`member_dd_cancellation_status|preview|confirm|recover`) |
+| Card data | `api/membership/canvas-summary.js` (`selfCancellation`, database-only, no provider calls) |
+| Scheduled recovery | `api/_lib/memberCancellationRecovery.js` via `/api/cron/member-amendments` (every 10 minutes) |
+| Database contract | `supabase/migrations/202702090001_member_dd_paid_period_cancellation.sql` |
+| Portal UI | `client/src/components/canvas/blocks/MemberDdCancellation.jsx` |
+| CRM detail | `client/src/components/MemberCancelMembership.jsx`, fee-history badge in `MemberMembershipTab.jsx` |
+
+### Rollout checklist
+1. Confirm the reviewed cancellation journal 0047–0059 is installed (`withdraw_member_cancellation`, `guard_pending_cancellation_purchase`, `enqueue_member_cancellation_jobs`, `restore_membership_arrears_fallback_role`). The new migration refuses to run otherwise.
+2. With separate owner approval, apply `202702090001_member_dd_paid_period_cancellation.sql`. It is additive: new nullable columns on `member_cancellation_request` (`mode` defaults to `administrator`), new service-role RPCs and two guard triggers. It patches `apply_member_cancellation_access`, `withdraw_member_cancellation`, `clear_member_cancellation_for_new_purchase` and `guard_cancellation_admission_conflicts` by guarded text replacement, and aborts if their reviewed bodies have changed. It is **not** in the pinned hash list of `scripts/apply-member-cancellation-foundation.mjs` and must not be replayed by merge setup.
+3. Verify `select public.member_dd_cancellation_available()` returns `true` as `service_role`. Until it does, the API reports `not_installed` and the portal never shows the link.
+4. Make sure each structure offering monthly DD has a non-administrator **Role after grace period**. Members on structures without one see a "contact your membership team" message instead of the action.
+5. Confirm the `/api/cron/member-amendments` cron is running. Provider stops are attempted immediately at confirmation and retried by recovery, and boundaries are applied without any browser activity.
+6. Sandbox verification against GoCardless needs separate approval. Repository tests use fakes and a local PostgreSQL only.
+
+### Rollback
+- To hide the feature without a schema change, `REVOKE EXECUTE ON FUNCTION public.member_dd_cancellation_available() FROM service_role;`. The status call then reports unavailable. Already scheduled requests still need the recovery RPCs, so leave those granted.
+- Do not drop columns or functions while member-mode requests exist. Their fences, provider-stop journal and boundary application depend on them.
+- Administrator cancellation is unaffected either way: its rows keep `mode='administrator'` and the original timing and login-block semantics.
+
+### Tests
+- `api/_lib/memberDdCancellationEvidence.test.mjs`: threshold boundaries, dedup, refunds, renewals, gaps and fail-closed evidence.
+- `api/_lib/memberDdCancellation.test.mjs`: self-scope, preview without provider calls, idempotent confirm, provider timeout and recovery.
+- `api/membership/member-dd-cancellation.test.mjs`: endpoint identity and method gates.
+- `api/_lib/memberCancellationRecovery.test.mjs`: scheduled member-mode recovery.
+- `api/_lib/memberDdCancellation.postgres.test.mjs`: real PostgreSQL. Covers concurrent double confirm, fences, renewal block, single provider claim, early-apply refusal, admin-path and withdrawal refusal, fallback role without login block, role preservation and grants.
+- `client/src/components/canvas/blocks/MembershipDataBlocks.test.jsx`: mounted reason, confirm and duplicate-click flow, plus the scheduled, cancelled and ineligible states.
+
 ## Troubleshooting
 
 ### Problem: Direct Debit option is unavailable

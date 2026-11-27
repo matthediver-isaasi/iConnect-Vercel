@@ -117,14 +117,25 @@ function CancelMembershipCard({ memberId, tenantId }) {
       </div>}
       {notice && <p role={notice.tone} className="rounded-md bg-muted/50 p-3">{notice.text}</p>}
       {data && <>
-        {scheduled && <div className="space-y-2" data-testid="cancel-membership-scheduled">
+        {latest?.mode === "member_paid_period" && <div className="space-y-1 rounded-md border p-3" data-testid="cancel-membership-member-request">
+          <p><strong>{latest.access_ended_at ? "Cancelled" : "Cancellation scheduled"}</strong> by the member on {requestDate(latest.created_at)}.
+            {" "}Paid up to {requestDate(latest.paidThroughDate)}; {latest.access_ended_at ? "access changed" : "access changes"} on {requestDate(latest.effective_date)}
+            {latest.fallbackRoleName ? ` to ${latest.fallbackRoleName}` : ""}. New membership collections were stopped at confirmation.</p>
+          {latest.reason && <p><span className="text-muted-foreground">Reason:</span> {latest.reason}</p>}
+          {latest.roleOutcome && latest.roleOutcome !== "applied" && latest.roleOutcome !== "already_assigned" && <p>
+            The role was not changed because it had been changed manually or is an administrator role. Review it if needed.</p>}
+          {latest.providerState !== "not_required" && latest.providerState !== "stopped" && <p role="status">
+            Direct Debit stop: {latest.providerState === "pending" ? "requested" : "not yet confirmed — review with the payment provider"}.</p>}
+          {latest.financial_state === "manual_review" && <p role="status">A late or in-flight collection needs manual reconciliation.</p>}
+        </div>}
+        {scheduled && latest?.mode !== "member_paid_period" && <div className="space-y-2" data-testid="cancel-membership-scheduled">
           <p><strong>Cancellation scheduled.</strong> Access continues until {requestDate(scheduled.effective_date)}, then ends.
             {scheduled.providerState !== "not_required" ? " Recurring payments continue until then and are stopped when access ends." : ""}</p>
           <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "withdraw", record: scheduled })} data-testid="button-withdraw-cancellation">
             Withdraw scheduled cancellation
           </Button>
         </div>}
-        {latest?.access_ended_at && <div className="space-y-2" data-testid="cancel-membership-applied">
+        {latest?.access_ended_at && latest.mode !== "member_paid_period" && <div className="space-y-2" data-testid="cancel-membership-applied">
           <p><strong>Membership cancelled.</strong> Access ended on {requestDate(latest.access_ended_at)}. {paymentStopText(latest.provider, latest.providerState)}</p>
           {needsPaymentCheck(latest) && <Button size="sm" variant="outline" disabled={checking} onClick={() => checkPaymentStop(latest)} data-testid="button-check-payment-stop">
             {checking ? "Checking payment stop…" : "Check payment stop"}
