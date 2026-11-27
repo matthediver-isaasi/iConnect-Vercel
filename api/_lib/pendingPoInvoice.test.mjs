@@ -8,10 +8,18 @@ import {
   buildMembershipPoMaps,
   findMembershipPoForRecord,
   isPendingMembershipPoRow,
-  computePendingPoInvoices,
+  computePendingPoInvoices as computeInvoices,
   applyInvoicePoUpdate,
-  prepareReminderForInvoice,
+  prepareReminderForInvoice as prepareInvoice,
+  summariseInvoice,
 } from './pendingPoInvoice.js';
+import { resolveTierRecipients } from './membershipRecipientResolver.js';
+
+// Existing local-record fixtures have no provider response. Keep them isolated
+// and explicitly unverified, rather than invoking a real accounting connection.
+const noXero = async () => new Map();
+const computePendingPoInvoices = args => computeInvoices({ readXero: noXero, ...args });
+const prepareReminderForInvoice = args => prepareInvoice({ readXero: noXero, ...args });
 
 function createPendingPoClient({
   organizations = [{ id: 'org-1', name: 'Example Org' }],
@@ -26,6 +34,11 @@ function createPendingPoClient({
   organisationMembershipInvoicing = [],
   memberMembershipInvoicing = [],
   tenants = [{ id: 'tenant-1', name: 'Example Tenant', slug: 'example', primary_color: '#123456' }],
+  trainingFundPurchases = [],
+  tierConfigs = [],
+  refuseWrites = false,
+  tokens = [],
+  reminderLogs = [],
 } = {}) {
   const calls = [];
   const rowsByTable = {
@@ -34,17 +47,23 @@ function createPendingPoClient({
     organization_group: groups,
     booking: bookings,
     program_ticket_transaction: transactions,
-    training_fund_purchase: [],
+    training_fund_purchase: trainingFundPurchases,
+    membership_tier_config: tierConfigs,
     event: [],
     organisation_membership_history: organisationMembershipHistory,
     member_membership_history: memberMembershipHistory,
     organisation_membership_invoicing: organisationMembershipInvoicing,
     member_membership_invoicing: memberMembershipInvoicing,
     tenant: tenants,
-    pending_po_token: [],
+    pending_po_token: tokens,
+    po_reminder_log: reminderLogs,
   };
 
   const execute = (query) => {
+    if (refuseWrites && query.operation !== 'select') throw new Error(`Write refused: ${query.table}`);
+    if (query.columns?.includes('is_primary_contact') || query.filters.some(f => f.column === 'is_primary_contact')) {
+      throw new Error('Nonexistent primary contact column queried');
+    }
     let rows = rowsByTable[query.table] || [];
     if (lookupError?.table === query.table && (!lookupError.from || query.from >= lookupError.from)) {
       return { data: null, error: { message: 'Lookup unavailable' } };
@@ -170,6 +189,8 @@ function createPendingPoClient({
       });
     }
 
+    maybeSingle() { return this.single(); }
+
     range(from, to) {
       this.from = from;
       this.to = to;
@@ -212,6 +233,171 @@ test('organisation-less event invoices show original booker details, not the att
   assert.equal(byId['num:legacy'].member_email, 'delegate@example.org');
   assert.equal(byId['num:snapshot'].organization_id, null);
   assert.equal(client.calls.some(call => call.operation !== 'select'), false);
+});
+
+const auditEvidence = (references, gross, status = 'AUTHORISED') => new Map(references.map(ref => [ref.key, {
+  verified: true,
+  invoice: { InvoiceID: ref.id || 'xero-fixture', InvoiceNumber: ref.number, Total: gross, CurrencyCode: 'GBP', Status: status },
+}]));
+const auditBooking = overrides => ({
+  ...displayBooking('audit-booking', 'member-1', 'org-1', 'SI-45027'),
+  tenant_id: 'tenant-1', xero_invoice_id: 'xero-fixture', total_cost: 675,
+  attendee_email: 'buyer@example.org', created_at: '2026-01-01T00:00:00Z', ...overrides,
+});
+
+test('all six audit amount shapes use the exact provider gross in report, summary, preview and confirm', async () => {
+  const cases = [
+    { label: 'SI-45027 £300 discount', local: 675, gross: 375 },
+    { label: 'paid discount example one', local: 500, gross: 200, status: 'PAID' },
+    { label: 'paid discount example two', local: 200, gross: 182.5, status: 'PAID' },
+    { label: 'BOGO example one', local: 120, gross: 60, ticket: 180 },
+    { label: 'BOGO example two', local: 120, gross: 60, ticket: 180 },
+    { label: 'SI-44616 combined invoice rounding', local: 398.12, gross: 400, combined: true },
+  ];
+  for (const example of cases) {
+    const options = {
+      bookings: [auditBooking({ total_cost: example.local, ticket_price: example.ticket || example.local })],
+      transactions: example.combined ? [{
+        id: 'programme', organization_id: 'org-1', xero_invoice_id: 'xero-fixture', xero_invoice_number: 'SI-45027',
+        total_cost_before_discount: 100, transaction_type: 'purchase', status: 'active', quantity: 1,
+      }] : [],
+    };
+    const readXero = async (_, refs) => auditEvidence(refs, example.gross, example.status);
+    const report = await computeInvoices({ client: createPendingPoClient({ ...options, refuseWrites: true }), tenantId: 'tenant-1', readXero });
+    assert.equal(report.records[0].total_cost, example.gross, example.label);
+    assert.equal(report.records[0].amountVerified, true);
+    const client = createPendingPoClient(options);
+    const summary = await summariseInvoice(client, 'tenant-1', 'id:xero-fixture', { readXero });
+    assert.equal(summary.totalCost, example.gross, example.label);
+    const prepared = await prepareInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:xero-fixture', readXero });
+    if (example.status === 'PAID') {
+      assert.equal(prepared.code, 'invoice_paid');
+      assert.equal(client.calls.some(c => c.operation === 'insert'), false);
+    } else {
+      assert.equal(prepared.ok, true, example.label);
+      assert.ok(prepared.html.includes(`£${example.gross.toFixed(2)}`));
+      const confirmed = await prepareInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:xero-fixture', readXero,
+        tokenRow: { token: prepared.token, recipient_email: prepared.recipientEmail, expires_at: prepared.expiresAt } });
+      assert.equal(confirmed.html, prepared.html);
+      assert.equal(client.calls.filter(c => c.operation === 'insert').length, 1);
+    }
+  }
+});
+
+test('provider failure leaves report row unverified and blocks preparation without any writes', async () => {
+  for (const readXero of [async () => { throw new Error('Xero unavailable'); }, noXero]) {
+    const client = createPendingPoClient({ bookings: [auditBooking()], refuseWrites: true });
+    const { records } = await computeInvoices({ client, tenantId: 'tenant-1', readXero });
+    assert.equal(records.length, 1);
+    assert.equal(records[0].total_cost, null);
+    assert.equal(records[0].amountVerified, false);
+    const prepared = await prepareInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:xero-fixture', readXero });
+    assert.equal(prepared.code, 'amount_unverified');
+  }
+});
+
+test('QuickBooks training-fund top-ups retain stored gross and never request Xero', async () => {
+  const client = createPendingPoClient({
+    trainingFundPurchases: [{
+      id: 'top-up', organization_id: 'org-1', created_by: 'member-1',
+      payment_method: 'invoice', status: 'active', amount: 54.32,
+      accounting_invoice_id: 'qbo-top-up', accounting_invoice_number: 'QBO-TOP-UP',
+    }],
+  });
+  const readXero = async () => { throw new Error('Xero must not be called for a QuickBooks invoice'); };
+  const { records } = await computeInvoices({ client, tenantId: 'tenant-1', readXero });
+  assert.equal(records[0].amountSource, 'stored');
+  assert.equal(records[0].total_cost, 54.32);
+  const prepared = await prepareInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:qbo-top-up', readXero });
+  assert.equal(prepared.ok, true);
+  assert.match(prepared.html, /£54.32/);
+});
+
+test('number-only Xero membership links stay verified even with accounting aliases', async () => {
+  const client = createPendingPoClient({
+    organisationMembershipHistory: [{
+      id: 'history', tenant_id: 'tenant-1', organization_id: 'org-1', status: 'active',
+      xero_invoice_number: 'SI-45027', accounting_invoice_id: 'alias', accounting_invoice_number: 'SI-45027',
+      total_with_vat: 675,
+    }],
+  });
+  const readXero = async (_, refs) => auditEvidence(refs, 375);
+  const { records } = await computeInvoices({ client, tenantId: 'tenant-1', readXero });
+  assert.equal(records[0].total_cost, 375);
+  assert.equal(records[0].amountSource, 'xero');
+  const summary = await summariseInvoice(client, 'tenant-1', 'id:alias', { readXero });
+  assert.equal(summary.totalCost, 375);
+});
+
+test('voided, deleted and paid invoices reject new and preview-confirm tokens without writes', async () => {
+  for (const status of ['VOIDED', 'DELETED', 'PAID']) {
+    const readXero = async (_, refs) => auditEvidence(refs, 375, status);
+    const client = createPendingPoClient({ bookings: [auditBooking()], refuseWrites: true });
+    for (const tokenRow of [null, { token: 'existing', recipient_email: 'buyer@example.org', expires_at: '2099-01-01' }]) {
+      const result = await prepareInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:xero-fixture', tokenRow, readXero });
+      assert.equal(result.code, `invoice_${status.toLowerCase()}`);
+    }
+    const { records } = await computeInvoices({ client, tenantId: 'tenant-1', readXero });
+    assert.equal(records.length, status === 'PAID' ? 1 : 0);
+  }
+});
+
+const membershipReminder = {
+  id: 'membership', tenant_id: 'tenant-1', organization_id: 'org-1', config_id: 'tier-1',
+  status: 'active', payment_status: null, accounting_invoice_id: 'qbo-1',
+  accounting_invoice_number: 'QBO-1', total_with_vat: 123.45,
+};
+
+test('membership-only recipients use tier settings, deduplicate all contacts and fall back to invoicing email', async () => {
+  for (const invoice_recipients of [
+    { invoicing_email: true, role_ids: ['finance'] },
+    { primary_contact: true, role_ids: [] },
+  ]) {
+    const client = createPendingPoClient({
+      strictFilters: true,
+      organizations: [tenantRow({ id: 'org-1', name: 'Example Org', invoicing_email: 'accounts@example.org' })],
+      members: [
+        tenantRow({ id: 'a', organization_id: 'org-1', role_id: 'finance', email: 'a@example.org' }),
+        tenantRow({ id: 'b', organization_id: 'org-1', role_id: 'finance', email: 'b@example.org' }),
+        { tenant_id: 'other-tenant', id: 'foreign', organization_id: 'org-1', role_id: 'finance', email: 'foreign@example.org' },
+      ],
+      tierConfigs: [tenantRow({ id: 'tier-1', invoice_recipients })],
+      organisationMembershipHistory: [membershipReminder],
+    });
+    const result = await prepareReminderForInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:qbo-1' });
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(result.recipientEmails, invoice_recipients.invoicing_email
+      ? ['a@example.org', 'accounts@example.org', 'b@example.org'] : ['accounts@example.org']);
+    assert.match(result.html, /Dear Example Org,/);
+    assert.match(result.html, /£123.45/);
+    const { records } = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+    assert.equal(records[0].total_cost, 123.45);
+    assert.equal(records[0].amountSource, 'stored');
+  }
+});
+
+test('membership recipient lookup errors and no-recipient cases never mint tokens', async () => {
+  for (const lookupError of [null, { table: 'membership_tier_config' }, { table: 'organization', from: 1 }]) {
+    const client = createPendingPoClient({
+      organisationMembershipHistory: [membershipReminder],
+      tierConfigs: [tenantRow({ id: 'tier-1', invoice_recipients: { primary_contact: true } })],
+      lookupError, refuseWrites: true,
+    });
+    const result = await prepareReminderForInvoice({ client, tenantId: 'tenant-1', invoiceKey: 'id:qbo-1' });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /recipient|lookup/i);
+  }
+  const client = createPendingPoClient({ lookupError: { table: 'member' }, refuseWrites: true });
+  await assert.rejects(resolveTierRecipients({
+    client, tenantId: 'tenant-1', organizationId: 'org-1',
+    tierConfig: { invoice_recipients: { role_ids: ['finance'] } },
+  }), /role lookup failed/);
+  const brokenSchema = createPendingPoClient({
+    bookings: [auditBooking()], lookupError: { table: 'member' }, refuseWrites: true,
+  });
+  const result = await prepareReminderForInvoice({ client: brokenSchema, tenantId: 'tenant-1', invoiceKey: 'id:xero-fixture' });
+  assert.equal(result.code, 'lookup_failed');
+  assert.match(result.error, /Lookup unavailable/);
 });
 
 test('extractPoFromReference extracts PO from our membership reference convention', () => {
@@ -357,7 +543,8 @@ test('consolidation displays all distinct associations deterministically, includ
     assert.equal(records.length, 1);
     assert.equal(records[0].organization_display_name, `${bedfordshire}; Booker details unavailable; Member Organisation`);
     assert.equal(records[0].quantity, 4);
-    assert.equal(records[0].total_cost, 100);
+    assert.equal(records[0].total_cost, null);
+    assert.equal(records[0].amountVerified, false);
   }
 });
 

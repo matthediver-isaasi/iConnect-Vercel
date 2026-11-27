@@ -76,9 +76,10 @@ export default async function handler(req, res) {
       let invoicesConsidered = 0;
       let sentForTenant = 0;
       let failedForTenant = 0;
+      const skipped = [];
 
       try {
-        const computed = await computePendingPoInvoices({ client: supabase, tenantId });
+        const computed = await computePendingPoInvoices({ client: supabase, tenantId, includeBlocked: true });
         const records = computed?.records || [];
         invoicesConsidered = records.length;
 
@@ -119,6 +120,7 @@ export default async function handler(req, res) {
           // All timing checks pass — now mint the token and build the email.
           const prepared = await prepareReminderForInvoice({ client: supabase, tenantId, invoiceKey });
           if (!prepared.ok) {
+            skipped.push({ invoice_key: invoiceKey, code: prepared.code || 'blocked', reason: prepared.error });
             console.log(`[cron/send-po-reminders] Skipping ${tenantId}/${invoiceKey}: ${prepared.error}`);
             continue;
           }
@@ -131,7 +133,7 @@ export default async function handler(req, res) {
 
           const result = await sendTenantEmail({
             tenantId,
-            to: prepared.recipientEmail,
+            to: prepared.recipientEmails,
             subject: prepared.subject,
             html: prepared.html,
             inboxDelivery,
@@ -167,6 +169,7 @@ export default async function handler(req, res) {
             invoices_considered: invoicesConsidered,
             reminders_sent: sentForTenant,
             reminders_failed: failedForTenant,
+            reminders_skipped: skipped,
             send_after_days: sendAfterDays,
             repeat_every_days: repeatEveryDays,
             max_sends: maxSends,

@@ -2,6 +2,9 @@ import crypto from 'crypto';
 import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { supabase as defaultSupabase } from './database.js';
 import { getAccountingProvider } from './accountingProvider.js';
+import { readPoXeroInvoices, poAmount, poInvoiceGuard, storedPoAmount } from './pendingPoAuthority.js';
+import { resolveTierRecipients } from './membershipRecipientResolver.js';
+export { poInvoiceGuard } from './pendingPoAuthority.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
@@ -134,6 +137,7 @@ function membershipHistoryRecord(row, entityType, member = null) {
     membership_year: row.membership_year || null,
     source_name: row.membership_year ? `Membership ${row.membership_year}` : 'Membership',
     source_type: 'Membership',
+    xero_linked: Boolean(row.xero_invoice_id || row.xero_invoice_number),
     xero_invoice_id: row.xero_invoice_id || null,
     xero_invoice_number: row.xero_invoice_number || row.accounting_invoice_number || null,
     accounting_invoice_id: row.accounting_invoice_id || null,
@@ -142,7 +146,7 @@ function membershipHistoryRecord(row, entityType, member = null) {
     xero_invoice_pdf_uri: null,
     created_date: row.created_at || null,
     quantity: 1,
-    total_cost: row.total_with_vat ?? row.final_cost ?? 0,
+    total_cost: storedPoAmount(row, 'membership'),
     member_email: isMember ? (member?.email || null) : null,
   };
 }
@@ -356,7 +360,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
       organisationMembershipHistory = await fetchAllPages('organisation_membership_history', invoiceKey, () => matchMembershipInvoice(
         client
           .from('organisation_membership_history')
-          .select('id, tenant_id, organization_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
+          .select('id, tenant_id, organization_id, config_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
           .eq('tenant_id', tenantId)
           .in('organization_id', tenantOrgIds)
           .or(UNPAID_MEMBERSHIP_STATUS_OR)
@@ -664,7 +668,7 @@ export async function applyInvoicePoUpdate({
   };
 }
 
-export async function summariseInvoice(client, tenantId, invoiceKey) {
+export async function summariseInvoice(client, tenantId, invoiceKey, { readXero = readPoXeroInvoices } = {}) {
   let found;
   try {
     found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
@@ -709,7 +713,8 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   };
 
   for (const b of found.bookings) {
-    totalCost += Number(b.total_cost) || 0;
+    totalCost += storedPoAmount(b, 'booking');
+    sourceTypes.add('Event');
     quantity += 1;
     if (b.created_at && (!earliestDate || new Date(b.created_at) < new Date(earliestDate))) {
       earliestDate = b.created_at;
@@ -724,7 +729,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
   const bookerEmailsForLookup = new Set();
   for (const t of found.transactions) {
-    totalCost += Number(t.total_cost_before_discount) || 0;
+    totalCost += storedPoAmount(t, 'transaction');
     quantity += Number(t.quantity) || 0;
     if (t.created_date && (!earliestDate || new Date(t.created_date) < new Date(earliestDate))) {
       earliestDate = t.created_date;
@@ -748,7 +753,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
 
   for (const p of summaryPurchases) {
-    totalCost += Number(p.amount) || 0;
+    totalCost += storedPoAmount(p, 'training_fund_purchase');
     quantity += 1;
     if (p.created_date && (!earliestDate || new Date(p.created_date) < new Date(earliestDate))) {
       earliestDate = p.created_date;
@@ -763,7 +768,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
 
   for (const h of summaryOrgMemberships) {
-    totalCost += Number(h.total_with_vat ?? h.final_cost) || 0;
+    totalCost += storedPoAmount(h, 'membership');
     quantity += 1;
     if (h.created_at && (!earliestDate || new Date(h.created_at) < new Date(earliestDate))) {
       earliestDate = h.created_at;
@@ -777,7 +782,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
 
   for (const h of summaryMemberMemberships) {
-    totalCost += Number(h.total_with_vat ?? h.final_cost) || 0;
+    totalCost += storedPoAmount(h, 'membership');
     quantity += 1;
     if (h.created_at && (!earliestDate || new Date(h.created_at) < new Date(earliestDate))) {
       earliestDate = h.created_at;
@@ -798,16 +803,17 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     const { data: members, error: bookerMembersErr } = await client
       .from('member')
       .select('id, first_name, last_name, email, organization_id')
+      .eq('tenant_id', tenantId)
       .in('id', Array.from(bookerMemberIds));
     if (bookerMembersErr) {
-      console.error(`[PendingPO] summariseInvoice booker member lookup failed invoiceKey=${invoiceKey}: ${bookerMembersErr.message}`);
+      throw new Error(`Booker lookup failed: ${bookerMembersErr.message}`);
     }
     (members || []).forEach((m) => {
       const name = `${m.first_name || ''} ${m.last_name || ''}`.trim();
       if (name && !bookerNames.includes(name)) bookerNames.push(name);
       addBookerEmail(m.email);
       // For null-org rows, fall back to the booker's organisation so the
-      // recipient lookup downstream can still resolve a primary contact.
+      // recipient lookup downstream retains the organisation context.
       if (m.organization_id) orgIds.add(m.organization_id);
     });
   }
@@ -817,6 +823,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     let txMembersQuery = client
       .from('member')
       .select('id, first_name, last_name, email, organization_id')
+      .eq('tenant_id', tenantId)
       .in('email', emailList);
     // Constrain to this tenant's organisations so duplicate emails on
     // members in unrelated tenants can't pollute booker name/org fallback.
@@ -825,7 +832,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     }
     const { data: txMembers, error: txMembersErr } = await txMembersQuery;
     if (txMembersErr) {
-      console.error(`[PendingPO] summariseInvoice transaction booker lookup failed invoiceKey=${invoiceKey}: ${txMembersErr.message}`);
+      throw new Error(`Booker lookup failed: ${txMembersErr.message}`);
     }
     (txMembers || []).forEach((m) => {
       const name = `${m.first_name || ''} ${m.last_name || ''}`.trim();
@@ -862,6 +869,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       const { data: orgRow, error: orgErr } = await client
         .from('organization')
         .select('name')
+        .eq('tenant_id', tenantId)
         .eq('id', firstOrgId)
         .single();
       if (orgErr) {
@@ -880,19 +888,36 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       : `${sourceNameList.length} items`;
   const sourceType = sourceTypeList.length === 1 ? sourceTypeList[0] : (sourceTypeList.length > 1 ? 'Mixed' : null);
 
+  bookerNames.sort();
   const bookerNameDisplay = bookerNames.length === 0
     ? null
     : bookerNames.length <= 2
       ? bookerNames.join(', ')
       : `${bookerNames.slice(0, 2).join(', ')} +${bookerNames.length - 2} more`;
 
+  const xeroLinked = Boolean(found.xeroInvoiceId || [
+    ...found.bookings, ...found.transactions, ...summaryPurchases,
+    ...summaryOrgMemberships, ...summaryMemberMemberships,
+  ].some(row => row.xero_invoice_id || row.xero_invoice_number));
+  let evidence;
+  let verificationError;
+  if (xeroLinked) {
+    try {
+      evidence = (await readXero(tenantId, [{ key: invoiceKey, id: found.xeroInvoiceId || found.accountingInvoiceId, number: found.xeroInvoiceNumber }])).get(invoiceKey);
+    } catch (error) { verificationError = error.message; }
+  }
+  const amount = poAmount({ storedAmount: totalCost, xeroLinked, evidence });
   return {
+    ...amount,
+    verificationError,
+    xeroStatus: evidence?.invoice?.Status || null,
+    membershipRows: summaryOrgMemberships,
     organizationName,
     organizationId: firstOrgId || null,
     invoiceNumber: found.xeroInvoiceNumber,
     xeroInvoiceId: found.xeroInvoiceId,
     invoiceDate: earliestDate,
-    totalCost,
+    totalCost: amount.amount,
     quantity,
     sourceName,
     sourceType,
@@ -918,27 +943,11 @@ export async function ensurePendingPoTokenTable() {
 }
 
 // Resolve the personalised greeting name for a PO reminder email. Fallback
-// chain: organisation primary-contact name -> booker name -> organisation
-// name -> a neutral default. Deterministic from the (tenant-scoped) summary so
+// chain: sorted booker name -> organisation name -> a neutral default.
+// There is no primary-contact field. Deterministic from the tenant summary so
 // the previewed greeting matches the email that is actually sent.
 export async function resolveReminderGreetingName(client, summary) {
   let name = null;
-  if (summary?.organizationId) {
-    const { data, error } = await client
-      .from('member')
-      .select('first_name, last_name')
-      .eq('organization_id', summary.organizationId)
-      .eq('is_primary_contact', true)
-      .limit(1);
-    if (error) {
-      console.error(`[PendingPO] resolveReminderGreetingName primary-contact lookup failed orgId=${summary.organizationId}: ${error.message}`);
-    }
-    const contact = data?.[0];
-    if (contact) {
-      const nm = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
-      if (nm) name = nm;
-    }
-  }
   if (!name && Array.isArray(summary?.bookerNames) && summary.bookerNames.length > 0) {
     name = summary.bookerNames[0];
   }
@@ -1063,7 +1072,7 @@ export function evaluateReminderSchedule({
   return base;
 }
 
-export async function computePendingPoInvoices({ client = defaultSupabase, tenantId }) {
+export async function computePendingPoInvoices({ client = defaultSupabase, tenantId, readXero = readPoXeroInvoices, includeBlocked = false }) {
   const empty = {
     records: [],
     orgMap: {},
@@ -1157,7 +1166,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   const bookingsWithOrg = tenantOrgIds.length > 0
     ? await fetchAllPages('booking (with org)', () => client
       .from('booking')
-      .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
+      .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, total_cost, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
       .in('organization_id', tenantOrgIds)
       .neq('status', 'cancelled')
       .or('payment_method.eq.account,po_to_follow.eq.true')
@@ -1199,7 +1208,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         const memberChunk = memberIdsInTenant.slice(i, i + MEMBER_CHUNK);
         const chunkRows = await fetchAllPages(`booking (null org, member chunk ${i / MEMBER_CHUNK})`, () => client
           .from('booking')
-          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
+          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, total_cost, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference, purchaser_context')
           .is('organization_id', null)
           .in('member_id', memberChunk)
           .neq('status', 'cancelled')
@@ -1299,7 +1308,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         xero_invoice_pdf_uri: t.xero_invoice_pdf_uri,
         created_date: t.created_date,
         quantity: t.quantity,
-        total_cost: t.total_cost_before_discount,
+        total_cost: storedPoAmount(t, 'transaction'),
         member_email: t.member_email,
       });
     }
@@ -1329,7 +1338,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         xero_invoice_pdf_uri: null,
         created_date: b.created_at,
         quantity: 1,
-        total_cost: b.ticket_price,
+        total_cost: storedPoAmount(b, 'booking'),
         member_email: b.attendee_email || member?.email,
         booking_group_reference: b.booking_group_reference,
       });
@@ -1359,13 +1368,14 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         // Xero API below, so QBO ids must never be placed in it. The invoice
         // NUMBER is display-only, so fall back to the accounting number.
         xero_invoice_id: p.xero_invoice_id,
+        xero_linked: Boolean(p.xero_invoice_id || p.xero_invoice_number),
         xero_invoice_number: p.xero_invoice_number || p.accounting_invoice_number || null,
         accounting_invoice_id: p.accounting_invoice_id || null,
         accounting_invoice_number: p.accounting_invoice_number || null,
         xero_invoice_pdf_uri: null,
         created_date: p.created_date,
         quantity: 1,
-        total_cost: p.amount,
+        total_cost: storedPoAmount(p, 'training_fund_purchase'),
         member_email: member?.email || null,
       });
     }
@@ -1550,62 +1560,44 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     console.error('[PendingPO] Membership PO propagation error:', membershipErr.message);
   }
 
-  const invoiceIdsToCheck = [...new Set(records.map((r) => r.xero_invoice_id).filter(Boolean))];
+  const xeroEvidence = new Map();
+  const blockedInvoices = [];
+  const isXeroRecord = r => r.xero_linked ?? Boolean(r.xero_invoice_id || r.xero_invoice_number);
+  const xeroReferenceOf = r => {
+    const id = r.xero_invoice_id || r.accounting_invoice_id;
+    return { key: id ? `id:${id}` : `num:${r.xero_invoice_number}`, id, number: r.xero_invoice_number };
+  };
+  const xeroReferences = [...new Map(records.filter(isXeroRecord)
+    .map(r => {
+      const ref = xeroReferenceOf(r);
+      return [ref.key, ref];
+    })).values()];
 
-  if (invoiceIdsToCheck.length > 0) {
+  if (xeroReferences.length > 0) {
     try {
-      const _provider = await getAccountingProvider(tenantId);
-      const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
-
       const xeroStatusById = new Map();
       const xeroPoById = new Map();
-      const batchSize = 50;
-
-      for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
-        const batch = invoiceIdsToCheck.slice(i, i + batchSize);
-        const idsParam = batch.join(',');
-
-        const invoiceResponse = await fetch(
-          `https://api.xero.com/api.xro/2.0/Invoices?IDs=${encodeURIComponent(idsParam)}`,
-          {
-            method: 'GET',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'xero-tenant-id': xeroTenantId,
-              Accept: 'application/json',
-            },
-          },
-        );
-
-        if (invoiceResponse.ok) {
-          const invoiceData = await invoiceResponse.json();
-          const invoices = invoiceData.Invoices || [];
-          invoices.forEach((inv) => {
-            if (inv.InvoiceID) {
-              xeroStatusById.set(inv.InvoiceID, inv.Status || null);
-              const candidate = resolvePoCandidate(inv.PurchaseOrderNumber, inv.Reference);
-              if (candidate) {
-                xeroPoById.set(inv.InvoiceID, candidate);
-              }
-            }
-          });
-        } else {
-          console.error('[PendingPO] Xero batch fetch error:', invoiceResponse.status);
-        }
+      for (const [key, evidence] of await readXero(tenantId, xeroReferences)) {
+        xeroEvidence.set(key, evidence);
+        const inv = evidence.invoice;
+        xeroStatusById.set(inv.InvoiceID, inv.Status || null);
+        const candidate = evidence.verified && resolvePoCandidate(inv.PurchaseOrderNumber, inv.Reference);
+        if (candidate) xeroPoById.set(inv.InvoiceID, candidate);
       }
 
       records.forEach((r) => {
         if (r.xero_invoice_id && xeroStatusById.has(r.xero_invoice_id)) {
           r.xero_status = xeroStatusById.get(r.xero_invoice_id);
         } else {
-          r.xero_status = null;
+          r.xero_status = isXeroRecord(r) ? xeroEvidence.get(xeroReferenceOf(r).key)?.invoice?.Status || null : null;
         }
       });
 
       for (let i = records.length - 1; i >= 0; i--) {
         const status = records[i].xero_status;
         if (status === 'VOIDED' || status === 'DELETED') {
-          records.splice(i, 1);
+          blockedInvoices.push({ invoiceKey: records[i].xero_invoice_id ? `id:${records[i].xero_invoice_id}` : `num:${records[i].xero_invoice_number}`, reason: `Invoice is ${status.toLowerCase()} in Xero` });
+          if (!includeBlocked) records.splice(i, 1);
           voidedExcluded += 1;
         }
       }
@@ -1695,6 +1687,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         source_name: r.source_name,
         source_type: r.source_type,
         xero_invoice_id: r.xero_invoice_id || null,
+        xero_linked: isXeroRecord(r),
         xero_invoice_number: r.xero_invoice_number || null,
         xero_invoice_pdf_uri: r.xero_invoice_pdf_uri || null,
         xero_status: r.xero_status ?? null,
@@ -1713,6 +1706,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       grouped.set(key, g);
     }
     g.quantity += Number(r.quantity) || 0;
+    g.xero_linked ||= isXeroRecord(r);
+    if (isXeroRecord(r)) g._xeroEvidence = xeroEvidence.get(xeroReferenceOf(r).key);
     g.total_cost += Number(r.total_cost) || 0;
     if (r.created_date) {
       if (!g.created_date || new Date(r.created_date) < new Date(g.created_date)) {
@@ -1737,6 +1732,9 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   const consolidatedRecords = [];
   grouped.forEach((g) => {
+    const amount = poAmount({ storedAmount: g.total_cost, xeroLinked: g.xero_linked, evidence: g._xeroEvidence });
+    delete g._xeroEvidence;
+    Object.assign(g, amount, { total_cost: amount.amount });
     g.organization_display_name = [...g._displayNames].sort().join('; ');
     delete g._displayNames;
     if (g._sourceNames.size > 1) {
@@ -1758,6 +1756,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   return {
     records: consolidatedRecords,
+    blockedInvoices,
     orgMap,
     xeroCheckPerformed,
     xeroError,
@@ -1776,58 +1775,44 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 // build the rendered reminder email for an invoice. Shared by the report's
 // preview_reminder / send_reminder POST actions and the scheduled reminder cron
 // so the email body, recipient resolution and token minting live in one place.
-export async function prepareReminderForInvoice({ client = defaultSupabase, tenantId, invoiceKey }) {
-  const summary = await summariseInvoice(client, tenantId, invoiceKey);
+export async function prepareReminderForInvoice({ client = defaultSupabase, tenantId, invoiceKey, tokenRow = null, readXero = readPoXeroInvoices }) {
+  let summary;
+  try {
+    summary = await summariseInvoice(client, tenantId, invoiceKey, { readXero });
+  } catch (error) {
+    return { ok: false, status: 500, code: 'lookup_failed', error: error.message };
+  }
   if (!summary || summary.rowCount === 0) {
     return { ok: false, status: 404, error: 'Invoice not found for this tenant' };
   }
+  const guard = poInvoiceGuard(summary);
+  if (!guard.ok) return guard;
   if (summary.existingPoNumber) {
     return { ok: false, status: 400, error: 'A purchase order number has already been recorded for this invoice.' };
   }
 
-  // Check if invoice is already paid in Xero before sending/previewing reminder
-  if (summary.xeroInvoiceId) {
-    try {
-      const _provider = await getAccountingProvider(tenantId);
-      const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
-      const invoiceResponse = await fetch(
-        `https://api.xero.com/api.xro/2.0/Invoices/${summary.xeroInvoiceId}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'xero-tenant-id': xeroTenantId,
-            Accept: 'application/json',
-          },
-        },
-      );
-      if (invoiceResponse.ok) {
-        const invoiceData = await invoiceResponse.json();
-        const invoice = invoiceData.Invoices?.[0];
-        if (invoice?.Status === 'PAID') {
-          return {
-            ok: false,
-            status: 400,
-            error: 'Cannot send reminder - this invoice has already been paid in Xero',
-          };
-        }
-      }
-    } catch (xeroErr) {
-      console.error('[PendingPO] Xero check error for reminder:', xeroErr.message);
-      // Continue if Xero check fails - we still want to allow manual reminders
-    }
-  }
-
-  // Resolve recipient: organisation's primary contact, falling back to a booker.
+  // Organisation membership uses the purchased tier's invoice recipients.
+  // Other sources retain their original booker fallback.
   let recipientEmail = null;
-  if (summary.organizationId) {
-    const { data: orgContacts } = await client
-      .from('member')
-      .select('email')
-      .eq('organization_id', summary.organizationId)
-      .eq('is_primary_contact', true)
-      .limit(1);
-    recipientEmail = orgContacts?.[0]?.email || null;
+  try {
+    if (summary.sourceType === 'Membership' && summary.membershipRows.length > 0) {
+      const recipients = new Set();
+      for (const row of summary.membershipRows) {
+        let tierConfig = null;
+        if (row.config_id) {
+          const { data, error } = await client.from('membership_tier_config').select('*')
+            .eq('tenant_id', tenantId).eq('id', row.config_id).maybeSingle();
+          if (error) throw new Error(`Membership invoice tier lookup failed: ${error.message}`);
+          if (!data) throw new Error('Membership invoice tier configuration not found');
+          tierConfig = data;
+        }
+        const resolved = await resolveTierRecipients({ client, tenantId, organizationId: row.organization_id, tierConfig });
+        resolved.recipients.forEach(email => recipients.add(email));
+      }
+      recipientEmail = [...recipients].sort().join(', ') || null;
+    }
+  } catch (error) {
+    return { ok: false, status: 500, code: 'recipient_lookup_failed', error: error.message };
   }
   if (!recipientEmail && summary.bookerEmails && summary.bookerEmails.length > 0) {
     recipientEmail = summary.bookerEmails[0];
@@ -1837,11 +1822,21 @@ export async function prepareReminderForInvoice({ client = defaultSupabase, tena
     return { ok: false, status: 400, error: 'No recipient email found for this invoice' };
   }
 
+  const { data: tenant, error: tenantError } = await client
+    .from('tenant')
+    .select('name, slug, primary_color')
+    .eq('id', tenantId)
+    .single();
+  if (tenantError) return { ok: false, status: 500, error: `Tenant lookup failed: ${tenantError.message}` };
+
   // Mint a one-time submit-PO token for this invoice
   await ensurePendingPoTokenTable();
-  const submitToken = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  const { error: tokenInsertError } = await client
+  if (tokenRow && tokenRow.recipient_email !== recipientEmail) {
+    return { ok: false, status: 409, error: 'Invoice recipients changed. Please open a new reminder preview.' };
+  }
+  const submitToken = tokenRow?.token || crypto.randomBytes(32).toString('hex');
+  const expiresAt = tokenRow ? new Date(tokenRow.expires_at) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const { error: tokenInsertError } = tokenRow ? { error: null } : await client
     .from('pending_po_token')
     .insert({
       token: submitToken,
@@ -1855,12 +1850,6 @@ export async function prepareReminderForInvoice({ client = defaultSupabase, tena
     console.error('[PendingPO] Token insert error:', tokenInsertError);
     return { ok: false, status: 500, error: 'Failed to create submit link' };
   }
-
-  const { data: tenant } = await client
-    .from('tenant')
-    .select('name, slug, primary_color')
-    .eq('id', tenantId)
-    .single();
 
   const tenantSlug = tenant?.slug;
   const tenantName = tenant?.name || 'Organisation';
@@ -1909,6 +1898,7 @@ export async function prepareReminderForInvoice({ client = defaultSupabase, tena
   return {
     ok: true,
     recipientEmail,
+    recipientEmails: recipientEmail.split(',').map(email => email.trim()).filter(Boolean),
     subject,
     html,
     submitUrl,

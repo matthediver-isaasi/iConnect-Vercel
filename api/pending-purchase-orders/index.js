@@ -7,14 +7,10 @@ import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import {
   applyInvoicePoUpdate,
   ensurePendingPoTokenTable,
-  summariseInvoice,
-  resolveReminderGreetingName,
   computePendingPoInvoices,
   prepareReminderForInvoice,
   evaluateReminderSchedule,
 } from '../_lib/pendingPoInvoice.js';
-
-const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
 // Parse a consolidated record id from the GET response. Format is either
 //   id:<xero_invoice_uuid>      — preferred, present whenever Xero pushed a
@@ -417,64 +413,11 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'No recipient email found for this reminder' });
           }
 
-          // Re-derive subject/html from the invoice summary so the email body
-          // is consistent with what was previewed. We deliberately reuse the
-          // stored token rather than minting a new one.
-          const summary = await summariseInvoice(supabase, tenantId, tokenRow.invoice_key);
-          if (!summary || summary.rowCount === 0) {
-            return res.status(404).json({ error: 'Invoice not found for this tenant' });
-          }
-          if (summary.existingPoNumber) {
-            return res.status(400).json({ error: 'A purchase order number has already been recorded for this invoice.' });
-          }
-
-          const { data: tenant } = await supabase
-            .from('tenant')
-            .select('name, slug, primary_color')
-            .eq('id', tenantId)
-            .single();
-          const tenantSlug = tenant?.slug;
-          const tenantName = tenant?.name || 'Organisation';
-          const primaryColor = tenant?.primary_color || '#5C0085';
-          const submitUrl = tenantSlug
-            ? `https://${tenantSlug}.${APP_DOMAIN}/submit-po/${tokenRow.token}`
-            : `https://${APP_DOMAIN}/submit-po/${tokenRow.token}`;
-          const expiresAtDate = tokenRow.expires_at ? new Date(tokenRow.expires_at) : new Date();
-          const invoiceDateText = summary.invoiceDate
-            ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-            : 'N/A';
-          const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
-          const greetingName = await resolveReminderGreetingName(supabase, summary);
-          const invoiceNumber = summary.invoiceNumber || 'N/A';
-          const sourceLine = summary.sourceName
-            ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
-            : '';
-          const subject = `Purchase order required for invoice ${invoiceNumber}`;
-          const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
-              <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
-              <p>Dear ${greetingName},</p>
-              <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
-              <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
-                <table style="width: 100%; border-collapse: collapse;">
-                  <tr><td style="padding: 4px 0; color: #666;">Invoice Number</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceNumber}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #666;">Invoice Date</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceDateText}</td></tr>
-                  ${sourceLine ? `<tr><td style="padding: 4px 0; color: #666;">${summary.sourceType || 'For'}</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.sourceName}</td></tr>` : ''}
-                  ${summary.bookerNameDisplay ? `<tr><td style="padding: 4px 0; color: #666;">Booked by</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.bookerNameDisplay}</td></tr>` : ''}
-                  <tr><td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td></tr>
-                  <tr><td style="padding: 4px 0; color: #333; font-weight: 600;">Total</td><td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${totalText}</td></tr>
-                </table>
-              </div>
-              <p>Please use the secure link below to submit your purchase order number. The PO number will be applied to this invoice and forwarded to our accounting system automatically.</p>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="${submitUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">Submit Purchase Order Number</a>
-              </div>
-              <p style="color: #999; font-size: 12px;">This link expires on ${expiresAtDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
-            </div>
-            <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${tenantName}</p>
-          </div>
-        `;
+          const prepared = await prepareReminderForInvoice({
+            client: supabase, tenantId, invoiceKey: tokenRow.invoice_key, tokenRow,
+          });
+          if (!prepared.ok) return res.status(prepared.status).json({ error: prepared.error });
+          const { subject, html, submitUrl } = prepared;
 
           try {
             const inboxDelivery = await buildInboxDelivery({
@@ -484,7 +427,7 @@ export default async function handler(req, res) {
             });
             await sendTenantEmail({
               tenantId,
-              to: tokenRow.recipient_email,
+              to: prepared.recipientEmails,
               subject,
               html,
               inboxDelivery,
@@ -521,7 +464,7 @@ export default async function handler(req, res) {
           });
           await sendTenantEmail({
             tenantId,
-            to: prepared.recipientEmail,
+            to: prepared.recipientEmails,
             subject: prepared.subject,
             html: prepared.html,
             inboxDelivery,

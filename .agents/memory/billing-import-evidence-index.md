@@ -1,5 +1,7 @@
 # Billing, import, and evidence topics
 
+- [PO reminder boundaries](po-reminder-amount-boundary.md) — audit fixes do not authorize historical operations; foreign currency must not be silently relabelled as pounds.
+
 - [Xero invoice readback](xero-invoice-readback-projections.md) — list and by-ID projections differ; compare matching endpoints to avoid false financial-change alarms.
 
 - [Xero optional-field searches](xero-optional-field-search.md) — null-guard string operations; rejected lookup never proves absence.

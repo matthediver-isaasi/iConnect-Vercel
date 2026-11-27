@@ -1,30 +1,6 @@
 import { supabase } from '../../_lib/database.js';
-import { xeroRateLimitedFetch as fetch } from '../../_lib/xeroRateLimit.js';
-import { applyInvoicePoUpdate, summariseInvoice, ensurePendingPoTokenTable } from '../../_lib/pendingPoInvoice.js';
-import { getAccountingProvider } from '../../_lib/accountingProvider.js';
+import { applyInvoicePoUpdate, summariseInvoice, ensurePendingPoTokenTable, poInvoiceGuard } from '../../_lib/pendingPoInvoice.js';
 import { sendPoSubmissionNotification } from '../../_lib/poNotificationEmail.js';
-
-async function isInvoicePaidInXero(tenantId, xeroInvoiceId) {
-  if (!xeroInvoiceId) return false;
-  try {
-    const _provider = await getAccountingProvider(tenantId);
-    const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
-    const resp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'xero-tenant-id': xeroTenantId,
-        'Accept': 'application/json',
-      },
-    });
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    return data?.Invoices?.[0]?.Status === 'PAID';
-  } catch (err) {
-    console.error('[PendingPO public] Xero status check failed:', err.message);
-    return false;
-  }
-}
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -58,7 +34,14 @@ export default async function handler(req, res) {
     .eq('id', tokenRow.tenant_id)
     .single();
 
-  const summary = await summariseInvoice(supabase, tokenRow.tenant_id, tokenRow.invoice_key);
+  let summary;
+  try {
+    summary = await summariseInvoice(supabase, tokenRow.tenant_id, tokenRow.invoice_key);
+  } catch (error) {
+    return res.status(500).json({ error: `Invoice lookup failed: ${error.message}` });
+  }
+  const guard = poInvoiceGuard(summary);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 
   if (req.method === 'GET') {
     if (!summary) {
@@ -94,10 +77,6 @@ export default async function handler(req, res) {
     }
     if (summary.existingPoNumber) {
       return res.status(409).json({ error: 'A purchase order number has already been recorded for this invoice.' });
-    }
-
-    if (await isInvoicePaidInXero(tokenRow.tenant_id, summary.xeroInvoiceId)) {
-      return res.status(409).json({ error: 'This invoice has already been paid and no longer needs a purchase order number.' });
     }
 
     const result = await applyInvoicePoUpdate({

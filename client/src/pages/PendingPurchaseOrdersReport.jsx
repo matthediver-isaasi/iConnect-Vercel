@@ -319,7 +319,7 @@ export default function PendingPurchaseOrdersReport() {
   }, [filteredAndSortedData, currentPage]);
 
   const handleExportCSV = () => {
-    const headers = ['Organisation / Booker', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
+    const headers = ['Organisation / Booker', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Amount Status', 'Member Email'];
     const rows = filteredAndSortedData.map(r => {
       return [
         organizationDisplayName(r),
@@ -328,7 +328,8 @@ export default function PendingPurchaseOrdersReport() {
         r.xero_invoice_number || '',
         r.created_date ? format(new Date(r.created_date), 'yyyy-MM-dd') : '',
         r.quantity || 0,
-        r.total_cost || 0,
+        r.amountVerified ? r.total_cost : '',
+        r.amountVerified ? (r.amountSource === 'xero' ? 'Verified Xero gross' : 'Stored amount') : 'Unverified Xero amount',
         r.member_email || ''
       ];
     });
@@ -1091,10 +1092,13 @@ export default function PendingPurchaseOrdersReport() {
                               Qty: {record.quantity}
                             </span>
                           ) : null}
-                          {record.total_cost > 0 && (
+                          {record.amountVerified ? (
                             <span className="font-medium" data-testid={`text-cost-${record.id}`}>
-                              £{record.total_cost.toLocaleString()}
+                              £{Number(record.total_cost).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              <span className="ml-1 text-xs text-muted-foreground">{record.amountSource === 'xero' ? 'Verified Xero total' : 'Stored amount'}</span>
                             </span>
+                          ) : (
+                            <Badge variant="outline" className="text-amber-700">Amount unverified — reminders blocked</Badge>
                           )}
                           {isMultiAttendee && (
                             <Badge variant="outline" data-testid={`badge-bookings-count-${record.id}`}>

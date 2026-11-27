@@ -36,33 +36,31 @@ function readRecipientSpec(tierConfig) {
   };
 }
 
-async function fetchInvoicingEmail(client, organizationId) {
-  const { data } = await client
+async function fetchInvoicingEmail(client, organizationId, tenantId) {
+  const { data, error } = await client
     .from('organization')
     .select('invoicing_email')
     .eq('id', organizationId)
+    .eq('tenant_id', tenantId)
     .maybeSingle();
+  if (error) throw new Error(`Invoice recipient organisation lookup failed: ${error.message}`);
   return data?.invoicing_email || null;
 }
 
 async function fetchPrimaryContactEmail(client, organizationId) {
-  const { data } = await client
-    .from('member')
-    .select('email')
-    .eq('organization_id', organizationId)
-    .eq('is_primary_contact', true)
-    .limit(1)
-    .maybeSingle();
-  return data?.email || null;
+  // There is no primary-contact field in the member schema.
+  return null;
 }
 
-async function fetchRoleMemberEmails(client, organizationId, roleIds) {
+async function fetchRoleMemberEmails(client, organizationId, roleIds, tenantId) {
   if (!roleIds.length) return [];
-  const { data } = await client
+  const { data, error } = await client
     .from('member')
     .select('email')
     .eq('organization_id', organizationId)
+    .eq('tenant_id', tenantId)
     .in('role_id', roleIds);
+  if (error) throw new Error(`Invoice recipient role lookup failed: ${error.message}`);
   return (data || []).map((m) => m.email).filter(Boolean);
 }
 
@@ -75,7 +73,7 @@ async function fetchRoleMemberEmails(client, organizationId, roleIds) {
  *
  * If the configured recipients all resolve to empty/invalid addresses (e.g. the
  * org's invoicing_email is blank, primary contact missing, role memberships
- * empty), the resolver falls back to invoicing email -> primary contact and
+ * empty), the resolver falls back to invoicing email and
  * sets `usedFallback: true` so callers can log a warning.
  *
  * @param {object} args
@@ -87,11 +85,11 @@ async function fetchRoleMemberEmails(client, organizationId, roleIds) {
  */
 export async function resolveTierRecipients({
   client = defaultSupabase,
-  tenantId: _tenantId,
+  tenantId,
   organizationId,
   tierConfig,
 }) {
-  if (!client || !organizationId) {
+  if (!client || !organizationId || !tenantId) {
     return { recipients: [], usedFallback: false, spec: null };
   }
 
@@ -100,7 +98,7 @@ export async function resolveTierRecipients({
 
   if (spec) {
     if (spec.invoicing_email) {
-      const e = await fetchInvoicingEmail(client, organizationId);
+      const e = await fetchInvoicingEmail(client, organizationId, tenantId);
       if (isValidAddress(e)) out.add(normalize(e));
     }
     if (spec.primary_contact) {
@@ -108,7 +106,7 @@ export async function resolveTierRecipients({
       if (isValidAddress(e)) out.add(normalize(e));
     }
     if (spec.role_ids.length > 0) {
-      const emails = await fetchRoleMemberEmails(client, organizationId, spec.role_ids);
+      const emails = await fetchRoleMemberEmails(client, organizationId, spec.role_ids, tenantId);
       for (const e of emails) {
         if (isValidAddress(e)) out.add(normalize(e));
       }
@@ -120,10 +118,10 @@ export async function resolveTierRecipients({
   }
 
   // Safety net: tier said something, but nothing resolved to a real address.
-  // Fall back to invoicing email -> primary contact so we never silently skip
-  // a renewal email.
+  // Fall back to invoicing email. The legacy primary-contact choice has no
+  // backing data and must not select an arbitrary member.
   const fallback = new Set();
-  const inv = await fetchInvoicingEmail(client, organizationId);
+  const inv = await fetchInvoicingEmail(client, organizationId, tenantId);
   if (isValidAddress(inv)) fallback.add(normalize(inv));
   if (fallback.size === 0) {
     const pc = await fetchPrimaryContactEmail(client, organizationId);
