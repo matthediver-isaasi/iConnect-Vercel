@@ -68,6 +68,28 @@ test('exact lookup exhausts pages and rejects duplicates, archived, namesakes, e
   await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: [existing] }), { ...contact, contactId: 'different' }));
 });
 
+test('an organisation with no email is identified by its unique Xero name only', async () => {
+  const org = { name: 'Churchill Hospital', email: null, organization: true };
+  const named = { ContactID: 'org', ContactStatus: 'ACTIVE', Name: 'Churchill Hospital', EmailAddress: 'accounts@nhs.example' };
+  let where = null, calls = 0;
+  const found = await lookupEventXeroContact(async path => {
+    where = new URL(path, 'https://example.test/').searchParams.get('where');
+    return { Contacts: calls++ ? [] : [named] };
+  }, org);
+  assert.equal(where, '(Name!=null&&Name.ToLower()=="churchill hospital")');
+  assert.equal(found.ContactID, 'org', 'An existing email on the Xero contact does not block the match');
+  assert.equal(await lookupEventXeroContact(async () => ({ Contacts: [] }), org), null);
+  let i = 0;
+  await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: i++ ? [] : [{ ...named, ContactStatus: 'ARCHIVED' }] }), org));
+  i = 0;
+  await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: i++ ? [] : [{ ...named, Name: 'Other' }] }), org));
+  // Individuals still require an email, and organisations with one keep exact email matching.
+  await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: [] }), { name: 'Person', email: null }), /email/);
+  i = 0;
+  await assert.rejects(lookupEventXeroContact(async () => ({ Contacts: i++ ? [] : [named] }),
+    { name: 'Churchill Hospital', email: 'other@example.test', organization: true }));
+});
+
 for (const source of ['simple', 'complex']) test(`${source}: existing customer also selects an invoice address that is sent to Xero`, async () => {
   const f = fixture();
   const context = await eventAddressContext({ ...f.input, source, lookup: async () => existing });

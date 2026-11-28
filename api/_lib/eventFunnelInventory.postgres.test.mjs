@@ -26,6 +26,7 @@ import { exerciseFunnelInvoiceDelivery } from './eventFunnelInvoiceDelivery.post
 import { exerciseFunnelQuickBooks } from './eventFunnelQuickBooks.postgres.scenarios.mjs';
 import { exerciseFunnelInvoiceReaders } from './eventFunnelInvoiceReaders.postgres.scenarios.mjs';
 import { exerciseFunnelOwnedInvoices } from './eventFunnelOwnedInvoices.postgres.scenarios.mjs';
+import { exerciseFunnelEventEmailScope } from './eventFunnelEventEmailScope.postgres.scenarios.mjs';
 import { exerciseFunnelConfirmations } from './eventFunnelConfirmations.postgres.scenarios.mjs';
 import { exerciseFunnelConfirmationRetention } from './eventFunnelConfirmationRetention.postgres.scenarios.mjs';
 import { exerciseFunnelIntegrations } from './eventFunnelIntegrations.postgres.scenarios.mjs';
@@ -267,6 +268,7 @@ test('shared funnel holds serialize ordinary/commercial stock, preserve failed e
     await exerciseFunnelCollections({db,uuid,tenant,sql});
     await exerciseFunnelDiscount({db,uuid,tenant,member,sql});
     await exerciseFunnelInvoiceEmail({db,sql});
+    await exerciseFunnelEventEmailScope({db,sql,tenant,member});
   } finally {
     if(gateway)await gateway.stop();
     await Promise.all(clients.map(c=>c.end()));

@@ -312,7 +312,7 @@ export async function createEventInvoiceRecoveryXero({
       let existing;
       try {
         existing = await lookupEventXeroContact(api, { name: payer.name, email: payer.email,
-          contactId: payer.providerCustomerId || null });
+          contactId: payer.providerCustomerId || null, organization: payer.isOrganization === true });
       } catch (error) {
         if (error instanceof EventInvoiceRecoveryError) throw error;
         throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
@@ -321,7 +321,8 @@ export async function createEventInvoiceRecoveryXero({
         ...(payer.invoicingAddress ? { Addresses: [invoicingAddressToXero(payer.invoicingAddress)] } : {}) };
       else {
         if (!payer.invoicingAddress) throw new EventInvoiceRecoveryError('invoice_address_required');
-        contact = { Name: payer.name, EmailAddress: payer.email, Addresses: [invoicingAddressToXero(payer.invoicingAddress)] };
+        contact = { Name: payer.name, ...(payer.email ? { EmailAddress: payer.email } : {}),
+          Addresses: [invoicingAddressToXero(payer.invoicingAddress)] };
       }
     } else if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') {
       const policy = snapshot.invoiceAddressPolicy;

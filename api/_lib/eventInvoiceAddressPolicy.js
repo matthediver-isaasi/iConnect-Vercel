@@ -37,7 +37,7 @@ export async function knownEventXeroContact(db, tenantId, member, provider) {
 
 // Exact purchaser identity only. Names are included to detect Xero's unique-name
 // collisions, never to silently adopt another person's contact. Exhaust pages.
-export async function lookupEventXeroContact(api, { name, email, contactId = null }) {
+export async function lookupEventXeroContact(api, { name, email, contactId = null, organization = false }) {
   if (contactId) {
     const result = await api(`Contacts/${encodeURIComponent(contactId)}`);
     const contacts = result?.Contacts;
@@ -47,9 +47,14 @@ export async function lookupEventXeroContact(api, { name, email, contactId = nul
     }
     return contacts[0];
   }
-  if (!name || !email) fail('Verified member name and email are required');
+  // An organisation may have no email on record. Xero contact names are
+  // unique, so its exact name alone identifies the one customer it can be.
+  const nameOnly = organization === true && !normalized(email);
+  if (!name || (!email && !nameOnly)) fail('Verified member name and email are required');
   // Xero rejects method calls on optional fields unless each branch is null-guarded.
-  const where = `(EmailAddress!=null&&EmailAddress.ToLower()==${JSON.stringify(normalized(email))})||(Name!=null&&Name.ToLower()==${JSON.stringify(normalized(name))})`;
+  const byName = `(Name!=null&&Name.ToLower()==${JSON.stringify(normalized(name))})`;
+  const where = nameOnly ? byName
+    : `(EmailAddress!=null&&EmailAddress.ToLower()==${JSON.stringify(normalized(email))})||${byName}`;
   const found = new Map();
   for (let page = 1; page <= 3; page++) {
     const result = await api(`Contacts?where=${encodeURIComponent(where)}&includeArchived=true&page=${page}&pageSize=100`);
@@ -57,14 +62,16 @@ export async function lookupEventXeroContact(api, { name, email, contactId = nul
     if (!result.Contacts.length) {
       if (found.size > 1) customerReview('Xero customer identity is ambiguous');
       const contact = [...found.values()][0];
-      if (contact && (contact.ContactStatus !== 'ACTIVE' || normalized(contact.EmailAddress) !== normalized(email))) {
+      if (contact && (contact.ContactStatus !== 'ACTIVE'
+        || (!nameOnly && normalized(contact.EmailAddress) !== normalized(email)))) {
         customerReview('Xero customer identity requires review');
       }
       return contact || null;
     }
     for (const contact of result.Contacts) {
       if (!contact?.ContactID || found.has(contact.ContactID) || contact.HasErrors || contact.ValidationErrors?.length
-        || (normalized(contact.EmailAddress) !== normalized(email) && normalized(contact.Name) !== normalized(name))) {
+        || (nameOnly ? normalized(contact.Name) !== normalized(name)
+          : normalized(contact.EmailAddress) !== normalized(email) && normalized(contact.Name) !== normalized(name))) {
         fail('Xero customer lookup was ambiguous');
       }
       found.set(contact.ContactID, contact);

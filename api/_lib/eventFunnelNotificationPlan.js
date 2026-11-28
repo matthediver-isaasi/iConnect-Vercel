@@ -25,8 +25,10 @@ export async function planFunnelNotifications({db,tenantId,event,booking,source,
     throw new Error('Original registration scope unavailable');
   }
   if(['cancelled','cancelling','deleted','draft'].includes(event.status))throw new Error('Event notifications are not eligible');
+  // event_email has no tenant_id: templates belong to the event, whose tenant
+  // was verified above.
   const templates=await readFunnelIntegrationRows(db.from('event_email').select('*')
-    .eq('tenant_id',tenantId).eq('event_id',event.id).eq('is_enabled',true)
+    .eq('event_id',event.id).eq('is_enabled',true)
     .in('email_type',['reminder','follow_up']).order('id'));
   if(!templates.length)return [];
   const complex=source==='complex_event_booking';
