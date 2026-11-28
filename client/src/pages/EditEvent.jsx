@@ -59,6 +59,7 @@ import {
   QrCode,
   Receipt
 } from "lucide-react";
+import { duplicateTicketClass, insertDuplicateTicket } from "@/lib/duplicateTicketClass";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -794,6 +795,16 @@ export default function EditEvent() {
     const newTicket = createEmptyTicketClass(false, defaultVatRate);
     setTicketClasses([...ticketClasses, newTicket]);
     setExpandedTickets({ ...expandedTickets, [newTicket.id]: true });
+  };
+
+  const duplicateTicket = (ticketId) => {
+    const source = ticketClasses.find(t => t.id === ticketId);
+    if (!source) return;
+    const copy = duplicateTicketClass(source, { idKey: 'id', existingTickets: ticketClasses,
+      newId: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}` });
+    setTicketClasses(prev => insertDuplicateTicket(prev, ticketId, 'id', copy));
+    setExpandedTickets(prev => ({ ...prev, [copy.id]: true }));
+    toast.success(`Created "${copy.name}". Rename it and adjust any settings, then save.`);
   };
 
   const removeTicketClass = (ticketId) => {
@@ -3595,6 +3606,18 @@ export default function EditEvent() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); duplicateTicket(ticket.id); }}
+                          className="h-8 w-8 text-slate-400 hover:text-slate-700"
+                          title="Duplicate ticket"
+                          aria-label={`Duplicate ${ticket.name || 'ticket'}`}
+                          data-testid={`button-duplicate-ticket-${ticket.id}`}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
                         {ticketClasses.length > 1 && (
                           <Button
                             type="button"

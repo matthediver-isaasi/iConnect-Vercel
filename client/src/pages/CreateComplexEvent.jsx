@@ -29,11 +29,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronRight,
+  ArrowLeft, Save, Loader2, Plus, Trash2, Copy, ChevronDown, ChevronUp, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
   Layers, Building2, Handshake, AlertTriangle, AlertCircle, Mail, Bell, Download, FileText, Code, QrCode
 } from "lucide-react";
+import { duplicateTicketClass, insertDuplicateTicket } from "@/lib/duplicateTicketClass";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
@@ -1774,6 +1775,15 @@ export default function CreateComplexEvent() {
     }
     setTicketClasses(prev => [...prev, newTicket]);
     setExpandedTickets(prev => ({ ...prev, [newTicket._localId]: true }));
+  };
+
+  const duplicateTicket = (localId) => {
+    const source = ticketClasses.find(t => t._localId === localId);
+    if (!source) return;
+    const copy = duplicateTicketClass(source, { idKey: '_localId', newId: generateId(), existingTickets: ticketClasses });
+    setTicketClasses(prev => insertDuplicateTicket(prev, localId, '_localId', copy));
+    setExpandedTickets(prev => ({ ...prev, [copy._localId]: true }));
+    toast.success(`Created "${copy.name}". Rename it and adjust its tracks or other settings, then save.`);
   };
 
   const removeTicketClass = (localId) => {
@@ -4007,6 +4017,18 @@ export default function CreateComplexEvent() {
                         data-testid={`button-move-down-ticket-${ticket._localId}`}
                       >
                         <ChevronDown className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => { e.stopPropagation(); duplicateTicket(ticket._localId); }}
+                        className="text-slate-400 hover:text-slate-700"
+                        title="Duplicate ticket"
+                        aria-label={`Duplicate ${ticket.name || 'ticket'}`}
+                        data-testid={`button-duplicate-ticket-${ticket._localId}`}
+                      >
+                        <Copy className="w-4 h-4" />
                       </Button>
                       {ticketClasses.length > 1 && (
                         <Button
