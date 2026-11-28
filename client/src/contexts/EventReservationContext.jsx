@@ -84,7 +84,10 @@ export function useEventReservation({ eventId, eventKind, viewerKey, selectedTic
       setPending(false);
     }
   }
-  return { active, intercept, pending: pending || owned?.pending,
+  // The event takes part in a funnel (whatever ticket is chosen). Complex
+  // events use this to show the single-ticket funnel layout consistently.
+  const funnelLayout = Boolean(journeyOwned || (enabled && validEntry));
+  return { active, intercept, funnelLayout, pending: pending || owned?.pending,
     singleChoice: journeyOwned ? journeyOwned.offer?.selectionMode === 'single' : enabled && entry.data?.routing === 'ticket',
     normalCheckout: normalSelected,
     error: error || entry.error || (malformed ? new Error('Registration information could not be verified. Please retry.') : null),

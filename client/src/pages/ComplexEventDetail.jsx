@@ -58,6 +58,7 @@ import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventFunnelInPageJourney from "@/components/booking/EventFunnelInPageJourney";
+import ComplexFunnelTicketChoice from "@/components/booking/ComplexFunnelTicketChoice";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import EventAwardsSection from "@/components/awards/EventAwardsSection";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
@@ -556,6 +557,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
+  const [funnelReady, setFunnelReady] = useState(false);
   const collectThirdPartyConsent = event?.collect_third_party_consent === true;
 
   // Task #1519: Group events (member_group_id set) force self-only registration.
@@ -1003,6 +1005,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // the ticket selection controls are hidden — the Add Attendee inputs,
   // terms enforcement and the booking payload are unaffected.
   const tbcTicketSelectorsHidden = isTbcReplacementDisplayActive(tbcBookingReplacement, grandTotal);
+  // Inside an event funnel: one ticket, the person booking is the attendee,
+  // details on the page. Complex events outside funnels are unchanged.
+  const funnelLayout = reservation.funnelLayout === true && !tbcBookingReplacement && !useCtaOverrideDetailMode;
   const isSoldOut = !waitingListEnabled && event?.available_seats !== null
     && event?.available_seats !== undefined
     && Number(event.available_seats) <= 0
@@ -1028,7 +1033,26 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const tbcBookableTicketClass = availableTicketClasses
     .find(tc => !isTicketRestricted(tc) && !isTicketSoldOut(tc) && !isReleaseBlocked(tc)) || null;
 
-  const ticketCards = tbcTicketSelectorsHidden ? (
+  const ticketCards = funnelLayout ? (
+    <ComplexFunnelTicketChoice
+      eventId={event.id}
+      tickets={availableTicketClasses}
+      cart={cart}
+      setCart={setCart}
+      memberInfo={memberInfo}
+      organizationInfo={organizationInfo}
+      eventOptions={eventOptions}
+      requireJobTitle={requireAttendeeJobTitle(systemSettings)}
+      isSoldOut={isTicketSoldOut}
+      isRestricted={isTicketRestricted}
+      isReleaseBlocked={isReleaseBlocked}
+      getRemaining={getTicketRemaining}
+      showAvailability={!!event?.show_ticket_availability}
+      renderTrackAccess={tc => <TrackAccessIndicator ticket={tc} tracks={eventTracks} />}
+      disabled={!!reservation.pending}
+      onReadyChange={setFunnelReady}
+    />
+  ) : tbcTicketSelectorsHidden ? (
     <TbcAttendeeControls
       ticketClass={tbcBookableTicketClass}
       attendeeCount={totalAttendeeCount}
@@ -1158,7 +1182,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const isStripeReturn = !editorMode && typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('payment_intent');
 
-  const shouldShowPaymentOptions = waitingListEnabled || totalAttendeeCount > 0 || isStripeReturn;
+  const shouldShowPaymentOptions = waitingListEnabled || isStripeReturn
+    || (funnelLayout ? funnelReady && totalAttendeeCount > 0 : totalAttendeeCount > 0);
 
   const inPageJourney = !ownedReservation && !editorMode ? reservation.journeySessionId : null;
   const paymentOptionsSection = inPageJourney ? (
@@ -1340,7 +1365,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 <LogIn className="w-5 h-5 mr-2" />Login to register
               </Button>
             )}
-            {!tbcReplacementActive && (
+            {!tbcReplacementActive && !funnelLayout && (
               <CartSummary requireJobTitle={requireAttendeeJobTitle(systemSettings)} cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} allocationContext={allocationContext} />
             )}
             {paymentOptionsSection}
