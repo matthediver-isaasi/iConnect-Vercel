@@ -247,8 +247,10 @@ test('persisted invoice ID wins over renamed visible number; never search/create
   assert.deepEqual(calls, [['https://api.xero.com/api.xro/2.0/Invoices/known-id', 'GET']]);
 });
 
-function numberedXeroFixture({ method = 'invoice', failure = null, throttle = null } = {}) {
+function numberedXeroFixture({ method = 'invoice', failure = null, throttle = null, funnel = false } = {}) {
   const job = row();
+  if (funnel) Object.assign(job, { source: 'event_funnel', order_id: FUNNEL_ORDER,
+    booking_group_reference: `event-funnel-invoice:${FUNNEL_ORDER}:simple:event` });
   job.snapshot.invoice.Reference = 'CUSTOMER-PO-123';
   if (method === 'invoice') {
     job.snapshot.paymentMethod = 'invoice';
@@ -409,6 +411,33 @@ test('matching booking reference cannot adopt changed invoice finances or purcha
     assert.equal(f.db.calls.at(-1)[1].p_reason, 'invoice_evidence_mismatch');
     assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
   }
+});
+
+const FUNNEL_ORDER = '9ee949f1-2cec-46cc-a22d-5eb967de8aa9';
+test('checkout invoices quote the order number customers see, and recover it after a lost response', async () => {
+  for (const failure of [null, 'response']) {
+    const f = numberedXeroFixture({ funnel: true, failure });
+    if (failure) assert.equal((await f.run()).status, 'retry');
+    assert.equal((await f.run()).status, 'complete');
+    assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+    assert.equal(f.remote.invoice.LineItems[0].Description, `Event ticket\nBooking reference: ${FUNNEL_ORDER}`);
+  }
+});
+test('checkout order number alone cannot adopt a sibling invoice from the same order', async () => {
+  const f = numberedXeroFixture({ funnel: true, failure: 'response' });
+  assert.equal((await f.run()).status, 'retry');
+  f.remote.invoice.LineItems[0].Description = `Other event ticket\nBooking reference: ${FUNNEL_ORDER}`;
+  assert.equal((await f.run()).status, 'needs_review');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+});
+test('checkout invoices already issued with the internal reference are still adopted unchanged', async () => {
+  const f = numberedXeroFixture({ funnel: true, failure: 'response' });
+  assert.equal((await f.run()).status, 'retry');
+  const old = 'Event ticket' + eventInvoiceBookingReference(f.job.booking_group_reference);
+  f.remote.invoice.LineItems[0].Description = old;
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  assert.equal(f.remote.invoice.LineItems[0].Description, old);
 });
 
 test('booking reference rejects multiline and empty values', () => {

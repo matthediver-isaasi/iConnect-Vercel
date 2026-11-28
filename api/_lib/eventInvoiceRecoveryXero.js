@@ -36,6 +36,14 @@ export function eventInvoiceBookingReference(reference) {
     || /[\r\n]/.test(reference)) throw new EventInvoiceRecoveryError('booking_reference_invalid');
   return `\nBooking reference: ${reference}`;
 }
+// Checkout orders show the customer their order number as the booking
+// reference; invoices must quote that, never the internal allocation key.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function eventFunnelCustomerReference(row) {
+  if (row?.source !== 'event_funnel') return null;
+  if (!UUID.test(String(row.order_id || ''))) throw new EventInvoiceRecoveryError('booking_reference_invalid');
+  return row.order_id;
+}
 
 export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false, identity = null, bookingReference = null } = {}) {
   if (day(invoice.DateString || invoice.Date) !== snapshot.invoice.Date
@@ -172,7 +180,13 @@ export async function createEventInvoiceRecoveryXero({
   const bookingReference = eventInvoiceBookingReference(row.booking_group_reference);
   const oldMarked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(marker) === true;
   const bookingMarked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(bookingReference) === true;
-  const marked = invoice => oldMarked(invoice) || bookingMarked(invoice);
+  // An order can hold several invoices, so its reference alone is not unique:
+  // require the whole frozen first line (it names a specific registration).
+  const customerReference = eventFunnelCustomerReference(row);
+  const customerSuffix = customerReference ? eventInvoiceBookingReference(customerReference) : bookingReference;
+  const customerMarked = invoice => !!customerReference && typeof invoice?.LineItems?.[0]?.Description === 'string'
+    && invoice.LineItems[0].Description === String(snapshot.invoice.LineItems?.[0]?.Description || '') + customerSuffix;
+  const marked = invoice => oldMarked(invoice) || bookingMarked(invoice) || customerMarked(invoice);
   let durablePayment = null;
   const legacyPaymentReference = `Stripe: ${snapshot.settlement?.paymentIntentId || ''}`;
   const hasToken = (text, token) => {
@@ -480,7 +494,7 @@ export async function createEventInvoiceRecoveryXero({
       }
       return single(await api('Invoices', 'POST', {
         Invoices: [{ ...snapshot.invoice, Contact: contact, LineItems: snapshot.invoice.LineItems.map((line, i) =>
-          i === 0 ? { ...line, Description: String(line.Description || '') + bookingReference } : { ...line }) }],
+          i === 0 ? { ...line, Description: String(line.Description || '') + customerSuffix } : { ...line }) }],
       }, `${identity}-invoice`), 'Invoices');
     },
     validateInvoice(invoice) {
@@ -494,7 +508,8 @@ export async function createEventInvoiceRecoveryXero({
         || invoice.CurrencyCode !== snapshot.currency
         || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot,
           { legacy, identity: oldMarked(invoice) ? identity : null,
-            bookingReference: bookingMarked(invoice) ? row.booking_group_reference : null })
+            bookingReference: bookingMarked(invoice) ? row.booking_group_reference
+              : customerMarked(invoice) ? customerReference : null })
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
         || (preparedContact?.ContactID && invoice.Contact?.ContactID !== preparedContact.ContactID)
         || (!snapshot.invoice.Contact.ContactID && !preparedContact?.ContactID

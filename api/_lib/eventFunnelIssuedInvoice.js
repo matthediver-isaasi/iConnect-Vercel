@@ -1,6 +1,6 @@
 import {buildFunnelCreditLines} from './eventFunnelCreditLines.js';
 import {EventInvoiceRecoveryError,recoveryIdentity} from './eventInvoiceRecovery.js';
-import {eventInvoiceBookingReference,recoveryInvoiceMarker} from './eventInvoiceRecoveryXero.js';
+import {eventFunnelCustomerReference,eventInvoiceBookingReference,recoveryInvoiceMarker} from './eventInvoiceRecoveryXero.js';
 
 // Invoice creation appends one discovery reference to the first line. Accept
 // exactly the suffix this work item's creator writes, nothing else.
@@ -10,6 +10,8 @@ function expectedIssuedInvoice(row,invoice){
     &&typeof first?.Description==='string'&&line.Description.startsWith(first.Description))?.Description;
   if(!actual||actual===first.Description)return expected;
   const suffixes=[];
+  const customer=row.source==='event_funnel'&&row.order_id?eventFunnelCustomerReference(row):null;
+  if(customer)suffixes.push(eventInvoiceBookingReference(customer));
   if(row.booking_group_reference){
     suffixes.push(eventInvoiceBookingReference(row.booking_group_reference));
     if(row.source)suffixes.push(recoveryInvoiceMarker(recoveryIdentity(row.tenant_id,row.source,row.booking_group_reference)));

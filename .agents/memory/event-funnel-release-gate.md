@@ -8,4 +8,4 @@ Rule: funnel workers (recovery, reversals) run only when the production commit e
 
 **How to apply:** after every publish that touches the app, confirm the live commit (the public JS bundle embeds the commit SHA; the Vercel token is invalid) and, with owner approval, update verified_release and append to verification_evidence.releaseUpdates. Owner approved doing this on 2026-11-28.
 
-Related quirk: Xero invoice creation appends "\nBooking reference: <allocation key>" to line 0. Any comparison of issued lines against the frozen snapshot must allow exactly that suffix, or evidence recording fails forever as an unknown (retrying) error.
+Related quirk: Xero invoice creation appends "\nBooking reference: <ref>" to line 0 (checkout orders: the order id customers see, decided 2026-11-28; early invoices such as INV-9820 carry the internal allocation key and must stay accepted). Discovery for checkout invoices requires the whole first line to match because several invoices share one order id. Any comparison of issued lines against the frozen snapshot must allow exactly that suffix, or evidence recording fails forever as an unknown (retrying) error.
