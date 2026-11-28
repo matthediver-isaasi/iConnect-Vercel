@@ -1,5 +1,23 @@
 import {buildFunnelCreditLines} from './eventFunnelCreditLines.js';
-import {EventInvoiceRecoveryError} from './eventInvoiceRecovery.js';
+import {EventInvoiceRecoveryError,recoveryIdentity} from './eventInvoiceRecovery.js';
+import {eventInvoiceBookingReference,recoveryInvoiceMarker} from './eventInvoiceRecoveryXero.js';
+
+// Invoice creation appends one discovery reference to the first line. Accept
+// exactly the suffix this work item's creator writes, nothing else.
+function expectedIssuedInvoice(row,invoice){
+  const expected=row.snapshot.invoice,first=expected?.LineItems?.[0];
+  const actual=invoice?.LineItems?.find(line=>typeof line?.Description==='string'
+    &&typeof first?.Description==='string'&&line.Description.startsWith(first.Description))?.Description;
+  if(!actual||actual===first.Description)return expected;
+  const suffixes=[];
+  if(row.booking_group_reference){
+    suffixes.push(eventInvoiceBookingReference(row.booking_group_reference));
+    if(row.source)suffixes.push(recoveryInvoiceMarker(recoveryIdentity(row.tenant_id,row.source,row.booking_group_reference)));
+  }
+  const suffix=suffixes.find(value=>actual===first.Description+value);
+  if(!suffix)return expected;
+  return {...expected,LineItems:expected.LineItems.map((line,i)=>i===0?{...line,Description:line.Description+suffix}:line)};
+}
 
 /** Persist the resolved purchaser and tax evidence, excluding mutable balances.
  * Older prepared invoices without line attribution retain their existing
@@ -8,7 +26,13 @@ import {EventInvoiceRecoveryError} from './eventInvoiceRecovery.js';
 export async function recordFunnelIssuedInvoice({db,row,invoice}) {
   const snapshot=row.snapshot,links=snapshot?.eventFunnel?.lineAllocations;
   if(!links)return;
-  buildFunnelCreditLines({invoice,expectedInvoice:snapshot.invoice,lineAllocations:links,selected:[]});
+  try {
+    buildFunnelCreditLines({invoice,expectedInvoice:expectedIssuedInvoice(row,invoice),lineAllocations:links,selected:[]});
+  } catch(error) {
+    if(error instanceof EventInvoiceRecoveryError)throw error;
+    // The invoice exists; a mismatch with its frozen lines needs a person.
+    throw new EventInvoiceRecoveryError('funnel_invoice_lines_changed');
+  }
   if(!invoice.InvoiceID||!invoice.Contact?.ContactID)
     throw new EventInvoiceRecoveryError('funnel_invoice_customer_unverified');
   const evidence={

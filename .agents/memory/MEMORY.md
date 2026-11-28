@@ -195,3 +195,4 @@
 - [Event funnel discount codes](event-funnel-discount-codes.md) — source event only, before funding; usage counted on confirmation; fail-closed until migration installed.
 - [Event funnel invoice email](event-funnel-invoice-email.md) — one collated email per order after all invoices issue; uncertain sends never auto-resent.
 - [event_email has no tenant_id](event-email-no-tenant-column.md) — live table lacks it; harness fixtures adding it hid funnel confirmation/reminder failures.
+- [Event funnel release gate](event-funnel-release-gate.md) — each publish pauses funnel workers until verified_release matches the live commit.

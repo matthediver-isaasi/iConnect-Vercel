@@ -26,3 +26,16 @@ test('legacy prepared invoices retain delivery without invented line attribution
   const f=fixture();delete f.row.snapshot.eventFunnel.lineAllocations;
   await recordFunnelIssuedInvoice(f);assert.equal(f.calls.length,0);
 });
+test('accepts the booking reference that invoice creation appends to the first line, and nothing else',async()=>{
+  const f=fixture();
+  f.row.source='event_funnel';f.row.booking_group_reference='event-funnel-invoice:order:simple:event';
+  f.invoice.LineItems=[{...f.invoice.LineItems[0],Description:'original booking\nBooking reference: event-funnel-invoice:order:simple:event'}];
+  await recordFunnelIssuedInvoice(f);
+  assert.equal(f.calls.length,1);
+  assert.match(f.calls[0].p_evidence.LineItems[0].Description,/Booking reference/);
+  const other=fixture();
+  other.row.source='event_funnel';other.row.booking_group_reference='event-funnel-invoice:order:simple:event';
+  other.invoice.LineItems=[{...other.invoice.LineItems[0],Description:'original booking\nBooking reference: someone-else'}];
+  await assert.rejects(recordFunnelIssuedInvoice(other),e=>e.code==='funnel_invoice_lines_changed'&&!e.retry);
+  assert.equal(other.calls.length,0);
+});
