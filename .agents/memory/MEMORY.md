@@ -196,3 +196,4 @@
 - [Event funnel invoice email](event-funnel-invoice-email.md) — one collated email per order after all invoices issue; uncertain sends never auto-resent.
 - [event_email has no tenant_id](event-email-no-tenant-column.md) — live table lacks it; harness fixtures adding it hid funnel confirmation/reminder failures.
 - [Event funnel release gate](event-funnel-release-gate.md) — each publish pauses funnel workers until verified_release matches the live commit.
+- [role table optional columns](role-optional-columns.md) — live role has no requires_organization; never select it by name, missing means not required.

@@ -153,3 +153,14 @@ test('authorized policy configuration still validates tenant role and fails clos
   await assert.rejects(validatePublicTicketMemberPolicyWrite({ ...input, db: dbFor({ data: [] }) }), rejectsCode('ROLE_NOT_PROVISIONABLE'));
   await assert.rejects(validatePublicTicketMemberPolicyWrite({ ...input, db: dbFor({ error: { message: 'unavailable' } }) }), rejectsCode('ROLE_VALIDATION_UNAVAILABLE'));
 });
+
+test('role validation never names optional columns that a database may not have', async () => {
+  let selected;
+  const db = { from() { return { select(columns) { selected = columns; return this; },
+    eq() { return this; }, async in() { return { data: [{ ...role }] }; } }; } };
+  const { requires_organization: _omitted, ...liveRole } = role;
+  await validatePublicTicketMemberPolicyWrite({ tenantId, tickets: [ticket], authorizedToAssignRoles: true,
+    db: { from() { return { ...db.from(), async in() { return { data: [liveRole] }; } }; } } });
+  await validatePublicTicketMemberPolicyWrite({ tenantId, tickets: [ticket], authorizedToAssignRoles: true, db });
+  assert.equal(selected, '*');
+});

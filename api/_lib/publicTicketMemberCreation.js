@@ -65,8 +65,11 @@ export async function loadPublicTicketMemberRoles(db, tenantId, tickets) {
   if (ids.some(id => typeof id !== 'string' || !id) || ids.length > 100) {
     fail('ROLE_NOT_PROVISIONABLE', 'Select a role for each enabled ticket.');
   }
-  const { data, error } = await db.from('role')
-    .select('id,tenant_id,is_admin,is_tenant_admin,requires_effective_from_date,requires_organization,max_members')
+  // Read whole rows: optional requirement columns (requires_organization) do
+  // not exist in every database, and naming one fails the whole query. A
+  // missing column means the requirement does not apply, matching the
+  // booking database function.
+  const { data, error } = await db.from('role').select('*')
     .eq('tenant_id', tenantId).in('id', ids);
   if (error || !Array.isArray(data)) {
     fail('ROLE_VALIDATION_UNAVAILABLE', 'Unable to validate ticket member roles.', 503);
